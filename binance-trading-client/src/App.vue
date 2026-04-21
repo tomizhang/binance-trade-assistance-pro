@@ -1,11 +1,21 @@
 <template>
-  <Dashboard />
+  <div id="app">
+    
+    <Dashboard />
+    <ToastContainer />
+  </div>
 </template>
-
 <script setup lang="ts">
 // 直接引入我们之前写好的主工作台
 import Dashboard from '@/views/Dashboard.vue'
+import ToastContainer from '@/components/ToastContainer.vue';
+import { onMounted } from 'vue';
+import { useMarketStore } from '@/store/market';
 // 如果别名 @ 报错，请使用相对路径: import Dashboard from './views/Dashboard.vue'
+const marketStore = useMarketStore();
+onMounted(()=>{
+  marketStore.fetchExchangeInfo()
+});
 </script>
 
 <style>

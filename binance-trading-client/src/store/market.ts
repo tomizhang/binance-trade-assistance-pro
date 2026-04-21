@@ -26,20 +26,22 @@ export const useMarketStore = defineStore('market', () => {
   let worker: SharedWorker | null = null
   const mySubscriptions = new Set<string>() // 记录当前 Tab 订阅的流，用于关闭时清理
 
+  // 🌟 新增：账户余额状态
+  const usdtBalance = ref(0.00);
+
   const initWorker = () => {
     if (worker) return;
-
-    // Vite 特有的 Worker 引入语法
     worker = new SharedWorker(new URL('../worker/market.worker.ts', import.meta.url), {
       type: 'module',
-      name: 'MarketDataWorker' // 给线程起个名字，多个 Tab 会共享这个名字的实例
+      name: 'MarketDataWorker'
     });
 
-    // 监听从 Worker 传来的全市场数据
     worker.port.onmessage = (event) => {
       const { type, payload } = event.data;
       if (type === 'TICKERS_DATA') handleTickersData(payload);
       if (type === 'KLINE_DATA') handleKlineData(payload);
+      // 🌟 拦截账户数据
+      if (type === 'ACCOUNT_DATA') handleAccountData(payload);
     };
 
     worker.port.start();
@@ -51,6 +53,23 @@ export const useMarketStore = defineStore('market', () => {
       });
       worker?.port.postMessage({ type: 'DISCONNECT' });
     });
+  };
+
+  // 🌟 核心：解析币安复杂的账户推送结构
+  const handleAccountData = (payload: any) => {
+    // 判断是不是账户更新事件
+    if (payload.e === 'ACCOUNT_UPDATE') {
+      const balances = payload.a?.B; // a: account, B: balances 数组
+      if (balances && Array.isArray(balances)) {
+        // 找出 USDT 的资产信息
+        const usdtAsset = balances.find((b: any) => b.a === 'USDT');
+        if (usdtAsset) {
+          // cw 是跨仓钱包余额 (Cross Wallet Balance)，wb 是钱包余额 (Wallet Balance)
+          usdtBalance.value = parseFloat(usdtAsset.cw || usdtAsset.wb || '0');
+        }
+      }
+    }
+    // 如果你要做订单历史流，还可以在这里拦截 payload.e === 'ORDER_TRADE_UPDATE'
   };
 
   // ==========================================
@@ -65,10 +84,10 @@ export const useMarketStore = defineStore('market', () => {
         const symbol = item.s;
         if (!symbol.endsWith('USDT')) continue;
         if (!marketTickers[symbol]) marketTickers[symbol] = { fundingRate: 0 };
-        
+
         marketTickers[symbol].lastPrice = parseFloat(item.c);
         const openPrice = parseFloat(item.o);
-        marketTickers[symbol].volume = parseFloat(item.q); 
+        marketTickers[symbol].volume = parseFloat(item.q);
         marketTickers[symbol].priceChangePercent = ((marketTickers[symbol].lastPrice - openPrice) / openPrice) * 100;
       }
     } else if (stream.startsWith('!markPrice@arr')) {
@@ -76,7 +95,7 @@ export const useMarketStore = defineStore('market', () => {
         const symbol = item.s;
         if (!symbol.endsWith('USDT')) continue;
         if (!marketTickers[symbol]) marketTickers[symbol] = { lastPrice: 0, priceChangePercent: 0, volume: 0 };
-        marketTickers[symbol].fundingRate = parseFloat(item.r) * 100; 
+        marketTickers[symbol].fundingRate = parseFloat(item.r) * 100;
       }
     }
   };
@@ -117,9 +136,42 @@ export const useMarketStore = defineStore('market', () => {
     worker.port.postMessage({ type: 'UNSUBSCRIBE', stream: streamName });
   }
 
-  return { 
+  // 🌟 1. 新增：存储各个币种的精度规则
+  const symbolRules = ref<Record<string, { tickSize: string, stepSize: string }>>({});
+
+  // 🌟 2. 新增：从 C# 后端拉取币安规则
+  const fetchExchangeInfo = async () => {
+    // 如果已经加载过了，就不重复拉取
+    if (Object.keys(symbolRules.value).length > 0) return;
+
+    try {
+      const res = await fetch('http://localhost:5000/api/market/exchangeInfo');
+      const data = await res.json();
+
+      const rules: Record<string, { tickSize: string, stepSize: string }> = {};
+
+      data.symbols.forEach((s: any) => {
+        const priceFilter = s.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+        const lotSize = s.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+
+        rules[s.symbol] = {
+          tickSize: priceFilter?.tickSize || '0.01',
+          stepSize: lotSize?.stepSize || '0.001'
+        };
+      });
+
+      symbolRules.value = rules;
+      console.log('✅ 币安精度规则加载完成!');
+    } catch (e) {
+      console.error('❌ 获取交易规则失败:', e);
+    }
+  };
+
+  return {
+    symbolRules, fetchExchangeInfo,
     marketTickers, latestKlines, connectAllTickers, connectWs, subscribeKline, unsubscribeKline,
     isSyncEnabled, toggleSync, crosshairData, setCrosshair, clearCrosshair,
-    globalLines, addGlobalLine, clearGlobalLines, globalChartType, setGlobalChartType
+    globalLines, addGlobalLine, clearGlobalLines, globalChartType, setGlobalChartType,
+    usdtBalance // 🌟 暴露出余额给组件用
   }
 })

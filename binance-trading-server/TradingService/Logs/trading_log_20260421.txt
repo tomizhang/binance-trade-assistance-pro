@@ -1,0 +1,229 @@
+2026-04-21 15:56:40.317 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 16:53:25.961 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 16:53:28.286 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 16:53:28.304 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 16:53:29.291 +08:00 [INF] Received HTTP response headers after 977.199ms - 200
+2026-04-21 16:53:29.298 +08:00 [INF] End processing HTTP request after 1050.2548ms - 200
+2026-04-21 16:53:29.317 +08:00 [INF] 🔑 已获取 ListenKey: ptsClmvoeAVs91g9mCdkegCioBljyzzT1J6hWqWW8w6QFslwrK8csKlZOkyBYpq6
+2026-04-21 17:00:10.267 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 17:03:54.781 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:03:54.831 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:03:56.250 +08:00 [INF] Received HTTP response headers after 1409.4404ms - 200
+2026-04-21 17:03:56.266 +08:00 [INF] End processing HTTP request after 1530.085ms - 200
+2026-04-21 17:03:56.317 +08:00 [INF] 🔑 已获取 ListenKey: ptsClmvoeAVs91g9mCdkegCioBljyzzT1J6hWqWW8w6QFslwrK8csKlZOkyBYpq6
+2026-04-21 17:18:46.501 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 17:18:48.322 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-21 17:18:48.557 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-21 17:18:48.688 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:18:48.696 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:18:49.524 +08:00 [INF] Received HTTP response headers after 822.9394ms - 200
+2026-04-21 17:18:49.534 +08:00 [INF] End processing HTTP request after 872.523ms - 200
+2026-04-21 17:18:49.552 +08:00 [INF] 🔑 已成功获取 ListenKey: ptsClmvoeAVs91g9mCdkegCioBljyzzT1J6hWqWW8w6QFslwrK8csKlZOkyBYpq6
+2026-04-21 17:18:50.362 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-21 17:19:53.465 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 17:20:06.930 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-21 17:20:07.023 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-21 17:20:07.068 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:20:07.087 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:20:08.057 +08:00 [INF] Received HTTP response headers after 956.6346ms - 200
+2026-04-21 17:20:08.070 +08:00 [INF] End processing HTTP request after 1026.8563ms - 200
+2026-04-21 17:20:08.099 +08:00 [INF] 🔑 已成功获取 ListenKey: ptsClmvoeAVs91g9mCdkegCioBljyzzT1J6hWqWW8w6QFslwrK8csKlZOkyBYpq6
+2026-04-21 17:20:14.563 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-21 17:50:08.111 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:50:08.119 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 17:50:08.538 +08:00 [INF] Received HTTP response headers after 414.427ms - 200
+2026-04-21 17:50:08.543 +08:00 [INF] End processing HTTP request after 433.0981ms - 200
+2026-04-21 17:50:08.546 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-21 18:20:08.115 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 18:20:08.122 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 18:20:08.539 +08:00 [INF] Received HTTP response headers after 413.3326ms - 200
+2026-04-21 18:20:08.543 +08:00 [INF] End processing HTTP request after 428.5376ms - 200
+2026-04-21 18:20:08.547 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-21 18:50:08.101 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 18:50:08.108 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 18:50:08.662 +08:00 [INF] Received HTTP response headers after 549.1479ms - 200
+2026-04-21 18:50:08.666 +08:00 [INF] End processing HTTP request after 565.0398ms - 200
+2026-04-21 18:50:08.670 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-21 19:20:08.086 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 19:20:08.092 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 19:20:08.584 +08:00 [INF] Received HTTP response headers after 488.2692ms - 200
+2026-04-21 19:20:08.588 +08:00 [INF] End processing HTTP request after 502.6414ms - 200
+2026-04-21 19:20:08.593 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-21 19:49:02.232 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 19:49:04.323 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-21 19:49:04.611 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-21 19:49:04.771 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 19:49:04.864 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 19:49:05.657 +08:00 [INF] Received HTTP response headers after 756.0449ms - 200
+2026-04-21 19:49:05.659 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 19:49:05.665 +08:00 [INF] End processing HTTP request after 1038.4549ms - 200
+2026-04-21 19:49:05.684 +08:00 [INF] 🔑 已成功获取 ListenKey: ptsClmvoeAVs91g9mCdkegCioBljyzzT1J6hWqWW8w6QFslwrK8csKlZOkyBYpq6
+2026-04-21 19:49:06.459 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-21 19:54:35.778 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 19:54:35.865 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 19:54:39.432 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:00:09.494 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 20:00:09.509 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 20:00:13.287 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:05:43.367 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 20:05:43.386 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 20:05:47.082 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:11:17.170 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 20:11:17.190 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 20:11:21.010 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:16:42.153 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 20:16:44.249 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-21 20:16:44.540 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-21 20:16:44.612 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 20:16:44.626 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 20:16:45.407 +08:00 [INF] Received HTTP response headers after 735.8949ms - 200
+2026-04-21 20:16:45.409 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:16:45.415 +08:00 [INF] End processing HTTP request after 855.782ms - 200
+2026-04-21 20:16:45.521 +08:00 [INF] 🔑 已成功获取 ListenKey: ptsClmvoeAVs91g9mCdkegCioBljyzzT1J6hWqWW8w6QFslwrK8csKlZOkyBYpq6
+2026-04-21 20:16:46.318 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-21 20:19:19.186 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=1&timestamp=1776773956786&signature=4d3f9bf53d7e6bdb51e071ca6f2732a4696a381e17c8452ccc247a2b3d65bb26
+2026-04-21 20:19:19.194 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=1&timestamp=1776773956786&signature=4d3f9bf53d7e6bdb51e071ca6f2732a4696a381e17c8452ccc247a2b3d65bb26
+2026-04-21 20:19:19.793 +08:00 [INF] Received HTTP response headers after 593.003ms - 200
+2026-04-21 20:19:19.797 +08:00 [INF] End processing HTTP request after 610.8495ms - 200
+2026-04-21 20:22:15.496 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 20:22:15.549 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 20:22:52.478 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-21 20:22:53.797 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-21 20:22:54.279 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-21 20:22:54.346 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 20:22:54.371 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-21 20:22:56.274 +08:00 [INF] Received HTTP response headers after 1897.9879ms - 200
+2026-04-21 20:22:56.282 +08:00 [INF] End processing HTTP request after 1993.6964ms - 200
+2026-04-21 20:22:56.295 +08:00 [INF] 🔑 已成功获取 ListenKey: ptsClmvoeAVs91g9mCdkegCioBljyzzT1J6hWqWW8w6QFslwrK8csKlZOkyBYpq6
+2026-04-21 20:22:58.393 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-21 20:23:00.064 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:24:50.573 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=27&timestamp=1776774290563&signature=63663b9cde7448b1325ebdf610948748bd49bd905ad357d49afbba349c8a47c9
+2026-04-21 20:24:50.578 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=27&timestamp=1776774290563&signature=63663b9cde7448b1325ebdf610948748bd49bd905ad357d49afbba349c8a47c9
+2026-04-21 20:24:53.056 +08:00 [INF] Received HTTP response headers after 2475.7314ms - 200
+2026-04-21 20:24:53.064 +08:00 [INF] End processing HTTP request after 2491.3387ms - 200
+2026-04-21 20:25:24.805 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=34&timestamp=1776774324804&signature=af56e14b6901beff6f6dc1f0a94be2eaf421880f63be705eab16e1f135e0fefb
+2026-04-21 20:25:24.812 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=34&timestamp=1776774324804&signature=af56e14b6901beff6f6dc1f0a94be2eaf421880f63be705eab16e1f135e0fefb
+2026-04-21 20:25:25.229 +08:00 [INF] Received HTTP response headers after 412.3938ms - 200
+2026-04-21 20:25:25.236 +08:00 [INF] End processing HTTP request after 431.6605ms - 200
+2026-04-21 20:26:20.805 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=14&timestamp=1776774380805&signature=d869ebf60c327574b7831e5a8c00b20e3d61f92265fb9b5bcef2d9af45e75ac3
+2026-04-21 20:26:20.810 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=14&timestamp=1776774380805&signature=d869ebf60c327574b7831e5a8c00b20e3d61f92265fb9b5bcef2d9af45e75ac3
+2026-04-21 20:26:21.991 +08:00 [INF] Received HTTP response headers after 1178.3515ms - 200
+2026-04-21 20:26:21.996 +08:00 [INF] End processing HTTP request after 1190.5051ms - 200
+2026-04-21 20:27:03.187 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=43&timestamp=1776774423187&signature=c197f4e70dba6a8ddc7108c53b20d565194a71a827c694e0f9beb1ee5cc4fa44
+2026-04-21 20:27:03.192 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=43&timestamp=1776774423187&signature=c197f4e70dba6a8ddc7108c53b20d565194a71a827c694e0f9beb1ee5cc4fa44
+2026-04-21 20:27:04.180 +08:00 [INF] Received HTTP response headers after 975.1377ms - 200
+2026-04-21 20:27:04.185 +08:00 [INF] End processing HTTP request after 997.5721ms - 200
+2026-04-21 20:28:30.165 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 20:28:30.239 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 20:28:34.948 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:29:59.106 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=32&timestamp=1776774599106&signature=91c45d5a9f41c695cade8178b13741d2a79a853c36e6a86fd58b05231db853d9
+2026-04-21 20:29:59.116 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=32&timestamp=1776774599106&signature=91c45d5a9f41c695cade8178b13741d2a79a853c36e6a86fd58b05231db853d9
+2026-04-21 20:30:00.060 +08:00 [INF] Received HTTP response headers after 941.368ms - 200
+2026-04-21 20:30:00.065 +08:00 [INF] End processing HTTP request after 958.7916ms - 200
+2026-04-21 20:33:41.432 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=37&timestamp=1776774821432&signature=b14c41f564e9b4ce0d4344ca5eed517c9d48664974483a5c37cbd2d81fc06ea9
+2026-04-21 20:33:41.437 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=37&timestamp=1776774821432&signature=b14c41f564e9b4ce0d4344ca5eed517c9d48664974483a5c37cbd2d81fc06ea9
+2026-04-21 20:33:42.394 +08:00 [INF] Received HTTP response headers after 954.533ms - 200
+2026-04-21 20:33:42.401 +08:00 [INF] End processing HTTP request after 968.7723ms - 200
+2026-04-21 20:33:45.832 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=74&timestamp=1776774825832&signature=b3e7f16b7f5bb7ea8180e2682d55d6ca818a42057b0c386e1d6544a0deca54ab
+2026-04-21 20:33:45.839 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=74&timestamp=1776774825832&signature=b3e7f16b7f5bb7ea8180e2682d55d6ca818a42057b0c386e1d6544a0deca54ab
+2026-04-21 20:33:46.242 +08:00 [INF] Received HTTP response headers after 400.349ms - 200
+2026-04-21 20:33:46.247 +08:00 [INF] End processing HTTP request after 415.0921ms - 200
+2026-04-21 20:33:47.627 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=10&timestamp=1776774827627&signature=9369be6115b4736a82e2bde6f0b585940032355dcac4cb66483026058faa2a86
+2026-04-21 20:33:47.632 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=10&timestamp=1776774827627&signature=9369be6115b4736a82e2bde6f0b585940032355dcac4cb66483026058faa2a86
+2026-04-21 20:33:48.030 +08:00 [INF] Received HTTP response headers after 393.8288ms - 200
+2026-04-21 20:33:48.036 +08:00 [INF] End processing HTTP request after 409.0649ms - 200
+2026-04-21 20:34:04.756 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=24&timestamp=1776774844756&signature=a0b5391f748bb4af3fcd4680eebb7395f221a27d804747085cd077a1dc35bb0d
+2026-04-21 20:34:04.763 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=24&timestamp=1776774844756&signature=a0b5391f748bb4af3fcd4680eebb7395f221a27d804747085cd077a1dc35bb0d
+2026-04-21 20:34:05.029 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 20:34:05.055 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 20:34:05.167 +08:00 [INF] Received HTTP response headers after 398.7748ms - 200
+2026-04-21 20:34:05.175 +08:00 [INF] End processing HTTP request after 419.1887ms - 200
+2026-04-21 20:34:09.416 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-21 20:34:21.543 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=10&timestamp=1776774861543&signature=84bb1086ed10668f504583a11753a38d8df8ee847eb8b2556596bec932598c48
+2026-04-21 20:34:21.549 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=10&timestamp=1776774861543&signature=84bb1086ed10668f504583a11753a38d8df8ee847eb8b2556596bec932598c48
+2026-04-21 20:34:21.941 +08:00 [INF] Received HTTP response headers after 389.2642ms - 200
+2026-04-21 20:34:21.947 +08:00 [INF] End processing HTTP request after 403.8881ms - 200
+2026-04-21 20:34:45.479 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=1&timestamp=1776774885479&signature=d20b9fa7e96f8b30517f52206f96b608198cbb4fd39de32e7e0ebbe981c10782
+2026-04-21 20:34:45.488 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=1&timestamp=1776774885479&signature=d20b9fa7e96f8b30517f52206f96b608198cbb4fd39de32e7e0ebbe981c10782
+2026-04-21 20:34:45.883 +08:00 [INF] Received HTTP response headers after 391.1704ms - 200
+2026-04-21 20:34:45.889 +08:00 [INF] End processing HTTP request after 409.8999ms - 200
+2026-04-21 20:35:42.594 +08:00 [INF] 🚀 [WS专线] 已发送订单: 6d70f01894424006a441d6a21be48385
+2026-04-21 20:35:56.398 +08:00 [INF] 🚀 [WS专线] 已发送订单: fd498f94833e452bad6155ce89ab8c69
+2026-04-21 20:36:53.438 +08:00 [INF] 🚀 [WS专线] 已发送订单: 3b31f840c9834955ab2211c7af0c9081
+2026-04-21 20:38:10.370 +08:00 [INF] 🚀 [WS专线] 已发送订单: 8b883e35dad743d7aa1bd7cb6f444b80
+2026-04-21 20:39:01.360 +08:00 [INF] 🚀 [WS专线] 已发送订单: 65e759da91934246bf473c8b7e396bba
+2026-04-21 20:44:39.498 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-21 20:44:39.514 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-21 20:44:43.296 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
