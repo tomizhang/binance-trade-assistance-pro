@@ -40,6 +40,7 @@
         v-for="item in filteredAndSortedList" 
         :key="item.symbol"
         @dblclick="handleAddKline(item.symbol)"
+        @click="marketStore.setCurrentSymbol(item.symbol)"
       >
         <div class="col-main">
           <span class="symbol-name">{{ item.symbol.replace('USDT', '') }}<span class="quote">USDT</span></span>

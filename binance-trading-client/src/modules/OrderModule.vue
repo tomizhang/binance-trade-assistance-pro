@@ -1,5 +1,12 @@
 <template>
   <div class="order-module">
+    <div class="module-header">
+      <span class="symbol-badge">{{ currentSymbol }}</span>
+      <span class="price-ticker" v-if="latestPrice" :class="priceTrend">
+        {{ latestPrice }}
+      </span>
+    </div>
+
     <div class="order-tabs">
       <button :class="{ active: orderType === 'LIMIT' }" @click="orderType = 'LIMIT'">限价单</button>
       <button :class="{ active: orderType === 'MARKET' }" @click="orderType = 'MARKET'">市价单</button>
@@ -20,12 +27,12 @@
           min="1" 
           max="125" 
           v-model.number="leverage" 
-          class="custom-slider"
-          @input="calculateAmountFromPercent"
+          class="custom-slider no-drag"
+          style="touch-action: none;"
           @change="handleLeverageChange"
-          @mousedown.stop
-          @touchstart.stop
+          @input="calculateAmountFromPercent"
           @pointerdown.stop
+          @mousedown.stop
         />
       </div>
 
@@ -44,7 +51,7 @@
       </div>
 
       <div class="input-group">
-        <label>数量 ({{ symbol.replace('USDT', '') }})</label>
+        <label>数量 ({{ baseAsset }})</label>
         <input 
           type="number" 
           v-model="amount" 
@@ -64,11 +71,11 @@
           max="100" 
           step="1"
           v-model.number="positionPercent" 
-          class="custom-slider percent-slider"
+          class="custom-slider percent-slider no-drag"
+          style="touch-action: none;"
           @input="calculateAmountFromPercent"
-          @mousedown.stop
-          @touchstart.stop
           @pointerdown.stop
+          @mousedown.stop
         />
         <div class="percentage-marks">
           <span @click="setPercentage(25)">25%</span>
@@ -113,87 +120,96 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch ,onMounted} from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { debounce, createAsyncLock } from '@/utils/optimize';
 import { useMarketStore } from '@/store/market';
 import { useToast } from '@/utils/useToast';
 
-const props = defineProps({
-  symbol: { type: String, default: 'BTCUSDT' }
-});
-
 const marketStore = useMarketStore();
-const toast = useToast(); // 实例化
+const toast = useToast();
 
+// 🌟 全局币种状态映射
+const currentSymbol = computed(() => marketStore.currentSymbol || 'BTCUSDT');
+const baseAsset = computed(() => currentSymbol.value.replace('USDT', ''));
 
-// 🌟 新增：组件挂载时，确保拉取到了精度规则
+// 获取当前币种的最新价（用于头部展示和市价单计算）
+const latestPrice = computed(() => marketStore.marketTickers[currentSymbol.value]?.lastPrice || 0);
+const priceTrend = ref(''); // 可选：用于给最新价加上红绿闪烁的逻辑
+
+// 确保组件加载时获取精度规则
 onMounted(() => {
   marketStore.fetchExchangeInfo();
 });
 
 // ==========================================
-// 1. 基础状态与滑块控制
+// 1. 基础状态
 // ==========================================
 const orderType = ref('LIMIT');
 const price = ref('');
 const amount = ref('');
-
-const leverage = ref(20);         // 默认 20 倍杠杆
-const positionPercent = ref(0);   // 默认仓位占比 0%
-
-const estimatedValue = ref(0);    // 名义价值
-const requiredMargin = ref(0);    // 占用保证金
+const leverage = ref(20);
+const positionPercent = ref(0);
+const estimatedValue = ref(0);
+const requiredMargin = ref(0);
 
 // ==========================================
-// 2. 核心数学计算逻辑
+// 🌟 核心：监听全局币种切换，触发防呆清空
 // ==========================================
-// 获取当前用于计算的价格
-const getPriceForCalc = () => {
-  if (orderType.value === 'LIMIT') {
-    return parseFloat(price.value) || 0;
-  } else {
-    // 市价单去 Store 拿最新的 Ticker 价
-    return marketStore.marketTickers[props.symbol]?.lastPrice || 0;
+watch(currentSymbol, (newSymbol) => {
+  price.value = '';
+  amount.value = '';
+  positionPercent.value = 0;
+  estimatedValue.value = 0;
+  requiredMargin.value = 0;
+  // 此处可调用接口获取该币种此前的真实杠杆，暂设为默认 20
+  leverage.value = 20; 
+
+  // 切换时如果是限价单，自动填入最新价，方便用户
+  if (orderType.value === 'LIMIT' && latestPrice.value > 0) {
+    const rule = marketStore.symbolRules[newSymbol] || { tickSize: '0.1', stepSize: '0.001' };
+    price.value = formatByStep(latestPrice.value, rule.tickSize);
   }
+});
+
+// ==========================================
+// 2. 终极 JS 浮点数安全截断算法
+// ==========================================
+const formatByStep = (value: number, stepStr: string) => {
+  const step = parseFloat(stepStr);
+  if (step <= 0) return value.toString();
+  const factor = (value / step) + Number.EPSILON;
+  const rounded = Math.floor(factor) * step;
+  const precision = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+  return rounded.toFixed(precision);
 };
 
-// 拖动滑块 -> 反推数量
-// const calculateAmountFromPercent = () => {
-//   const p = getPriceForCalc();
-//   if (p <= 0 || positionPercent.value === 0) {
-//     amount.value = '';
-//     estimatedValue.value = 0;
-//     requiredMargin.value = 0;
-//     return;
-//   }
+// 获取用于计算的基准价格
+const getPriceForCalc = () => {
+  return orderType.value === 'LIMIT' ? (parseFloat(price.value) || 0) : latestPrice.value;
+};
 
-//   // 计划使用的保证金 = 可用余额 * (仓位百分比 / 100)
-//   const plannedMargin = marketStore.usdtBalance * (positionPercent.value / 100);
-//   // 名义价值 = 保证金 * 杠杆倍数
-//   const notional = plannedMargin * leverage.value;
-//   // 计算数量
-//   const calculatedAmount = notional / p;
+// ==========================================
+// 3. 计算逻辑：应用精度过滤
+// ==========================================
+const calculateAmountFromPercent = () => {
+  const p = getPriceForCalc();
+  if (p <= 0 || positionPercent.value === 0) return;
 
-//   amount.value = calculatedAmount.toFixed(4);
-//   estimatedValue.value = notional;
-//   requiredMargin.value = plannedMargin;
-// };
+  const rule = marketStore.symbolRules[currentSymbol.value] || { tickSize: '0.1', stepSize: '0.001' };
 
-// 在滑块上绑定 @change，只有松开鼠标才触发
-const handleLeverageChange = async () => {
-  try {
-    console.log('leverage',JSON.stringify({ symbol: props.symbol, leverage: leverage.value }))
-    await fetch(`http://localhost:5000/api/account/leverage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol: props.symbol, leverage: leverage.value })
-    });
-    // 杠杆变了，重新计算一下下单参数
-    toast.info(`杠杆已调整为 ${leverage.value}x`);
-    calculateAmountFromPercent();
-  } catch (e) {
-    toast.error(`杠杆修改失败: ${e.message}`);
+  const plannedMargin = marketStore.usdtBalance * (positionPercent.value / 100);
+  const notional = plannedMargin * leverage.value;
+  const rawAmount = notional / p;
+
+  amount.value = formatByStep(rawAmount, rule.stepSize);
+  
+  if (orderType.value === 'LIMIT' && price.value) {
+     price.value = formatByStep(parseFloat(price.value), rule.tickSize);
   }
+
+  const actualNotional = parseFloat(amount.value) * p;
+  estimatedValue.value = actualNotional;
+  requiredMargin.value = actualNotional / leverage.value;
 };
 
 const setPercentage = (pct: number) => {
@@ -201,64 +217,6 @@ const setPercentage = (pct: number) => {
   calculateAmountFromPercent();
 };
 
-const usdtAmount = ref(''); // 用户输入的 USDT 金额
-
-// 🌟 优化 1：输入 USDT 自动算数量
-const calculateQuantityFromUsdt = () => {
-  const p = getPriceForCalc();
-  const usdt = parseFloat(usdtAmount.value);
-  if (p > 0 && usdt > 0) {
-    amount.value = (usdt * leverage.value / p).toFixed(4);
-    estimatedValue.value = usdt * leverage.value;
-    requiredMargin.value = usdt;
-  }
-};
-
-// ==========================================
-// 🌟 终极 JS 浮点数安全截断算法
-// ==========================================
-const formatByStep = (value: number, stepStr: string) => {
-  const step = parseFloat(stepStr);
-  if (step <= 0) return value.toString();
-
-  // 避免 JS 浮点数除法导致的 0.9999999 被向下取整成 0
-  const factor = (value / step) + Number.EPSILON;
-  const rounded = Math.floor(factor) * step;
-
-  // 获取步长要求的小数位数，避免出现 0.1000000001
-  const precision = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
-  return rounded.toFixed(precision);
-};
-
-// ==========================================
-// 重写计算逻辑：应用精度过滤
-// ==========================================
-const calculateAmountFromPercent = () => {
-  const p = getPriceForCalc();
-  if (p <= 0 || positionPercent.value === 0) return;
-
-  // 1. 获取当前币种的规则，如果没拉到，给一个保守的默认值
-  const rule = marketStore.symbolRules[props.symbol] || { tickSize: '0.1', stepSize: '0.001' };
-
-  // 2. 计算理论上的资金和数量
-  const plannedMargin = marketStore.usdtBalance * (positionPercent.value / 100);
-  const notional = plannedMargin * leverage.value;
-  const rawAmount = notional / p;
-
-  // 3. 🌟 核心：使用规则进行极其严格的截断
-  amount.value = formatByStep(rawAmount, rule.stepSize);
-  
-  if (orderType.value === 'LIMIT' && price.value) {
-     price.value = formatByStep(parseFloat(price.value), rule.tickSize);
-  }
-
-  // 计算完截断后的真实占用资金
-  const actualNotional = parseFloat(amount.value) * p;
-  estimatedValue.value = actualNotional;
-  requiredMargin.value = actualNotional / leverage.value;
-};
-
-// 手动输入数量 -> 反推滑块百分比
 const handleAmountInput = () => {
   const p = getPriceForCalc();
   const a = parseFloat(amount.value);
@@ -281,15 +239,30 @@ const handleAmountInput = () => {
   }
 };
 
-// 防抖包裹，防止用户输入价格时疯狂触发计算
 const debouncedCalculate = debounce(calculateAmountFromPercent, 300);
-
-// 当订单类型或余额发生变化时，重新计算
 watch(orderType, calculateAmountFromPercent);
 
 // ==========================================
-// 3. 表单验证与后端交互 (API 发单)
+// 4. 后端接口调用
 // ==========================================
+const handleLeverageChange = async () => {
+  try {
+    const response = await fetch(`http://localhost:5000/api/account/leverage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: currentSymbol.value, leverage: leverage.value })
+    });
+    const data = await response.json();
+    
+    if (!response.ok) throw new Error(data.message || '修改杠杆失败');
+    
+    toast.info(`[${currentSymbol.value}] 杠杆已调整为 ${leverage.value}x`);
+    calculateAmountFromPercent();
+  } catch (e: any) {
+    toast.error(e.message);
+  }
+};
+
 const isValid = computed(() => {
   if (orderType.value === 'LIMIT' && (!price.value || parseFloat(price.value) <= 0)) return false;
   if (!amount.value || parseFloat(amount.value) <= 0) return false;
@@ -299,17 +272,13 @@ const isValid = computed(() => {
 const isSubmitting = ref(false);
 const orderLock = createAsyncLock();
 
-// ==========================================
-// 重写发单拦截逻辑
-// ==========================================
 const placeOrder = async (side: string) => {
-  // 🌟 最终防线：发单前再格式化一次，防止用户手填了非法精度
-  const rule = marketStore.symbolRules[props.symbol] || { tickSize: '0.1', stepSize: '0.001' };
+  const rule = marketStore.symbolRules[currentSymbol.value] || { tickSize: '0.1', stepSize: '0.001' };
   const safeQuantity = parseFloat(formatByStep(parseFloat(amount.value), rule.stepSize));
   const safePrice = orderType.value === 'LIMIT' ? parseFloat(formatByStep(parseFloat(price.value), rule.tickSize)) : null;
 
   const reqBody = {
-    symbol: props.symbol,
+    symbol: currentSymbol.value, // 🌟 始终使用全局币种发单
     side: side,
     type: orderType.value,
     quantity: safeQuantity,
@@ -325,7 +294,6 @@ const placeOrder = async (side: string) => {
 
     const data = await response.json();
 
-    // 🌟 解析币安的错误包，避免“假成功”
     if (!response.ok || data.error || (data.status && data.status !== 200)) {
       const errorMsg = data.error?.msg || data.message || '下单被币安拒绝';
       const errorCode = data.error?.code || 'Unknown';
@@ -346,7 +314,6 @@ const handleBuy = async () => {
     isSubmitting.value = true;
     const success = await placeOrder('BUY');
     isSubmitting.value = false;
-    // 下单成功后清空表单，重置滑块
     if (success) {
       amount.value = '';
       positionPercent.value = 0;
@@ -370,7 +337,28 @@ const handleSell = async () => {
 </script>
 
 <style scoped>
+/* 继承之前的全部样式，新增头部徽章样式 */
 .order-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; color: #c9d1d9; font-size: 13px; }
+
+.module-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding: 12px 15px; 
+  background: #161b22; 
+  border-bottom: 1px solid #30363d; 
+}
+.symbol-badge {
+  font-size: 16px;
+  font-weight: 800;
+  color: #e6edf3;
+  letter-spacing: 0.5px;
+}
+.price-ticker {
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: bold;
+}
 
 .order-tabs { display: flex; border-bottom: 1px solid #21262d; }
 .order-tabs button { flex: 1; padding: 10px 0; background: transparent; border: none; color: #8b949e; cursor: pointer; font-weight: bold; border-bottom: 2px solid transparent; transition: all 0.2s; }

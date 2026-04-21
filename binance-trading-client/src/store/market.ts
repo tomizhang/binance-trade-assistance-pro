@@ -2,11 +2,16 @@ import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 
 export const useMarketStore = defineStore('market', () => {
-  // ==========================================
+  // 在 useMarketStore 的开头部分增加：
+  const wsStatus = ref<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
+
+    // ==========================================
   // 核心数据源 (保持不变，确保 Vue 视图无缝兼容)
   // ==========================================
   const marketTickers = reactive<Record<string, any>>({})
   const latestKlines = reactive<Record<string, any>>({})
+  // 🌟 1. 新增：全局当前选中的交易对 (默认 BTCUSDT)
+  const currentSymbol = ref('BTCUSDT');
 
   // 多窗口同步状态 (保持不变)
   const isSyncEnabled = ref(false)
@@ -19,6 +24,28 @@ export const useMarketStore = defineStore('market', () => {
   const clearGlobalLines = (symbol: string) => { globalLines[symbol] = [] }
   const globalChartType = reactive<Record<string, { type: string, sourceId: string }>>({})
   const setGlobalChartType = (symbol: string, type: string, sourceId: string) => { globalChartType[symbol] = { type, sourceId } }
+
+  // ==========================================
+  // 🌟 补充 1：用于 Click-to-Fill 的点击价格状态
+  // ==========================================
+  const clickedPrice = ref(0);
+  const setClickedPrice = (price: number) => {
+    clickedPrice.value = price;
+  };
+
+  // ==========================================
+  // 🌟 补充 2：用于 klinecharts 复杂画线(Overlay)的同步总线
+  // ==========================================
+  const lastOverlayEvent = ref<{
+    action: 'add' | 'clear';
+    symbol: string;
+    sourceId: string;
+    data?: any;
+  } | null>(null);
+
+  const broadcastOverlay = (payload: any) => {
+    lastOverlayEvent.value = payload;
+  };
 
   // ==========================================
   // 🌟 新增：SharedWorker 调度中心
@@ -55,6 +82,16 @@ export const useMarketStore = defineStore('market', () => {
     });
   };
 
+  // 🌟 2. 新增：切换交易对的方法
+  const setCurrentSymbol = (symbol: string) => {
+    if (currentSymbol.value === symbol) return;
+    currentSymbol.value = symbol;
+
+    // (可选) 如果你以后做了 K线和盘口的 WebSocket 订阅管理，
+    // 可以直接在这里触发：断开旧币种 -> 订阅新币种 的逻辑
+    // connectWs(symbol); 
+  };
+
   // 🌟 核心：解析币安复杂的账户推送结构
   const handleAccountData = (payload: any) => {
     // 判断是不是账户更新事件
@@ -76,6 +113,7 @@ export const useMarketStore = defineStore('market', () => {
   // 数据解析器 (逻辑从原来的 WS 里原封不动搬过来)
   // ==========================================
   const handleTickersData = (payload: any) => {
+    if (wsStatus.value !== 'CONNECTED') wsStatus.value = 'CONNECTED';
     const stream = payload.stream;
     const data = payload.data;
 
@@ -101,6 +139,7 @@ export const useMarketStore = defineStore('market', () => {
   };
 
   const handleKlineData = (payload: any) => {
+    if (wsStatus.value !== 'CONNECTED') wsStatus.value = 'CONNECTED';
     const realData = payload.data ? payload.data : payload;
     if (realData && realData.e === 'kline') {
       const key = `${realData.s}_${realData.k.i}`;
@@ -172,6 +211,11 @@ export const useMarketStore = defineStore('market', () => {
     marketTickers, latestKlines, connectAllTickers, connectWs, subscribeKline, unsubscribeKline,
     isSyncEnabled, toggleSync, crosshairData, setCrosshair, clearCrosshair,
     globalLines, addGlobalLine, clearGlobalLines, globalChartType, setGlobalChartType,
-    usdtBalance // 🌟 暴露出余额给组件用
+    usdtBalance,// 🌟 暴露出余额给组件用
+    currentSymbol,
+    setCurrentSymbol,
+    lastOverlayEvent,
+    broadcastOverlay,
+    wsStatus
   }
 })

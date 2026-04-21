@@ -1,8 +1,10 @@
 <template>
-  <div id="app">
-    
-    <Dashboard />
-    <ToastContainer />
+  <div id="app" class="app-container">
+    <TopNavBar /> 
+    <div class="main-content">
+      <Dashboard />
+      <ToastContainer />
+    </div>
   </div>
 </template>
 <script setup lang="ts">
@@ -11,6 +13,7 @@ import Dashboard from '@/views/Dashboard.vue'
 import ToastContainer from '@/components/ToastContainer.vue';
 import { onMounted } from 'vue';
 import { useMarketStore } from '@/store/market';
+import TopNavBar from '@/components/TopNavBar.vue';
 // 如果别名 @ 报错，请使用相对路径: import Dashboard from './views/Dashboard.vue'
 const marketStore = useMarketStore();
 onMounted(()=>{
@@ -39,5 +42,20 @@ html, body, #app {
 ::-webkit-scrollbar-thumb {
   background: #30363d;
   border-radius: 3px;
+}
+/* 确保整个应用是垂直的 Flex 布局，占满屏幕 */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background-color: #010409; /* 极暗背景 */
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
+  position: relative;
+  /* 如果你的 grid-layout 需要滚动或自适应，可以在这里设置 */
 }
 </style>

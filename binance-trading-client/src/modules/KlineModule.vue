@@ -1,5 +1,9 @@
 <template>
-  <div class="kline-module">
+  <div 
+    class="kline-module" 
+    :class="{ 'is-focused': isFocused }"
+    @click="takeFocus"
+  >
     <div class="kline-toolbar">
       <div class="intervals">
         <button v-for="tf in timeframes" :key="tf" :class="{ active: tf === currentTf }" @click="changeInterval(tf)">
@@ -16,18 +20,30 @@
         <span class="divider">|</span>
         
         <select class="draw-select" v-model="currentDrawMode" @change="startDrawing">
-          <option value="">✏️ 选择画线工具...</option>
-          <option value="segment">📏 趋势线 (线段)</option>
-          <option value="horizontalStraightLine">➖ 水平支撑/阻力线</option>
+          <option value="">✏️ 选择画线...</option>
+          <option value="segment">📏 趋势线</option>
+          <option value="horizontalStraightLine">➖ 水平线</option>
           <option value="rayLine">↗️ 射线</option>
-          <option value="priceChannelLine">⏸️ 平行价格通道</option>
-          <option value="fibonacciLine">📶 斐波那契回调线</option>
+          <option value="priceChannelLine">⏸️ 价格通道</option>
+          <option value="fibonacciLine">📶 斐波那契</option>
         </select>
         
+        <button 
+          class="sync-btn" 
+          :class="{ active: marketStore.isSyncEnabled }" 
+          @click="marketStore.toggleSync()" 
+          title="多图表同币种画线同步"
+        >
+          🔗 同步
+        </button>
+
         <button @click="clearDrawings" title="清除所有画线">🗑️</button>
       </div>
       
-      <div class="symbol-info">{{ symbol }}</div>
+      <div class="symbol-info-wrapper">
+        <span class="symbol-info">{{ symbol }}</span>
+        <span v-if="isFocused" class="focus-badge">🟢 操作中</span>
+      </div>
     </div>
     
     <div class="chart-container" ref="chartContainer" @mousedown.stop @touchstart.stop @pointerdown.stop></div>
@@ -44,9 +60,21 @@ const props = defineProps<{ symbol: string }>();
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
+// 🌟 为当前图表生成唯一 ID（防克隆死循环）
+const instanceId = Math.random().toString(36).substring(2, 10);
+
+// ==========================================
+// 全局焦点逻辑
+// ==========================================
+const isFocused = computed(() => marketStore.currentSymbol === props.symbol);
+const takeFocus = () => {
+  if (!isFocused.value) {
+    marketStore.setCurrentSymbol(props.symbol);
+  }
+};
+
 const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const currentTf = ref('1m'); 
-
 const localChartType = ref('standard'); 
 const currentDrawMode = ref(''); 
 
@@ -55,7 +83,69 @@ let chart: any = null;
 let resizeObserver: ResizeObserver | null = null;
 
 // ==========================================
-// 核心算法：Heikin Ashi 计算 
+// 🌟 画线同步与克隆逻辑
+// ==========================================
+// 监听 Store 中别的图表发来的画线事件
+watch(() => marketStore.lastOverlayEvent, (event) => {
+  if (!event || !chart || !marketStore.isSyncEnabled) return;
+  
+  // 必须是同币种，且不能是自己发出的事件
+  if (event.symbol === props.symbol/* && event.sourceId !== instanceId*/) {
+    if (event.action === 'clear') {
+      chart.removeOverlay();
+    } else if (event.action === 'add' && event.data) {
+      // 完美克隆对方的线
+      chart.createOverlay({
+        name: event.data.name,
+        points: event.data.points,
+        lock: false
+      });
+    }
+  }
+});
+
+const startDrawing = () => {
+  if (currentDrawMode.value && chart) {
+    chart.createOverlay({
+      name: currentDrawMode.value,
+      lock: false,
+      // 当画线完成时触发
+      onDrawEnd: (event: any) => {
+        // 如果开启了同步开关，向全局广播这条线的坐标数据
+        if (marketStore.isSyncEnabled && event.overlay) {
+          marketStore.broadcastOverlay({
+            action: 'add',
+            symbol: props.symbol,
+            sourceId: instanceId,
+            data: {
+              name: event.overlay.name,
+              points: event.overlay.points
+            }
+          });
+        }
+        return true; 
+      }
+    });
+    currentDrawMode.value = ''; // 画完重置下拉框
+  }
+};
+
+const clearDrawings = () => {
+  if (chart) {
+    chart.removeOverlay(); 
+    // 如果开启了同步开关，广播清空指令
+    if (marketStore.isSyncEnabled) {
+      marketStore.broadcastOverlay({
+        action: 'clear',
+        symbol: props.symbol,
+        sourceId: instanceId
+      });
+    }
+  }
+};
+
+// ==========================================
+// 核心算法：Heikin Ashi
 // ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
@@ -80,14 +170,13 @@ const calculateHeikinAshi = (rawData: any[]) => {
 };
 
 // ==========================================
-// KLineChart 数据渲染控制
+// KLineChart 数据渲染
 // ==========================================
 const applyCurrentChartType = () => {
   if (!chart || currentChartData.value.length === 0) return;
   
   if (localChartType.value === 'heikinAshi') {
     const haData = calculateHeikinAshi(currentChartData.value);
-    // 🌟 稳定版 V9 API: applyNewData
     chart.applyNewData(haData);
   } else {
     chart.applyNewData(currentChartData.value);
@@ -99,28 +188,9 @@ const changeChartType = (type: string) => {
   applyCurrentChartType();
 };
 
-const startDrawing = () => {
-  if (currentDrawMode.value && chart) {
-    // 🌟 稳定版 V9 API: createShape
-    chart.createShape({
-      name: currentDrawMode.value,
-      lock: false
-    });
-    currentDrawMode.value = '';
-  }
-};
-
-const clearDrawings = () => {
-  // 🌟 稳定版 V9 API: removeShape
-  if (chart) chart.removeShape(); 
-};
-
-// ==========================================
-// 数据格式化与加载
-// ==========================================
 const formatApiData = (history: any[]) => {
   return history.map(item => ({
-    timestamp: item.time * 1000, // 必须是毫秒
+    timestamp: item.time * 1000, 
     open: item.open,
     high: item.high,
     low: item.low,
@@ -133,7 +203,6 @@ const loadHistory = async (symbol: string, interval: string) => {
   const history = await MarketAPI.getHistoricalKlines(symbol, interval, 1000);
   if (history && history.length > 0) {
     const formatted = formatApiData(history);
-    
     const safeHistory = formatted
       .sort((a: any, b: any) => a.timestamp - b.timestamp)
       .filter((item: any, index: number, array: any[]) => index === 0 || item.timestamp !== array[index - 1].timestamp);
@@ -180,8 +249,21 @@ onMounted(async () => {
     }
   });
 
-  // 🌟 稳定版 V9 API: loadMore
-  chart.loadMore(async (timestamp: number) => {
+  // 🌟 Click-to-Fill 逻辑：点击图表，获取价格传给下单面板
+  chart.subscribeAction('onPaneClick', (params: any) => {
+    takeFocus(); 
+    if (params && params.value !== undefined && params.value !== null) {
+      if (marketStore.setClickedPrice) {
+        marketStore.setClickedPrice(params.value);
+      }
+    }
+  });
+
+  // 🌟 修复 V9 加载历史数据报错
+  chart.setLoadDataCallback(async (params: any) => {
+    const timestamp = params.timestamp;
+    if (!timestamp) return;
+
     const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 1000, timestamp - 1);
     if (olderHistory && olderHistory.length > 0) {
       const formatted = formatApiData(olderHistory);
@@ -189,7 +271,6 @@ onMounted(async () => {
       
       if (localChartType.value === 'heikinAshi') {
         const haData = calculateHeikinAshi(currentChartData.value);
-        // 🌟 稳定版 V9 API: applyMoreData
         chart.applyMoreData(haData.slice(0, olderHistory.length));
       } else {
         chart.applyMoreData(formatted);
@@ -201,7 +282,6 @@ onMounted(async () => {
     if (entries.length === 0 || entries[0].target !== chartContainer.value) return;
     const newRect = entries[0].contentRect;
     if (newRect.width === 0 || newRect.height === 0) return;
-    // 🌟 稳定版 V9 API: resize
     chart.resize(); 
   });
   resizeObserver.observe(chartContainer.value);
@@ -234,7 +314,6 @@ watch(currentKlineData, (newVal) => {
 
     if (localChartType.value === 'heikinAshi') {
       const haData = calculateHeikinAshi(currentChartData.value);
-      // 🌟 稳定版 V9 API: updateData
       chart.updateData(haData[haData.length - 1]);
     } else {
       chart.updateData(rawFormat);
@@ -252,7 +331,22 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; }
+.kline-module { 
+  width: 100%; 
+  height: 100%; 
+  display: flex; 
+  flex-direction: column; 
+  background: #0d1117; 
+  border: 1px solid transparent; 
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.kline-module.is-focused {
+  border-color: #58a6ff;
+  box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1);
+}
+
 .kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; }
 .intervals button { background: transparent; border: 1px solid transparent; color: #8b949e; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; }
 .intervals button:hover { background: #21262d; color: #c9d1d9; }
@@ -264,7 +358,36 @@ onUnmounted(() => {
 .draw-select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 3px 6px; font-size: 12px; outline: none; cursor: pointer; }
 .drawing-tools > button { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
 .drawing-tools > button:hover { border-color: #8b949e; color: #c9d1d9; }
+
+/* 🌟 同步按钮样式 */
+.sync-btn {
+  background: transparent; 
+  border: 1px solid #30363d; 
+  color: #8b949e; 
+  padding: 3px 8px; 
+  border-radius: 4px; 
+  cursor: pointer; 
+  font-size: 12px; 
+  transition: all 0.2s;
+}
+.sync-btn.active {
+  background: #1f6feb; 
+  color: white;
+  border-color: #1f6feb;
+}
+
 .divider { color: #30363d; margin: 0 2px; }
+
+.symbol-info-wrapper { display: flex; align-items: center; gap: 8px; }
 .symbol-info { font-size: 14px; font-weight: bold; color: #e6edf3; }
+.focus-badge {
+  background: #1f6feb; 
+  color: #ffffff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: normal;
+}
+
 .chart-container { flex: 1; width: 100%; position: relative; }
 </style>
