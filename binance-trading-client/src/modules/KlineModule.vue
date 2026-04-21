@@ -8,11 +8,17 @@
       </div>
       
       <div class="drawing-tools">
+        <div class="chart-type-selector">
+          <button :class="{ active: localChartType === 'standard' }" @click="changeChartType('standard')">标准</button>
+          <button :class="{ active: localChartType === 'heikinAshi' }" @click="changeChartType('heikinAshi')">平均(HA)</button>
+        </div>
+        
+        <span class="divider">|</span>
         <button :class="{ active: marketStore.isSyncEnabled }" @click="marketStore.toggleSync" title="开启后自动同步">
           🔗 同步
         </button>
         <span class="divider">|</span>
-        <button :class="{ active: isDrawingMode }" @click="toggleDrawingMode">✏️ 画水平线</button>
+        <button :class="{ active: isDrawingMode }" @click="toggleDrawingMode">✏️ 画线</button>
         <button v-if="localLines.length > 0 || (marketStore.globalLines[symbol] && marketStore.globalLines[symbol].length > 0)" @click="clearLines">
           🗑️ 清除
         </button>
@@ -56,13 +62,15 @@ const chartContainer = ref<HTMLElement | null>(null);
 const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const currentTf = ref('1m'); 
 
+// 🌟 新增：本地图表类型状态与数据双缓存
+const localChartType = ref('standard'); // 'standard' | 'heikinAshi'
+const haChartData = ref<any[]>([]); // 缓存计算好的 HA 数据
+
 // 状态
 const latestCandle = ref<any>(null);
 const hoveredCandle = ref<any>(null);
 const isDrawingMode = ref(false);
 const localLines = ref<any[]>([]);
-
-// 🌟 新增：历史数据分页状态管理
 const currentChartData = ref<any[]>([]);
 const isLoadingHistory = ref(false);
 const noMoreHistory = ref(false);
@@ -74,7 +82,6 @@ const displayData = computed(() => {
   return { ...data, changePercent };
 });
 
-// 🌟 时间格式统一：yyyy-MM-dd hh:mm:ss
 const formatTime = (timestamp: number) => {
   const d = new Date(timestamp * 1000);
   const pad = (n: number) => n.toString().padStart(2, '0');
@@ -88,9 +95,7 @@ const toggleDrawingMode = () => isDrawingMode.value = !isDrawingMode.value;
 const clearLines = () => {
   localLines.value.forEach(line => candleSeries?.removePriceLine(line));
   localLines.value = [];
-  if (marketStore.isSyncEnabled) {
-    marketStore.clearGlobalLines(props.symbol);
-  }
+  if (marketStore.isSyncEnabled) marketStore.clearGlobalLines(props.symbol);
 };
 
 let chart: any = null;
@@ -98,59 +103,79 @@ let candleSeries: any = null;
 let resizeObserver: ResizeObserver | null = null;
 
 // ==========================================
-// 历史数据拉取与无缝滚动
+// 🌟 核心算法：Heikin Ashi 计算
 // ==========================================
+const calculateHeikinAshi = (rawData: any[]) => {
+  const haData = [];
+  let prevHA = null;
+  for (const raw of rawData) {
+    const ha = { time: raw.time, open: 0, high: 0, low: 0, close: 0 };
+    ha.close = (raw.open + raw.high + raw.low + raw.close) / 4;
+    
+    if (!prevHA) {
+      ha.open = (raw.open + raw.close) / 2; // 第一根 K 线的 Open
+    } else {
+      ha.open = (prevHA.open + prevHA.close) / 2; // 依赖上一根 HA
+    }
+    
+    ha.high = Math.max(raw.high, ha.open, ha.close);
+    ha.low = Math.min(raw.low, ha.open, ha.close);
+    
+    haData.push(ha);
+    prevHA = ha;
+  }
+  return haData;
+};
 
-// 初次加载最新 1000 根
+// 🌟 核心控制：根据当前类型重新渲染图表
+const applyCurrentChartType = () => {
+  if (!candleSeries || currentChartData.value.length === 0) return;
+  
+  if (localChartType.value === 'heikinAshi') {
+    haChartData.value = calculateHeikinAshi(currentChartData.value);
+    candleSeries.setData(haChartData.value);
+    latestCandle.value = haChartData.value[haChartData.value.length - 1];
+  } else {
+    candleSeries.setData(currentChartData.value);
+    latestCandle.value = currentChartData.value[currentChartData.value.length - 1];
+  }
+};
+
+// ==========================================
+// 数据加载与切换
+// ==========================================
 const loadHistory = async (symbol: string, interval: string) => {
   isLoadingHistory.value = true;
   noMoreHistory.value = false;
   
   const history = await MarketAPI.getHistoricalKlines(symbol, interval, 1000);
-  
   if (history && history.length > 0 && candleSeries) {
-    try {
-      const safeHistory = history
-        .sort((a: any, b: any) => a.time - b.time)
-        .filter((item: any, index: number, array: any[]) => index === 0 || item.time !== array[index - 1].time);
+    const safeHistory = history
+      .sort((a: any, b: any) => a.time - b.time)
+      .filter((item: any, index: number, array: any[]) => index === 0 || item.time !== array[index - 1].time);
 
-      currentChartData.value = safeHistory;
-      candleSeries.setData(safeHistory);
-      latestCandle.value = safeHistory[safeHistory.length - 1]; 
-      
-      // 仅在初次加载时自适应缩放宽度
-      chart.timeScale().fitContent();
-    } catch (err) {
-      console.error('setData 失败:', err);
-    }
+    currentChartData.value = safeHistory;
+    applyCurrentChartType(); // 使用包装方法应用数据
+    chart.timeScale().fitContent();
   }
   isLoadingHistory.value = false;
 };
 
-// 🌟 新增：向左滑动触底时，拉取更老的历史数据
 const loadMoreHistory = async () => {
   if (isLoadingHistory.value || noMoreHistory.value || currentChartData.value.length === 0) return;
 
   isLoadingHistory.value = true;
-  // 拿到当前图表最左侧（最老）的那根 K 线时间
   const oldestTimeMs = currentChartData.value[0].time * 1000;
-
-  // 请求在此时间之前的 1000 根 K 线
   const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 1000, oldestTimeMs - 1);
 
   if (olderHistory && olderHistory.length > 0) {
-    // 将老数据拼接到现有的前面
     const mergedData = [...olderHistory, ...currentChartData.value];
-    const safeData = mergedData
+    currentChartData.value = mergedData
       .sort((a: any, b: any) => a.time - b.time)
       .filter((item: any, index: number, array: any[]) => index === 0 || item.time !== array[index - 1].time);
 
-    currentChartData.value = safeData;
-    candleSeries.setData(safeData); // setData 注入全量数据，底层会自动保持当前的视图滚动位置不跳跃
-
-    if (olderHistory.length < 1000) {
-      noMoreHistory.value = true; // 已经拉到创世区块了
-    }
+    applyCurrentChartType(); // 历史叠加后重绘
+    if (olderHistory.length < 1000) noMoreHistory.value = true;
   } else {
     noMoreHistory.value = true;
   }
@@ -166,6 +191,17 @@ const changeInterval = async (tf: string) => {
   marketStore.subscribeKline(props.symbol, tf);
 };
 
+// 🌟 新增：切换图表类型，并触发同步
+const changeChartType = (type: string) => {
+  localChartType.value = type;
+  applyCurrentChartType();
+  
+  // 发送同步指令
+  if (marketStore.isSyncEnabled) {
+    marketStore.setGlobalChartType(props.symbol, type, instanceId);
+  }
+};
+
 // ==========================================
 // 挂载与事件中心
 // ==========================================
@@ -176,11 +212,7 @@ onMounted(async () => {
     layout: { background: { color: 'transparent' }, textColor: '#8b949e' },
     grid: { vertLines: { color: '#23272e' }, horzLines: { color: '#23272e' } },
     crosshair: { mode: 0 },
-    // 🌟 应用时间格式化
-    localization: {
-      timeFormatter: (time: number) => formatTime(time),
-      locale: 'zh-CN',
-    },
+    localization: { timeFormatter: (time: number) => formatTime(time), locale: 'zh-CN' },
     timeScale: { timeVisible: true, secondsVisible: true },
     width: chartContainer.value.clientWidth,
     height: chartContainer.value.clientHeight,
@@ -191,14 +223,8 @@ onMounted(async () => {
     wickUpColor: '#26a69a', wickDownColor: '#ef5350'
   });
 
-  // 🌟 监听时间轴滚动事件，触发行情分页加载
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange: any) => {
-    if (logicalRange) {
-      // 当左侧可视边缘剩下不到 50 根 K 线时，提前静默预加载上一页
-      if (logicalRange.from < 50) {
-        loadMoreHistory();
-      }
-    }
+    if (logicalRange && logicalRange.from < 50) loadMoreHistory();
   });
 
   resizeObserver = new ResizeObserver((entries) => {
@@ -218,8 +244,7 @@ onMounted(async () => {
     const data = param.seriesData.get(candleSeries);
     if (data) hoveredCandle.value = data;
     if (marketStore.isSyncEnabled) {
-      const price = candleSeries.coordinateToPrice(param.point.y);
-      marketStore.setCrosshair(props.symbol, price, param.time as number, instanceId);
+      marketStore.setCrosshair(props.symbol, candleSeries.coordinateToPrice(param.point.y), param.time as number, instanceId);
     }
   });
 
@@ -227,13 +252,9 @@ onMounted(async () => {
     if (!isDrawingMode.value || !param.point) return;
     const price = candleSeries.coordinateToPrice(param.point.y);
     if (price !== null) {
-      if (marketStore.isSyncEnabled) {
-        marketStore.addGlobalLine(props.symbol, price);
-      } else {
-        const line = candleSeries.createPriceLine({
-          price: price, color: '#58a6ff', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: '本地',
-        });
-        localLines.value.push(line);
+      if (marketStore.isSyncEnabled) marketStore.addGlobalLine(props.symbol, price);
+      else {
+        localLines.value.push(candleSeries.createPriceLine({ price, color: '#58a6ff', lineWidth: 2, lineStyle: 2, axisLabelVisible: true }));
       }
       isDrawingMode.value = false; 
     }
@@ -245,19 +266,25 @@ onMounted(async () => {
 });
 
 // ==========================================
-// 响应式监听
+// 响应式监听 (包含配置同步)
 // ==========================================
 watch(() => props.symbol, async (newSymbol) => {
   if (newSymbol) await loadHistory(newSymbol, currentTf.value);
 });
 
+// 🌟 接收同步指令：监听全局 K 线类型变更
+watch(() => marketStore.globalChartType[props.symbol], (config) => {
+  if (!marketStore.isSyncEnabled || !config || config.sourceId === instanceId) return;
+  if (localChartType.value !== config.type) {
+    localChartType.value = config.type;
+    applyCurrentChartType();
+  }
+}, { deep: true });
+
 watch(() => marketStore.crosshairData[props.symbol], (newVal) => {
   if (!marketStore.isSyncEnabled || !newVal || newVal.sourceId === instanceId) return;
-  if (newVal.time === 0) {
-    chart.clearCrosshairPosition(); 
-  } else {
-    try { chart.setCrosshairPosition(newVal.price, newVal.time, candleSeries); } catch (e) {}
-  }
+  if (newVal.time === 0) chart.clearCrosshairPosition(); 
+  else { try { chart.setCrosshairPosition(newVal.price, newVal.time, candleSeries); } catch (e) {} }
 }, { deep: true });
 
 watch(() => marketStore.globalLines[props.symbol], (newLines) => {
@@ -266,59 +293,78 @@ watch(() => marketStore.globalLines[props.symbol], (newLines) => {
   localLines.value = [];
   if (newLines && newLines.length > 0) {
     newLines.forEach(price => {
-      const line = candleSeries.createPriceLine({
-        price: price, color: '#ff7b72', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: '同步',
-      });
-      localLines.value.push(line);
+      localLines.value.push(candleSeries.createPriceLine({ price, color: '#ff7b72', lineWidth: 2, lineStyle: 2, axisLabelVisible: true }));
     });
   }
 }, { deep: true });
 
+// 🌟 WebSocket 实时推流的双重计算逻辑
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
   if (newVal && candleSeries) {
-    try {
-      const formattedData = {
-        time: Math.floor(newVal.time / 1000), 
-        open: newVal.open, high: newVal.high, low: newVal.low, close: newVal.close,
-      };
-      
-      candleSeries.update(formattedData);
-      latestCandle.value = formattedData; 
-
-      // 🌟 新增：将最新收到的跳动数据同步存入本地缓存，防止再次拉取历史时数据断层
-      if (currentChartData.value.length > 0) {
-        const lastIndex = currentChartData.value.length - 1;
-        if (currentChartData.value[lastIndex].time === formattedData.time) {
-          currentChartData.value[lastIndex] = formattedData; 
-        } else if (formattedData.time > currentChartData.value[lastIndex].time) {
-          currentChartData.value.push(formattedData); 
-        }
+    const rawFormat = {
+      time: Math.floor(newVal.time / 1000), 
+      open: newVal.open, high: newVal.high, low: newVal.low, close: newVal.close,
+    };
+    
+    // 维护原始数组最新数据
+    if (currentChartData.value.length > 0) {
+      const lastIndex = currentChartData.value.length - 1;
+      if (currentChartData.value[lastIndex].time === rawFormat.time) {
+        currentChartData.value[lastIndex] = rawFormat; 
+      } else if (rawFormat.time > currentChartData.value[lastIndex].time) {
+        currentChartData.value.push(rawFormat); 
       }
-    } catch (err) {
-      console.error('更新失败:', err);
+    }
+
+    // 根据当前模式决定 update 什么数据
+    if (localChartType.value === 'heikinAshi') {
+      const prevHA = haChartData.value.length > 1 ? haChartData.value[haChartData.value.length - 2] : null;
+      const ha = { time: rawFormat.time, open: 0, high: 0, low: 0, close: 0 };
+      
+      ha.close = (rawFormat.open + rawFormat.high + rawFormat.low + rawFormat.close) / 4;
+      ha.open = prevHA ? (prevHA.open + prevHA.close) / 2 : (rawFormat.open + rawFormat.close) / 2;
+      ha.high = Math.max(rawFormat.high, ha.open, ha.close);
+      ha.low = Math.min(rawFormat.low, ha.open, ha.close);
+
+      // 维护 HA 数组
+      if (haChartData.value.length > 0 && haChartData.value[haChartData.value.length - 1].time === ha.time) {
+        haChartData.value[haChartData.value.length - 1] = ha;
+      } else {
+        haChartData.value.push(ha);
+      }
+
+      candleSeries.update(ha);
+      latestCandle.value = ha;
+    } else {
+      candleSeries.update(rawFormat);
+      latestCandle.value = rawFormat; 
     }
   }
 }, { deep: true });
 
 onUnmounted(() => {
   marketStore.unsubscribeKline(props.symbol, currentTf.value);
-  if (resizeObserver && chartContainer.value) {
-    resizeObserver.unobserve(chartContainer.value);
-    resizeObserver.disconnect();
-  }
+  if (resizeObserver && chartContainer.value) resizeObserver.unobserve(chartContainer.value);
   if (chart) chart.remove();
 });
 </script>
 
 <style scoped>
+/* 样式与前面保持一致，新增 chart-type-selector 样式 */
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 .kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; }
+
+.chart-type-selector { display: flex; background: #0d1117; border-radius: 4px; padding: 2px; }
+.chart-type-selector button { background: transparent; border: none; color: #8b949e; padding: 2px 8px; font-size: 12px; cursor: pointer; border-radius: 2px; }
+.chart-type-selector button.active { background: #30363d; color: #c9d1d9; font-weight: bold; }
+
 .divider { color: #30363d; margin: 0 5px; }
-.drawing-tools button { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 5px; transition: all 0.2s; }
-.drawing-tools button:hover { border-color: #8b949e; color: #c9d1d9; }
-.drawing-tools button.active { background: #1f6feb; color: white; border-color: #1f6feb; }
+.drawing-tools { display: flex; align-items: center; }
+.drawing-tools > button { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 5px; transition: all 0.2s; }
+.drawing-tools > button:hover { border-color: #8b949e; color: #c9d1d9; }
+.drawing-tools > button.active { background: #1f6feb; color: white; border-color: #1f6feb; }
 .intervals button { background: transparent; border: 1px solid transparent; color: #8b949e; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; }
 .intervals button:hover { background: #21262d; color: #c9d1d9; }
 .intervals button.active { background: #238636; color: #ffffff; font-weight: bold; }
@@ -326,8 +372,7 @@ onUnmounted(() => {
 .kline-legend { display: flex; gap: 12px; padding: 4px 12px; background: #0d1117; font-size: 12px; color: #c9d1d9; border-bottom: 1px solid #21262d; flex-shrink: 0; }
 .kline-legend .label { color: #8b949e; margin-right: -8px; }
 .kline-legend .time { color: #58a6ff; font-weight: bold; margin-right: 10px; }
-.kline-legend .waiting { color: #8b949e; font-style: italic; }
-.kline-legend .loading-text { color: #e3b341; font-style: italic; margin-left: auto; }
+.kline-legend .waiting, .kline-legend .loading-text { font-style: italic; color: #e3b341; margin-left: auto; }
 .text-green { color: #26a69a; font-family: monospace; }
 .text-red { color: #ef5350; font-family: monospace; }
 .chart-container { flex: 1; width: 100%; background-color: #0d1117; }
