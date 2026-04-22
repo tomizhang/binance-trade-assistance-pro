@@ -106,5 +106,96 @@ namespace TradingService.Services
             }
             return await response.Content.ReadAsStringAsync();
         }
+
+        // 申请 ListenKey
+        public async Task<string> CreateListenKeyAsync()
+        {
+            var response = await _httpClient.PostAsync("/fapi/v1/listenKey", null);
+            // 注意这里需要带上 X-MBX-APIKEY 请求头，但不需要 Signature 签名
+            var result = await response.Content.ReadAsStringAsync();
+            return result; // 返回 {"listenKey": "pqia91ma19a5s61cv6a81va65sdf19v8a65a1a5s61cv6a81v"}
+        }
+
+        // 延长 ListenKey 有效期 (保活)
+        public async Task KeepAliveListenKeyAsync()
+        {
+            await _httpClient.PutAsync("/fapi/v1/listenKey", null);
+        }
+
+        // 获取历史成交记录
+        public async Task<string> GetUserTradesAsync(string symbol, int limit = 50)
+        {
+            // 币安要求强制带有时间戳
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            // 拼接请求参数
+            var queryString = $"symbol={symbol}&limit={limit}&timestamp={timestamp}";
+
+            // 生成签名 (假设你已经有了签名方法，和下单接口一样)
+            var signature = GenerateSignature(queryString, _apiSecret);
+
+            // 组合最终 URL
+            var requestUrl = $"/fapi/v1/userTrades?{queryString}&signature={signature}";
+
+            // 发起 GET 请求 (HttpClient 应该已经配置了 X-MBX-APIKEY 请求头)
+            var response = await _httpClient.GetAsync(requestUrl);
+            var result = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"获取历史记录失败: {result}");
+            }
+
+            return result;
+        }
+
+        // 获取用户持仓风险（包含杠杆和强平价）
+        public async Task<string> GetPositionRiskAsync(string symbol = null)
+        {
+            // 1. 准备基础参数
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var queryString = $"timestamp={timestamp}";
+
+            // 如果传了 symbol，则只查特定币种，否则查全量
+            if (!string.IsNullOrEmpty(symbol))
+            {
+                queryString = $"symbol={symbol.ToUpper()}&{queryString}";
+            }
+
+            // 2. 生成签名 (使用你现有的 CreateSignature 方法)
+            var signature = GenerateSignature(queryString, _apiSecret);
+
+            // 3. 组合 URL
+            var requestUrl = $"/fapi/v2/positionRisk?{queryString}&signature={signature}";
+
+            // 4. 发送请求 (HttpClient 需配置好 X-MBX-APIKEY 请求头)
+            var response = await _httpClient.GetAsync(requestUrl);
+            var result = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"[币安API错误] 获取风险配置失败: {result}");
+            }
+
+            return result;
+        }
+
+        // 获取账户全面信息（包含余额）
+        public async Task<string> GetAccountInfoAsync()
+        {
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var queryString = $"timestamp={timestamp}";
+            var signature = GenerateSignature(queryString, _apiSecret);
+            var requestUrl = $"/fapi/v2/account?{queryString}&signature={signature}";
+
+            var response = await _httpClient.GetAsync(requestUrl);
+            var result = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"获取账户信息失败: {result}");
+            }
+            return result;
+        }
     }
 }

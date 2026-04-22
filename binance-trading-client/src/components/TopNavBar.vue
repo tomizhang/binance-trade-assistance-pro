@@ -23,7 +23,7 @@
       </div>
       
       <div class="user-profile">
-        <div class="avatar">子静</div>
+        <div class="avatar">admin</div>
       </div>
     </div>
   </header>

@@ -18,6 +18,7 @@ import TopNavBar from '@/components/TopNavBar.vue';
 const marketStore = useMarketStore();
 onMounted(()=>{
   marketStore.fetchExchangeInfo()
+  marketStore.connectUserDataStream(); // 🌟 连接私有账户数据流
 });
 </script>
 
