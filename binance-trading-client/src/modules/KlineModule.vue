@@ -20,7 +20,7 @@
         <span class="divider">|</span>
         
         <select class="draw-select" v-model="currentDrawMode" @change="startDrawing">
-          <option value="">✏️ 选择画线...</option>
+          <option value="">✏️ 画线...</option>
           <option value="segment">📏 趋势线</option>
           <option value="horizontalStraightLine">➖ 水平线</option>
           <option value="rayLine">↗️ 射线</option>
@@ -32,7 +32,7 @@
           class="sync-btn" 
           :class="{ active: marketStore.isSyncEnabled }" 
           @click="marketStore.toggleSync()" 
-          title="多图表同币种画线同步"
+          title="同币种跨屏同步"
         >
           🔗 同步
         </button>
@@ -60,7 +60,7 @@ const props = defineProps<{ symbol: string }>();
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
-// 🌟 为当前图表生成唯一 ID（防克隆死循环）
+// 唯一 ID 防循环同步
 const instanceId = Math.random().toString(36).substring(2, 10);
 
 // ==========================================
@@ -83,18 +83,60 @@ let chart: any = null;
 let resizeObserver: ResizeObserver | null = null;
 
 // ==========================================
-// 🌟 画线同步与克隆逻辑
+// 🌟 1. 十字光标同步接收 (已优化：严格限制同币种)
 // ==========================================
-// 监听 Store 中别的图表发来的画线事件
+watch(() => marketStore.globalCrosshairTime, () => {
+  if (!chart || !marketStore.isSyncEnabled) return;
+
+  const allCrosshairs = marketStore.crosshairData;
+  const remoteCrosshair = Object.values(allCrosshairs as Record<string, any>).find(
+    (c: any) => c.sourceId !== instanceId && c.time > 0
+  );
+
+  // 每次触发先清理旧的光标线
+  chart.removeOverlay({ id: 'sync-v' });
+  chart.removeOverlay({ id: 'sync-h' });
+
+  if (!remoteCrosshair) return;
+
+  // 获取发送者的币种
+  const sourceSymbol = Object.keys(allCrosshairs).find(s => (allCrosshairs as any)[s] === remoteCrosshair);
+
+  // 🚨 核心优化：只有币种相同时才显示同步十字架
+  if (sourceSymbol !== props.symbol) return;
+
+  // 1. 垂直时间线
+  chart.createOverlay({
+    name: 'verticalStraightLine',
+    id: 'sync-v',
+    lock: true,
+    points: [{ timestamp: remoteCrosshair.time }],
+    styles: { line: { color: '#58a6ff', style: 'dashed', size: 1 } }
+  });
+
+  // 2. 水平价格线 (自由模式)
+  if (remoteCrosshair.price > 0) {
+    chart.createOverlay({
+      name: 'horizontalStraightLine',
+      id: 'sync-h',
+      lock: true,
+      points: [{ value: remoteCrosshair.price }],
+      styles: { line: { color: '#58a6ff', style: 'dashed', size: 1 } }
+    });
+  }
+});
+
+// ==========================================
+// 🌟 2. 画线(Overlay)同步接收 (已优化：严格限制同币种)
+// ==========================================
 watch(() => marketStore.lastOverlayEvent, (event) => {
   if (!event || !chart || !marketStore.isSyncEnabled) return;
   
-  // 必须是同币种，且不能是自己发出的事件
-  if (event.symbol === props.symbol/* && event.sourceId !== instanceId*/) {
+  // 🚨 增加同币种校验
+  if (event.symbol === props.symbol && event.sourceId !== instanceId) {
     if (event.action === 'clear') {
       chart.removeOverlay();
     } else if (event.action === 'add' && event.data) {
-      // 完美克隆对方的线
       chart.createOverlay({
         name: event.data.name,
         points: event.data.points,
@@ -109,9 +151,7 @@ const startDrawing = () => {
     chart.createOverlay({
       name: currentDrawMode.value,
       lock: false,
-      // 当画线完成时触发
       onDrawEnd: (event: any) => {
-        // 如果开启了同步开关，向全局广播这条线的坐标数据
         if (marketStore.isSyncEnabled && event.overlay) {
           marketStore.broadcastOverlay({
             action: 'add',
@@ -126,14 +166,13 @@ const startDrawing = () => {
         return true; 
       }
     });
-    currentDrawMode.value = ''; // 画完重置下拉框
+    currentDrawMode.value = ''; 
   }
 };
 
 const clearDrawings = () => {
   if (chart) {
     chart.removeOverlay(); 
-    // 如果开启了同步开关，广播清空指令
     if (marketStore.isSyncEnabled) {
       marketStore.broadcastOverlay({
         action: 'clear',
@@ -144,37 +183,24 @@ const clearDrawings = () => {
   }
 };
 
-// ==========================================
-// 核心算法：Heikin Ashi
-// ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA = null;
   for (const raw of rawData) {
     const ha = { timestamp: raw.timestamp, open: 0, high: 0, low: 0, close: 0, volume: raw.volume };
     ha.close = (raw.open + raw.high + raw.low + raw.close) / 4;
-    
-    if (!prevHA) {
-      ha.open = (raw.open + raw.close) / 2;
-    } else {
-      ha.open = (prevHA.open + prevHA.close) / 2;
-    }
-    
+    if (!prevHA) { ha.open = (raw.open + raw.close) / 2; } 
+    else { ha.open = (prevHA.open + prevHA.close) / 2; }
     ha.high = Math.max(raw.high, ha.open, ha.close);
     ha.low = Math.min(raw.low, ha.open, ha.close);
-    
     haData.push(ha);
     prevHA = ha;
   }
   return haData;
 };
 
-// ==========================================
-// KLineChart 数据渲染
-// ==========================================
 const applyCurrentChartType = () => {
   if (!chart || currentChartData.value.length === 0) return;
-  
   if (localChartType.value === 'heikinAshi') {
     const haData = calculateHeikinAshi(currentChartData.value);
     chart.applyNewData(haData);
@@ -220,9 +246,6 @@ const changeInterval = async (tf: string) => {
   marketStore.subscribeKline(props.symbol, tf);
 };
 
-// ==========================================
-// 初始化图表实例
-// ==========================================
 onMounted(async () => {
   if (!chartContainer.value) return;
 
@@ -249,7 +272,6 @@ onMounted(async () => {
     }
   });
 
-  // 🌟 Click-to-Fill 逻辑：点击图表，获取价格传给下单面板
   chart.subscribeAction('onPaneClick', (params: any) => {
     takeFocus(); 
     if (params && params.value !== undefined && params.value !== null) {
@@ -259,7 +281,45 @@ onMounted(async () => {
     }
   });
 
-  // 🌟 修复 V9 加载历史数据报错
+  // 🌟 3. 本地光标移动广播 (自由浮动 + 严谨兼容)
+  chart.subscribeAction('onCrosshairChange', (params: any) => {
+    if (!marketStore.isSyncEnabled) return;
+
+    if (!params || params.dataIndex === undefined || params.dataIndex < 0) {
+      marketStore.updateGlobalCrosshair(0, 0, props.symbol, instanceId);
+      return;
+    }
+
+    const kLineList = chart.getDataList();
+    const currentKline = kLineList[params.dataIndex];
+    if (!currentKline) return;
+
+    let targetPrice = currentKline.close;
+    const pixelY = params.y !== undefined ? params.y : params.realY;
+    
+    if (params.paneId && pixelY !== undefined) {
+      try {
+        const convertedPrice = chart.convertFromPixel({ x: 0, y: pixelY }, { paneId: params.paneId });
+        if (!isNaN(convertedPrice as any)) {
+          if (typeof convertedPrice === 'number') {
+            targetPrice = convertedPrice;
+          }
+        } else if (typeof convertedPrice === 'object' && convertedPrice !== null) {
+          targetPrice = (convertedPrice as any).value;
+        }
+      } catch (e) {
+        console.warn("坐标转换失败", e);
+      }
+    }
+
+    marketStore.updateGlobalCrosshair(
+      currentKline.timestamp, 
+      targetPrice, 
+      props.symbol, 
+      instanceId
+    );
+  });
+
   chart.setLoadDataCallback(async (params: any) => {
     const timestamp = params.timestamp;
     if (!timestamp) return;
@@ -291,9 +351,6 @@ onMounted(async () => {
   marketStore.subscribeKline(props.symbol, currentTf.value);
 });
 
-// ==========================================
-// 响应 WebSocket 数据推流
-// ==========================================
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
@@ -359,7 +416,6 @@ onUnmounted(() => {
 .drawing-tools > button { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
 .drawing-tools > button:hover { border-color: #8b949e; color: #c9d1d9; }
 
-/* 🌟 同步按钮样式 */
 .sync-btn {
   background: transparent; 
   border: 1px solid #30363d; 
