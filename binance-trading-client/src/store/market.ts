@@ -348,7 +348,8 @@ export const useMarketStore = defineStore('market', () => {
               unrealizedPnL: parseFloat(p.up),
               leverage: currentLeverage, // 把杠杆缝合进去
               marginType: p.mt,
-              side: amount > 0 ? 'LONG' : 'SHORT'
+              side: amount > 0 ? 'LONG' : 'SHORT',
+              updateTime: payload.E || Date.now()
             };
             if (existingIdx > -1) positions.value[existingIdx] = newPos;
             else positions.value.push(newPos);
