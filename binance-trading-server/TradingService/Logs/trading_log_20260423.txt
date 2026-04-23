@@ -1732,3 +1732,289 @@ System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed t
 2026-04-23 09:19:46.554 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907186548&signature=ff12c3ac06319459bd8189c86a5c2a46311ecf0f224a40a99e5be40a9ccc9f4f
 2026-04-23 09:19:46.809 +08:00 [INF] Received HTTP response headers after 252.4201ms - 200
 2026-04-23 09:19:46.815 +08:00 [INF] End processing HTTP request after 267.1424ms - 200
+2026-04-23 09:23:39.398 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 09:23:39.443 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 09:23:43.207 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 09:25:13.146 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:25:13.180 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776907513179&signature=2850eedabc0ab0ea8e6ec60ebcec42c8a5e9b60dd6cbb5cf0e6eff9aea012626
+2026-04-23 09:25:13.181 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:25:13.186 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776907513179&signature=2850eedabc0ab0ea8e6ec60ebcec42c8a5e9b60dd6cbb5cf0e6eff9aea012626
+2026-04-23 09:25:13.822 +08:00 [INF] Received HTTP response headers after 633.6699ms - 200
+2026-04-23 09:25:13.842 +08:00 [INF] Received HTTP response headers after 614.5152ms - 200
+2026-04-23 09:25:13.844 +08:00 [INF] End processing HTTP request after 698.821ms - 200
+2026-04-23 09:25:13.851 +08:00 [INF] End processing HTTP request after 671.5079ms - 200
+2026-04-23 09:25:14.155 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:25:14.159 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:25:14.309 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:25:14.314 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:25:14.383 +08:00 [INF] Received HTTP response headers after 219.4401ms - 200
+2026-04-23 09:25:14.385 +08:00 [INF] End processing HTTP request after 230.7326ms - 200
+2026-04-23 09:25:14.542 +08:00 [INF] Received HTTP response headers after 223.2133ms - 200
+2026-04-23 09:25:14.546 +08:00 [INF] End processing HTTP request after 236.3886ms - 200
+2026-04-23 09:25:14.606 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907514605&signature=116c501d4fa54bb9df8b6196a9c3a7c69e90ee03d843c2546122e3ca6f9e575a
+2026-04-23 09:25:14.609 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907514605&signature=116c501d4fa54bb9df8b6196a9c3a7c69e90ee03d843c2546122e3ca6f9e575a
+2026-04-23 09:25:14.848 +08:00 [INF] Received HTTP response headers after 236.9571ms - 200
+2026-04-23 09:25:14.851 +08:00 [INF] End processing HTTP request after 245.7066ms - 200
+2026-04-23 09:25:15.151 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907515151&signature=e88946615d7627baade84be46a1f7d07fdbccd98421c8612cd2237c10c5470b5
+2026-04-23 09:25:15.160 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907515151&signature=e88946615d7627baade84be46a1f7d07fdbccd98421c8612cd2237c10c5470b5
+2026-04-23 09:25:15.461 +08:00 [INF] Received HTTP response headers after 297.2548ms - 200
+2026-04-23 09:25:15.468 +08:00 [INF] End processing HTTP request after 317.1142ms - 200
+2026-04-23 09:25:53.906 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:25:53.915 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:25:54.413 +08:00 [INF] Received HTTP response headers after 481.8297ms - 200
+2026-04-23 09:25:54.417 +08:00 [INF] End processing HTTP request after 511.3174ms - 200
+2026-04-23 09:25:54.431 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-23 09:28:28.518 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:28:28.508 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776907708508&signature=e38403c536868249314769492f437342bf898ef4862e88bc841f9e27ee4c8f09
+2026-04-23 09:28:28.525 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:28:28.528 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776907708508&signature=e38403c536868249314769492f437342bf898ef4862e88bc841f9e27ee4c8f09
+2026-04-23 09:28:29.176 +08:00 [INF] Received HTTP response headers after 571.9753ms - 200
+2026-04-23 09:28:29.211 +08:00 [INF] End processing HTTP request after 693.1262ms - 200
+2026-04-23 09:28:29.211 +08:00 [INF] Received HTTP response headers after 460.9148ms - 200
+2026-04-23 09:28:29.242 +08:00 [INF] End processing HTTP request after 733.9851ms - 200
+2026-04-23 09:28:29.556 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:28:29.564 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:28:29.633 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:28:29.637 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:28:29.793 +08:00 [INF] Received HTTP response headers after 224.4431ms - 200
+2026-04-23 09:28:29.797 +08:00 [INF] End processing HTTP request after 241.2344ms - 200
+2026-04-23 09:28:29.843 +08:00 [INF] Received HTTP response headers after 197.7343ms - 200
+2026-04-23 09:28:29.845 +08:00 [INF] End processing HTTP request after 211.9224ms - 200
+2026-04-23 09:28:29.874 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907709873&signature=ea4acbd9e7954371818f1767bce604db0afe10d5da961d9ede253e874be63909
+2026-04-23 09:28:29.878 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907709873&signature=ea4acbd9e7954371818f1767bce604db0afe10d5da961d9ede253e874be63909
+2026-04-23 09:28:30.093 +08:00 [INF] Received HTTP response headers after 212.0147ms - 200
+2026-04-23 09:28:30.101 +08:00 [INF] End processing HTTP request after 227.0659ms - 200
+2026-04-23 09:28:30.160 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907710160&signature=bcc25b9ea2b1d15a36cd01e978ca795bc6c7023f24360b5b8d9dec8d6e11bbf4
+2026-04-23 09:28:30.166 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907710160&signature=bcc25b9ea2b1d15a36cd01e978ca795bc6c7023f24360b5b8d9dec8d6e11bbf4
+2026-04-23 09:28:30.382 +08:00 [INF] Received HTTP response headers after 208.8688ms - 200
+2026-04-23 09:28:30.386 +08:00 [INF] End processing HTTP request after 225.9936ms - 200
+2026-04-23 09:29:13.287 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 09:29:13.308 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 09:29:17.080 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 09:33:13.063 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776907993062&signature=6f8adfed9e18b1467e7d128feef4b41b4d4ddd6e691957f02dfe8deca80c6c63
+2026-04-23 09:33:13.116 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:33:13.126 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776907993062&signature=6f8adfed9e18b1467e7d128feef4b41b4d4ddd6e691957f02dfe8deca80c6c63
+2026-04-23 09:33:13.091 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:33:13.131 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:33:13.172 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:33:13.595 +08:00 [INF] Received HTTP response headers after 460.8103ms - 200
+2026-04-23 09:33:13.613 +08:00 [INF] Received HTTP response headers after 408.3539ms - 200
+2026-04-23 09:33:13.615 +08:00 [INF] End processing HTTP request after 552.2997ms - 200
+2026-04-23 09:33:13.624 +08:00 [INF] End processing HTTP request after 508.5932ms - 200
+2026-04-23 09:33:13.801 +08:00 [INF] Received HTTP response headers after 562.1661ms - 200
+2026-04-23 09:33:13.807 +08:00 [INF] End processing HTTP request after 716.7648ms - 200
+2026-04-23 09:33:13.839 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:33:13.842 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:33:14.047 +08:00 [INF] Received HTTP response headers after 201.1794ms - 200
+2026-04-23 09:33:14.061 +08:00 [INF] End processing HTTP request after 222.1468ms - 200
+2026-04-23 09:33:14.113 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907994113&signature=21e6aac461730633c45d17a84ee75db81482aaad08ee62802f799784b3c9939d
+2026-04-23 09:33:14.119 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907994113&signature=21e6aac461730633c45d17a84ee75db81482aaad08ee62802f799784b3c9939d
+2026-04-23 09:33:14.542 +08:00 [INF] Received HTTP response headers after 419.6969ms - 200
+2026-04-23 09:33:14.553 +08:00 [INF] End processing HTTP request after 440.1387ms - 200
+2026-04-23 09:33:14.785 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907994785&signature=8003ef068f7ef6ea8e81c956cfe2cd0fe5766d3ccf4f969eb02f5ac15daf814b
+2026-04-23 09:33:14.799 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776907994785&signature=8003ef068f7ef6ea8e81c956cfe2cd0fe5766d3ccf4f969eb02f5ac15daf814b
+2026-04-23 09:33:15.014 +08:00 [INF] Received HTTP response headers after 211.6637ms - 200
+2026-04-23 09:33:15.020 +08:00 [INF] End processing HTTP request after 235.6198ms - 200
+2026-04-23 09:34:47.159 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 09:34:47.178 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 09:34:51.073 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 09:35:48.788 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:35:48.838 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776908148838&signature=d20ef07168450b6a59fc099c40a7eb4acc23d274ee9a6b687cde4b1ce842c295
+2026-04-23 09:35:48.839 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:35:48.853 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776908148838&signature=d20ef07168450b6a59fc099c40a7eb4acc23d274ee9a6b687cde4b1ce842c295
+2026-04-23 09:35:49.503 +08:00 [INF] Received HTTP response headers after 648.2275ms - 200
+2026-04-23 09:35:49.508 +08:00 [INF] End processing HTTP request after 720.316ms - 200
+2026-04-23 09:35:49.674 +08:00 [INF] Received HTTP response headers after 748.1876ms - 200
+2026-04-23 09:35:49.681 +08:00 [INF] End processing HTTP request after 842.9574ms - 200
+2026-04-23 09:35:49.976 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:35:49.982 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:35:50.125 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:35:50.132 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:35:50.208 +08:00 [INF] Received HTTP response headers after 213.8773ms - 200
+2026-04-23 09:35:50.212 +08:00 [INF] End processing HTTP request after 235.8642ms - 200
+2026-04-23 09:35:50.244 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908150244&signature=08681fb66f72871e17f62b57c3a11e1c7dd679df2ad4e24ca59bac3561a2843d
+2026-04-23 09:35:50.257 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908150244&signature=08681fb66f72871e17f62b57c3a11e1c7dd679df2ad4e24ca59bac3561a2843d
+2026-04-23 09:35:50.404 +08:00 [INF] Received HTTP response headers after 263.9621ms - 200
+2026-04-23 09:35:50.408 +08:00 [INF] End processing HTTP request after 282.8952ms - 200
+2026-04-23 09:35:50.555 +08:00 [INF] Received HTTP response headers after 288.7373ms - 200
+2026-04-23 09:35:50.559 +08:00 [INF] End processing HTTP request after 315.5178ms - 200
+2026-04-23 09:35:50.783 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908150783&signature=4375c54f9cbc43c5b75d6e97b1f38d24d2b48b403cc358e702a42386c65572eb
+2026-04-23 09:35:50.794 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908150783&signature=4375c54f9cbc43c5b75d6e97b1f38d24d2b48b403cc358e702a42386c65572eb
+2026-04-23 09:35:51.092 +08:00 [INF] Received HTTP response headers after 293.0629ms - 200
+2026-04-23 09:35:51.097 +08:00 [INF] End processing HTTP request after 314.3565ms - 200
+2026-04-23 09:40:21.155 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 09:40:21.191 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 09:40:25.165 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 09:42:26.548 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:42:26.565 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:42:26.590 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776908546590&signature=aeae96478728a6c0ec5d647681169387d12a3c42c856b7e811d49aa9d92b0863
+2026-04-23 09:42:26.629 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776908546590&signature=aeae96478728a6c0ec5d647681169387d12a3c42c856b7e811d49aa9d92b0863
+2026-04-23 09:42:27.202 +08:00 [INF] Received HTTP response headers after 609.9611ms - 200
+2026-04-23 09:42:27.214 +08:00 [INF] End processing HTTP request after 666.1079ms - 200
+2026-04-23 09:42:27.236 +08:00 [INF] Received HTTP response headers after 591.7939ms - 200
+2026-04-23 09:42:27.244 +08:00 [INF] End processing HTTP request after 653.9497ms - 200
+2026-04-23 09:42:27.572 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:42:27.579 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:42:27.685 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:42:27.689 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:42:27.884 +08:00 [INF] Received HTTP response headers after 295.5641ms - 200
+2026-04-23 09:42:27.893 +08:00 [INF] End processing HTTP request after 321.4451ms - 200
+2026-04-23 09:42:27.947 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908547947&signature=4532a3c15295feb4ccdb8ff4a71702b31cfdcf671633092e2ec6d52d4652bfc2
+2026-04-23 09:42:27.951 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908547947&signature=4532a3c15295feb4ccdb8ff4a71702b31cfdcf671633092e2ec6d52d4652bfc2
+2026-04-23 09:42:28.083 +08:00 [INF] Received HTTP response headers after 388.304ms - 200
+2026-04-23 09:42:28.087 +08:00 [INF] End processing HTTP request after 402.5844ms - 200
+2026-04-23 09:42:28.203 +08:00 [INF] Received HTTP response headers after 247.7183ms - 200
+2026-04-23 09:42:28.215 +08:00 [INF] End processing HTTP request after 267.9713ms - 200
+2026-04-23 09:42:28.462 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908548462&signature=9868c1ceedeab0a6ddc52e56750ba5eaf31794bbde9c1d4afd3c1fe6267a1f40
+2026-04-23 09:42:28.470 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776908548462&signature=9868c1ceedeab0a6ddc52e56750ba5eaf31794bbde9c1d4afd3c1fe6267a1f40
+2026-04-23 09:42:28.710 +08:00 [INF] Received HTTP response headers after 236.0859ms - 200
+2026-04-23 09:42:28.714 +08:00 [INF] End processing HTTP request after 251.5455ms - 200
+2026-04-23 09:45:55.245 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 09:45:55.280 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 09:45:58.979 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 09:51:29.068 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 09:51:29.094 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 09:51:32.700 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 09:53:12.274 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:53:12.299 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776909192299&signature=13e50004d943e922c47741cf70bcfd6a46aa71034fcdbf303bf969ffd7a92685
+2026-04-23 09:53:12.301 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:53:12.319 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776909192299&signature=13e50004d943e922c47741cf70bcfd6a46aa71034fcdbf303bf969ffd7a92685
+2026-04-23 09:53:12.745 +08:00 [INF] Received HTTP response headers after 422.4357ms - 200
+2026-04-23 09:53:12.751 +08:00 [INF] End processing HTTP request after 476.533ms - 200
+2026-04-23 09:53:12.957 +08:00 [INF] Received HTTP response headers after 600.9635ms - 200
+2026-04-23 09:53:12.964 +08:00 [INF] End processing HTTP request after 665.1042ms - 200
+2026-04-23 09:53:13.271 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:53:13.290 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:53:13.542 +08:00 [INF] Received HTTP response headers after 235.61ms - 200
+2026-04-23 09:53:13.548 +08:00 [INF] End processing HTTP request after 276.8644ms - 200
+2026-04-23 09:53:13.586 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:53:13.590 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:53:13.791 +08:00 [INF] Received HTTP response headers after 197.2384ms - 200
+2026-04-23 09:53:13.799 +08:00 [INF] End processing HTTP request after 212.4254ms - 200
+2026-04-23 09:53:13.848 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909193848&signature=751ee8431b6351baf30fdb214089f572e7b994a60dd726ffbef3a52e0b9ee3c8
+2026-04-23 09:53:13.859 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909193848&signature=751ee8431b6351baf30fdb214089f572e7b994a60dd726ffbef3a52e0b9ee3c8
+2026-04-23 09:53:14.099 +08:00 [INF] Received HTTP response headers after 230.8404ms - 200
+2026-04-23 09:53:14.107 +08:00 [INF] End processing HTTP request after 259.1655ms - 200
+2026-04-23 09:53:14.184 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909194184&signature=992446fa06659b0045296dacaa68d2b617117fc2dc90ffc1cca0d375a8535513
+2026-04-23 09:53:14.191 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909194184&signature=992446fa06659b0045296dacaa68d2b617117fc2dc90ffc1cca0d375a8535513
+2026-04-23 09:53:14.429 +08:00 [INF] Received HTTP response headers after 232.4677ms - 200
+2026-04-23 09:53:14.434 +08:00 [INF] End processing HTTP request after 250.3232ms - 200
+2026-04-23 09:55:37.349 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:55:37.379 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776909337379&signature=4a53a1a0365b20e1a9942721ed30ab99714a06ad1e4bc0e7b250040810a390d5
+2026-04-23 09:55:37.384 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:55:37.391 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1776909337379&signature=4a53a1a0365b20e1a9942721ed30ab99714a06ad1e4bc0e7b250040810a390d5
+2026-04-23 09:55:38.004 +08:00 [INF] Received HTTP response headers after 576.7771ms - 200
+2026-04-23 09:55:38.011 +08:00 [INF] End processing HTTP request after 631.2421ms - 200
+2026-04-23 09:55:38.119 +08:00 [INF] Received HTTP response headers after 723.991ms - 200
+2026-04-23 09:55:38.127 +08:00 [INF] End processing HTTP request after 778.0569ms - 200
+2026-04-23 09:55:38.502 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:55:38.506 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:55:38.749 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:55:38.779 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-23 09:55:38.779 +08:00 [INF] Received HTTP response headers after 262.5382ms - 200
+2026-04-23 09:55:38.820 +08:00 [INF] End processing HTTP request after 318.5433ms - 200
+2026-04-23 09:55:38.872 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909338872&signature=40951e49446be366354aa368518f6cf61de9900728f14afb390e0ad098b30f15
+2026-04-23 09:55:38.879 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909338872&signature=40951e49446be366354aa368518f6cf61de9900728f14afb390e0ad098b30f15
+2026-04-23 09:55:39.044 +08:00 [INF] Received HTTP response headers after 261.7991ms - 200
+2026-04-23 09:55:39.050 +08:00 [INF] End processing HTTP request after 300.6805ms - 200
+2026-04-23 09:55:39.145 +08:00 [INF] Received HTTP response headers after 255.9292ms - 200
+2026-04-23 09:55:39.154 +08:00 [INF] End processing HTTP request after 281.9089ms - 200
+2026-04-23 09:55:39.289 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909339289&signature=b7bff332bdef41241bb0d64238956cdcb1173b145b8a2ceb712ab6541e4686f7
+2026-04-23 09:55:39.299 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1776909339289&signature=b7bff332bdef41241bb0d64238956cdcb1173b145b8a2ceb712ab6541e4686f7
+2026-04-23 09:55:39.561 +08:00 [INF] Received HTTP response headers after 258.8144ms - 200
+2026-04-23 09:55:39.565 +08:00 [INF] End processing HTTP request after 275.5912ms - 200
+2026-04-23 09:55:53.865 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:55:53.874 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-23 09:55:54.267 +08:00 [INF] Received HTTP response headers after 382.4454ms - 200
+2026-04-23 09:55:54.275 +08:00 [INF] End processing HTTP request after 409.4297ms - 200
+2026-04-23 09:55:54.280 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-23 09:57:02.758 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 09:57:02.781 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 09:57:06.549 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 10:02:36.642 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 10:02:36.664 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 10:02:40.349 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！
+2026-04-23 10:08:10.451 +08:00 [ERR] 读取 WS API 时发生异常
+System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed the WebSocket connection without completing the close handshake.
+   at System.Net.WebSockets.ManagedWebSocket.ThrowEOFUnexpected()
+   at System.Net.WebSockets.ManagedWebSocket.EnsureBufferContainsAsync(Int32 minimumRequiredBytes, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Net.WebSockets.ManagedWebSocket.ReceiveAsyncPrivate[TResult](Memory`1 payloadBuffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask`1.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at TradingService.Services.BinanceWsApiService.ExecuteAsync(CancellationToken stoppingToken) in C:\Users\Tomi\Desktop\gemini\binance\binance-trading-server\TradingService\Services\BinanceWsApiService.cs:line 57
+2026-04-23 10:08:10.469 +08:00 [WRN] ⚠️ WS API 断开，尝试重连...
+2026-04-23 10:08:14.079 +08:00 [INF] 🟢 币安 WebSocket 交易 API 专线已连接！

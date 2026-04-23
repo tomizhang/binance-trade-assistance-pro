@@ -34,7 +34,7 @@
           class="sync-btn" 
           :class="{ active: marketStore.isSyncEnabled }" 
           @click="marketStore.toggleSync()" 
-          title="同币种跨屏同步"
+          title="开启后，所有图表的十字光标与缩放平移将完全同步"
         >
           🔗 同步
         </button>
@@ -80,6 +80,9 @@ const props = defineProps<{ symbol: string }>();
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
+// 🌟 为当前图表生成唯一 ID，用于同步广播时防身（防止自己同步自己陷入死循环）
+const instanceId = Math.random().toString(36).substring(2, 10);
+
 const isFocused = computed(() => marketStore.currentSymbol === props.symbol);
 const takeFocus = () => { if (!isFocused.value) marketStore.setCurrentSymbol(props.symbol); };
 
@@ -96,14 +99,10 @@ let volumeSeries: any = null;
 let resizeObserver: ResizeObserver | null = null;
 let positionLineId: any = null;
 
-// ==========================================
-// 🌟 悬浮数据摘要 (Tooltip) 状态
-// ==========================================
 const hoverData = ref<any>(null);
 
-// 辅助函数：格式化时间戳为 yyyy-MM-dd HH:mm:ss
 const formatDateTime = (timestamp: number) => {
-  const date = new Date(timestamp * 1000); // Lightweight 给的是秒，转回毫秒
+  const date = new Date(timestamp * 1000); 
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
@@ -113,16 +112,8 @@ const formatDateTime = (timestamp: number) => {
   return `${y}-${m}-${d} ${H}:${M}:${S}`;
 };
 
-// ==========================================
-// 数据格式化 
-// ==========================================
-const formatApiData = (history: any[]) => {
-  return history; 
-};
+const formatApiData = (history: any[]) => { return history; };
 
-// ==========================================
-// 动态精度设置
-// ==========================================
 const updateChartPrecision = (data: any[]) => {
   if (!candleSeries || data.length === 0) return;
   let maxDecimals = 2; 
@@ -141,9 +132,6 @@ const updateChartPrecision = (data: any[]) => {
   });
 };
 
-// ==========================================
-// 渲染图表类型
-// ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA: any = null;
@@ -172,7 +160,6 @@ const applyDataToSeries = (data: any[]) => {
     open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close)
   })));
 
-  console.log('vol data',finalData);
   volumeSeries.setData(finalData.map((d: any) => {
     const isUp = Number(d.close) >= Number(d.open);
     return {
@@ -185,9 +172,6 @@ const applyDataToSeries = (data: any[]) => {
   updateChartPrecision(finalData);
 };
 
-// ==========================================
-// 初始化与历史拉取
-// ==========================================
 const getIntervalSec = (tf: string) => {
   const v = parseInt(tf);
   const u = tf.slice(-1);
@@ -236,8 +220,27 @@ const loadMoreHistory = async () => {
   }
 };
 
+// ==========================================
+// 🌟 缩放/平移同步引擎 (无需通过 Store，原生跨组件通信)
+// ==========================================
+let isSyncingRange = false;
+const onSyncRange = (e: any) => {
+  if (!chart || !marketStore.isSyncEnabled) return;
+  const { range, sourceId } = e.detail;
+  
+  // 接收到别人发来的同步信号，调整自己的可视区域
+  if (sourceId !== instanceId) {
+    isSyncingRange = true; // 上锁，防止循环触发
+    chart.timeScale().setVisibleLogicalRange(range);
+    setTimeout(() => { isSyncingRange = false; }, 50); // 解锁
+  }
+};
+
 onMounted(async () => {
   if (!chartContainer.value) return;
+
+  // 注册全局事件监听缩放/平移
+  window.addEventListener('sync-logical-range', onSyncRange);
 
   chart = createChart(chartContainer.value, {
     layout: { textColor: '#8b949e', background: { type: 'solid', color: '#0d1117' } },
@@ -246,12 +249,10 @@ onMounted(async () => {
     timeScale: { 
       borderColor: '#30363d', 
       timeVisible: true,
-      secondsVisible: true, // 允许显示秒
+      secondsVisible: true, 
     },
-    // 🌟 核心修复 1：拦截图表内部的日期格式化，替换为你指定的 YYYY-MM-DD HH:mm:ss
     localization: {
       timeFormatter: (businessDayOrTimestamp: any) => {
-        // 判断是否为有效的 Unix 时间戳 (秒)
         if (typeof businessDayOrTimestamp === 'number') {
           return formatDateTime(businessDayOrTimestamp);
         }
@@ -280,15 +281,22 @@ onMounted(async () => {
     scaleMargins: { top: 0.8, bottom: 0 }
   });
 
+  // 🌟 监听平移和缩放事件
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
+    // 1. 触发懒加载
     if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) {
       loadMoreHistory();
     }
+    // 2. 广播缩放/平移同步指令
+    if (marketStore.isSyncEnabled && !isSyncingRange && logicalRange) {
+      window.dispatchEvent(new CustomEvent('sync-logical-range', {
+        detail: { range: logicalRange, sourceId: instanceId }
+      }));
+    }
   });
 
-  // 🌟 核心修复 2：监听十字光标移动，动态提取 K 线数据更新给摘要面板
+  // 🌟 监听十字光标移动，发送同步指令
   chart.subscribeCrosshairMove((param) => {
-    // 鼠标移出图表范围，隐藏面板
     if (
       param.point === undefined ||
       !param.time ||
@@ -298,24 +306,32 @@ onMounted(async () => {
       param.point.y > chartContainer.value!.clientHeight
     ) {
       hoverData.value = null;
+      // 鼠标移出，通知 store 清除光标
+      if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) {
+        marketStore.updateGlobalCrosshair(0, 0, props.symbol, instanceId);
+      }
       return;
     }
 
-    // 从引擎内部捞取当前光标所在的那根 K 线数据
     const candleData: any = param.seriesData.get(candleSeries);
     const volData: any = param.seriesData.get(volumeSeries);
 
     if (candleData) {
       const isUp = candleData.close >= candleData.open;
       hoverData.value = {
-        time: formatDateTime(Number(param.time)), // 格式化悬浮时间
+        time: formatDateTime(Number(param.time)),
         open: candleData.open.toFixed(2),
         high: candleData.high.toFixed(2),
         low: candleData.low.toFixed(2),
         close: candleData.close.toFixed(2),
         vol: volData && volData.value !== undefined ? Number(volData.value).toFixed(2) : '0.00',
-        colorClass: isUp ? 'text-up' : 'text-down' // 用于控制涨跌颜色
+        colorClass: isUp ? 'text-up' : 'text-down' 
       };
+
+      // 发送十字光标位置到 store
+      if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) {
+        marketStore.updateGlobalCrosshair(Number(param.time), candleData.close, props.symbol, instanceId);
+      }
     } else {
       hoverData.value = null;
     }
@@ -334,8 +350,28 @@ onMounted(async () => {
 });
 
 // ==========================================
-// 实时数据更新 
+// 🌟 接收十字光标同步信号并渲染
 // ==========================================
+watch(() => marketStore.globalCrosshairTime, () => {
+  if (!chart || !candleSeries || !marketStore.isSyncEnabled) return;
+  const allCrosshairs = marketStore.crosshairData;
+  if (!allCrosshairs) return;
+
+  // 寻找别人发出的光标数据
+  const remoteCrosshair = Object.values(allCrosshairs as Record<string, any>).find(
+    (c: any) => c.sourceId !== instanceId && c.time > 0
+  );
+
+  // 如果别人鼠标移出了图表，我也清除光标
+  if (!remoteCrosshair) {
+    chart.clearCrosshairPosition();
+    return;
+  }
+
+  // 使用原生 API 在当前图表画出同步的十字光标！
+  chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
+});
+
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 watch(currentKlineData, (newVal) => {
   if (newVal && candleSeries && volumeSeries) {
@@ -375,9 +411,6 @@ watch(currentKlineData, (newVal) => {
   }
 }, { deep: true });
 
-// ==========================================
-// 绘制持仓盈亏线
-// ==========================================
 const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
 watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol]?.lastPrice], () => {
   if (!candleSeries) return;
@@ -426,6 +459,7 @@ const toggleVolume = () => {
 };
 
 onUnmounted(() => {
+  window.removeEventListener('sync-logical-range', onSyncRange);
   marketStore.unsubscribeKline(props.symbol, currentTf.value);
   if (resizeObserver && chartContainer.value) resizeObserver.unobserve(chartContainer.value);
   if (chart) {
@@ -453,11 +487,9 @@ onUnmounted(() => {
 .symbol-info { font-size: 14px; font-weight: bold; color: #e6edf3; }
 .focus-badge { background: #1f6feb; color: #ffffff; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: normal; }
 
-/* 🌟 新增：图表容器层与面板样式 */
 .chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .chart-container { flex: 1; width: 100%; position: relative; }
 
-/* 🌟 新增：Legend 面板，悬浮在图表左上角，彻底杜绝挡住鼠标 */
 .chart-legend {
   position: absolute;
   top: 8px;
@@ -466,7 +498,7 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  pointer-events: none; /* 让鼠标事件穿透面板，继续响应底下的图表拖拽 */
+  pointer-events: none;
   background: rgba(13, 17, 23, 0.75);
   padding: 4px 8px;
   border-radius: 4px;
