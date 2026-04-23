@@ -26,6 +26,7 @@
           <option value="ray">↗️ 射线</option>
           <option value="angle">📐 角度线</option>
           <option value="channel">⏸️ 平行通道</option>
+          <option value="alert_ray">🔔 提醒射线</option>
         </select>
         
         <button 
@@ -58,6 +59,12 @@
     
     <div class="chart-wrapper" :class="{ 'is-drawing-mode': currentDrawMode !== 'none' }">
       
+      <div class="toast-container">
+        <div v-for="t in notifications" :key="t.id" class="toast-message">
+          {{ t.msg }}
+        </div>
+      </div>
+
       <div class="chart-legend" v-if="hoverData">
         <span class="legend-time">{{ hoverData.time }}</span>
         <span class="legend-item">开: <span :class="hoverData.colorClass">{{ hoverData.open }}</span></span>
@@ -86,6 +93,13 @@
             <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[2].x" :y2="s.pts[2].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" />
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[0].x" :cy="s.pts[0].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[1].x" :cy="s.pts[1].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
+          </template>
+
+          <template v-if="s.type === 'alert_ray' && s.pts.length >= 3">
+            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[2].x" :y2="s.pts[2].y" :stroke="s.triggered ? '#484f58' : s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" :stroke-dasharray="s.triggered ? 'none' : '6 4'" />
+            <circle v-if="s.id === selectedShapeId" :cx="s.pts[0].x" :cy="s.pts[0].y" r="5" fill="white" :stroke="s.triggered ? '#484f58' : s.color" stroke-width="2"/>
+            <circle v-if="s.id === selectedShapeId" :cx="s.pts[1].x" :cy="s.pts[1].y" r="5" fill="white" :stroke="s.triggered ? '#484f58' : s.color" stroke-width="2"/>
+            <text :x="s.pts[0].x - 15" :y="s.pts[0].y - 10" font-size="14" :opacity="s.triggered ? 0.3 : 1">🔔</text>
           </template>
 
           <template v-if="s.type === 'angle' && s.pts.length >= 2">
@@ -155,14 +169,26 @@ let positionLineId: any = null;
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
+// 🌟 通知系统
+const notifications = ref<{id: number, msg: string}[]>([]);
+let notifIdCounter = 0;
+const showNotification = (msg: string) => {
+  const id = notifIdCounter++;
+  notifications.value.push({ id, msg });
+  // 5秒后自动消失
+  setTimeout(() => {
+    notifications.value = notifications.value.filter(n => n.id !== id);
+  }, 5000);
+};
+
 // ==========================================
-// 🌟 革命性绘图引擎状态
+// 🌟 绘图引擎状态 (扩展了 triggered 属性)
 // ==========================================
-const currentDrawMode = ref('none'); // none, hline, trend, ray, angle, channel
+const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
 
 type LogicPoint = { logical: number, price: number };
-type Shape = { id: string, type: string, points: LogicPoint[], color: string };
+type Shape = { id: string, type: string, points: LogicPoint[], color: string, triggered?: boolean };
 
 const customShapes = ref<Shape[]>([]);
 const svgShapes = ref<any[]>([]); 
@@ -184,7 +210,7 @@ const onDrawModeChange = () => {
 
 const deselectShape = () => { selectedShapeId.value = null; };
 
-// 🌟 核心渲染引擎：处理所有线型的数学扩展
+// 🌟 SVG 渲染循环
 let animationFrameId: number;
 const renderSvgLoop = () => {
   if (chart && candleSeries && chartContainer.value) {
@@ -201,18 +227,17 @@ const renderSvgLoop = () => {
         pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x), y: pts[2].y + (pts[1].y - pts[0].y) };
       }
       
-      // 🌟 射线引擎：计算极其遥远的点 (实现无限延伸)
-      if (shape.type === 'ray' && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
+      // 射线与提醒射线的数学延长
+      if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
         const dx = pts[1].x - pts[0].x;
         const dy = pts[1].y - pts[0].y;
         if (dx !== 0 || dy !== 0) {
-          pts[2] = { x: pts[1].x + dx * 10000, y: pts[1].y + dy * 10000 }; // 延长 10000 倍像素
+          pts[2] = { x: pts[1].x + dx * 10000, y: pts[1].y + dy * 10000 }; 
         } else {
           pts[2] = { ...pts[1] };
         }
       }
 
-      // 🌟 角度计算引擎：(金融图表中Y轴向上为正，屏幕Y向下为正，需要反转Y差值)
       let angleStr = '';
       if (shape.type === 'angle' && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
         const dx = pts[1].x - pts[0].x;
@@ -231,22 +256,21 @@ const renderSvgLoop = () => {
 };
 
 // ==========================================
-// 🌟 碰撞检测：点到线段与射线的距离算法
+// 碰撞检测算法
 // ==========================================
 const distToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
   const l2 = (x1 - x2)**2 + (y1 - y2)**2;
   if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
   let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
-  t = Math.max(0, Math.min(1, t)); // 限制在线段内
+  t = Math.max(0, Math.min(1, t)); 
   return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
 };
 
-// 射线的碰撞算法 (不限制 t 上限，允许无限长)
 const distToRay = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
   const l2 = (x1 - x2)**2 + (y1 - y2)**2;
   if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
   let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
-  t = Math.max(0, t); // 射线方向 t 必须 >= 0
+  t = Math.max(0, t); 
   return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
 };
 
@@ -260,7 +284,6 @@ const onPointerDown = (e: PointerEvent) => {
   const price = candleSeries.coordinateToPrice(y);
   if (logical === null || price === null) return;
 
-  // 1. 正在画图中
   if (currentDrawMode.value !== 'none') {
     if (currentDrawMode.value === 'hline') {
       const newId = Math.random().toString(36).substring(2, 10);
@@ -269,16 +292,22 @@ const onPointerDown = (e: PointerEvent) => {
       broadcastSync({ action: 'add', shape: newShape });
       currentDrawMode.value = 'none';
       
-    } else if (['trend', 'ray', 'angle'].includes(currentDrawMode.value)) {
-      // 🌟 通用两点成线逻辑
+    } else if (['trend', 'ray', 'angle', 'alert_ray'].includes(currentDrawMode.value)) {
       if (drawStep.value === 0) {
         const newId = Math.random().toString(36).substring(2, 10);
-        customShapes.value.push({ id: newId, type: currentDrawMode.value, points: [{logical, price}, {logical, price}], color: '#58a6ff' });
+        // 提醒射线默认使用显眼的橙色
+        const defaultColor = currentDrawMode.value === 'alert_ray' ? '#ff9800' : '#58a6ff';
+        customShapes.value.push({ 
+          id: newId, 
+          type: currentDrawMode.value, 
+          points: [{logical, price}, {logical, price}], 
+          color: defaultColor,
+          triggered: false 
+        });
         activeShapeIdForDraw = newId;
         drawStep.value = 1;
       } else if (drawStep.value === 1) {
         drawStep.value = 0;
-        const type = currentDrawMode.value;
         currentDrawMode.value = 'none';
         broadcastSync({ action: 'add', shape: customShapes.value.find(s => s.id === activeShapeIdForDraw) });
       }
@@ -300,7 +329,6 @@ const onPointerDown = (e: PointerEvent) => {
     return;
   }
 
-  // 2. 空闲状态：智能检测命中图形
   let hitId = null;
   for (let i = svgShapes.value.length - 1; i >= 0; i--) {
     const s = svgShapes.value[i];
@@ -309,7 +337,7 @@ const onPointerDown = (e: PointerEvent) => {
       isHit = Math.abs(s.pts[0].y - y) < 10;
     } else if (s.type === 'trend' || s.type === 'angle') {
       isHit = distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10;
-    } else if (s.type === 'ray') {
+    } else if (s.type === 'ray' || s.type === 'alert_ray') {
       isHit = distToRay(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10;
     } else if (s.type === 'channel') {
       isHit = distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10;
@@ -342,11 +370,10 @@ const onPointerMove = (e: PointerEvent) => {
   const price = candleSeries.coordinateToPrice(y);
   if (logical === null || price === null) return;
 
-  // 1. 画图中...
   if (currentDrawMode.value !== 'none' && drawStep.value > 0 && activeShapeIdForDraw) {
     const shape = customShapes.value.find(s => s.id === activeShapeIdForDraw);
     if (shape) {
-      if (['trend', 'ray', 'angle'].includes(shape.type) && drawStep.value === 1) {
+      if (['trend', 'ray', 'alert_ray', 'angle'].includes(shape.type) && drawStep.value === 1) {
         shape.points[1] = { logical, price };
       } else if (shape.type === 'channel') {
         if (drawStep.value === 1) {
@@ -360,7 +387,6 @@ const onPointerMove = (e: PointerEvent) => {
     return;
   }
 
-  // 2. 拖拽已有图形...
   if (draggingShapeId.value) {
     const shape = customShapes.value.find(s => s.id === draggingShapeId.value);
     if (shape) {
@@ -368,17 +394,20 @@ const onPointerMove = (e: PointerEvent) => {
         p.logical = logical + dragOffsets[idx].dl;
         p.price = price + dragOffsets[idx].dp;
       });
+      // 🌟 如果被移动了，重新激活警报器
+      if (shape.type === 'alert_ray') {
+        shape.triggered = false;
+      }
     }
     return;
   }
 
-  // 3. 悬停命中样式检测
   let hit = false;
   for (const s of svgShapes.value) {
     if (s.type === 'hline' && Math.abs(s.pts[0].y - y) < 10) hit = true;
     else if (s.type === 'trend' || s.type === 'angle') {
       if (distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true;
-    } else if (s.type === 'ray') {
+    } else if (s.type === 'ray' || s.type === 'alert_ray') {
       if (distToRay(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true;
     } else if (s.type === 'channel') {
       if (distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true;
@@ -439,7 +468,10 @@ const onSyncDrawing = (e: any) => {
     if (action === 'add') customShapes.value.push(JSON.parse(JSON.stringify(shape)));
     else if (action === 'move') {
       const localShape = customShapes.value.find(s => s.id === shape.id);
-      if (localShape) localShape.points = shape.points;
+      if (localShape) {
+        localShape.points = shape.points;
+        if (localShape.type === 'alert_ray') localShape.triggered = false;
+      }
     }
     else if (action === 'color') {
       const localShape = customShapes.value.find(s => s.id === id);
@@ -447,6 +479,11 @@ const onSyncDrawing = (e: any) => {
     }
     else if (action === 'delete') customShapes.value = customShapes.value.filter(l => l.id !== id);
     else if (action === 'clear') clearAllShapes(false);
+    // 🌟 接收全局报警触发
+    else if (action === 'trigger') {
+      const localShape = customShapes.value.find(s => s.id === id);
+      if (localShape) localShape.triggered = true;
+    }
   }
 };
 
@@ -632,20 +669,56 @@ watch(() => marketStore.globalCrosshairTime, () => {
   else chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
 });
 
+// ==========================================
+// 🌟 核心引擎：实时价格碰撞检测处理器
+// ==========================================
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
+
 watch(currentKlineData, (newVal) => {
   if (newVal && candleSeries && volumeSeries) {
     const rawTime = Number(newVal.time);
     const timeInSeconds = rawTime > 9999999999 ? Math.floor(rawTime / 1000) : rawTime;
-    const rawFormat = { time: timeInSeconds, open: Number(newVal.open), high: Number(newVal.high), low: Number(newVal.low), close: Number(newVal.close), value: Number(newVal.volume !== undefined ? newVal.volume : (newVal.vol || 0)), color: Number(newVal.close) >= Number(newVal.open) ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' };
+    const rawFormat = { 
+      time: timeInSeconds, 
+      open: Number(newVal.open), high: Number(newVal.high), 
+      low: Number(newVal.low), close: Number(newVal.close), 
+      value: Number(newVal.volume !== undefined ? newVal.volume : (newVal.vol || 0)), 
+      color: Number(newVal.close) >= Number(newVal.open) ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' 
+    };
+
+    let latestLogicalIndex = currentChartData.value.length - 1;
 
     if (currentChartData.value.length > 0) {
-      const lastIndex = currentChartData.value.length - 1;
-      const lastTimeSec = Number(currentChartData.value[lastIndex].time) > 9999999999 ? Math.floor(Number(currentChartData.value[lastIndex].time) / 1000) : Number(currentChartData.value[lastIndex].time);
-      if (lastTimeSec === rawFormat.time) currentChartData.value[lastIndex] = newVal; 
-      else if (rawFormat.time > lastTimeSec) currentChartData.value.push(newVal);
+      const lastTimeSec = Number(currentChartData.value[latestLogicalIndex].time) > 9999999999 ? Math.floor(Number(currentChartData.value[latestLogicalIndex].time) / 1000) : Number(currentChartData.value[latestLogicalIndex].time);
+      if (lastTimeSec === rawFormat.time) {
+        currentChartData.value[latestLogicalIndex] = newVal; 
+      } else if (rawFormat.time > lastTimeSec) {
+        currentChartData.value.push(newVal);
+        latestLogicalIndex += 1;
+      }
     }
     applyDataToSeries(currentChartData.value);
+
+    // 🚨 执行提醒射线的物理穿透检测
+    customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
+      const p0 = shape.points[0];
+      const p1 = shape.points[1];
+      const dx = p1.logical - p0.logical;
+      const dp = p1.price - p0.price;
+
+      // 判断当前最新 K 线是否在射线的延长方向上
+      if ((dx > 0 && latestLogicalIndex >= p0.logical) || (dx < 0 && latestLogicalIndex <= p0.logical)) {
+        // 利用斜率计算出这根 K 线所在物理时间点的【射线预期价格】
+        const expectedPrice = p0.price + (dx === 0 ? 0 : (dp / dx) * (latestLogicalIndex - p0.logical));
+        
+        // 如果这根 K 线的最高价和最低价贯穿了期望价格，触发警报！
+        if (rawFormat.low <= expectedPrice && rawFormat.high >= expectedPrice) {
+          shape.triggered = true;
+          showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(2)}`);
+          broadcastSync({ action: 'trigger', id: shape.id });
+        }
+      }
+    });
   }
 }, { deep: true });
 
@@ -696,6 +769,11 @@ onUnmounted(() => {
 .is-resizing { cursor: move !important; }
 
 .drawing-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+
+/* 🌟 通知 Toast 样式 */
+.toast-container { position: absolute; top: 12px; right: 12px; z-index: 50; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast-message { background: rgba(255, 152, 0, 0.9); color: white; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: slideIn 0.3s ease-out; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2); }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
 .chart-legend { position: absolute; top: 8px; left: 12px; z-index: 10; display: flex; gap: 12px; font-size: 12px; pointer-events: none; background: rgba(13, 17, 23, 0.75); padding: 4px 8px; border-radius: 4px; }
 .legend-time { color: #8b949e; font-weight: bold; margin-right: 4px; }
