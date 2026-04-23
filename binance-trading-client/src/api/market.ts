@@ -12,6 +12,7 @@ export const MarketAPI = {
 
       const response = await axios.get('/fapi/v1/klines', { params })
 
+      return [];
       return response.data.map((item: any[]) => ({
         time: Math.floor(item[0] / 1000), 
         open: parseFloat(item[1]),

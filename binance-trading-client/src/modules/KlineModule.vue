@@ -21,6 +21,26 @@
         
         <button 
           class="sync-btn" 
+          :class="{ active: isDrawingLine }" 
+          @click="toggleDrawMode" 
+          title="点击后，在图表任意位置点击即可绘制水平线"
+        >
+          ➖ 水平线
+        </button>
+        
+        <button 
+          v-if="drawnLines.length > 0"
+          class="sync-btn clear-btn" 
+          @click="clearAllLines(true)" 
+          title="清除所有画线"
+        >
+          🗑️
+        </button>
+
+        <span class="divider">|</span>
+
+        <button 
+          class="sync-btn" 
           :class="{ active: showVolume }" 
           @click="toggleVolume" 
           title="显示/隐藏副图成交量"
@@ -46,7 +66,7 @@
       </div>
     </div>
     
-    <div class="chart-wrapper">
+    <div class="chart-wrapper" :class="{ 'is-drawing-mode': isDrawingLine }">
       <div class="chart-legend" v-if="hoverData">
         <span class="legend-time">{{ hoverData.time }}</span>
         <span class="legend-item">开: <span :class="hoverData.colorClass">{{ hoverData.open }}</span></span>
@@ -56,14 +76,22 @@
         <span class="legend-item" v-if="showVolume">量: <span class="vol-text">{{ hoverData.vol }}</span></span>
       </div>
 
+      <div class="line-settings-panel" v-if="selectedLineId && !isDrawingLine">
+        <span class="setting-title">✏️ 编辑水平线</span>
+        <input type="color" :value="selectedLineColor" @input="updateLineColor" title="调整线条颜色" />
+        <button class="action-btn delete-btn" @click="deleteSelectedLine">🗑️ 删除</button>
+        <button class="action-btn" @click="deselectLine">❌ 取消</button>
+      </div>
+
       <div 
-        class="chart-container" 
+        class="chart-container no-drag" 
+        :class="{ 'is-resizing': isHoveringLine || draggingLineId }"
         ref="chartContainer"
-        @mousedown.stop
-        @touchstart.stop
-        @pointerdown.stop
+        @pointerdown.stop="onPointerDown"
+        @pointermove.stop="onPointerMove"
+        @pointerup.stop="onPointerUp"
+        @pointerleave.stop="onPointerUp"
         @wheel.stop
-        @touchmove.stop
         @contextmenu.prevent
       ></div>
     </div>
@@ -80,7 +108,6 @@ const props = defineProps<{ symbol: string }>();
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
-// 🌟 为当前图表生成唯一 ID，用于同步广播时防身（防止自己同步自己陷入死循环）
 const instanceId = Math.random().toString(36).substring(2, 10);
 
 const isFocused = computed(() => marketStore.currentSymbol === props.symbol);
@@ -100,6 +127,196 @@ let resizeObserver: ResizeObserver | null = null;
 let positionLineId: any = null;
 
 const hoverData = ref<any>(null);
+
+// ==========================================
+// 画线引擎状态
+// ==========================================
+const isDrawingLine = ref(false);
+const drawnLines = ref<{ id: string, price: number, color: string, obj: any }[]>([]);
+const selectedLineId = ref<string | null>(null);
+const draggingLineId = ref<string | null>(null);
+const isHoveringLine = ref(false);
+
+const selectedLineColor = computed(() => {
+  const line = drawnLines.value.find(l => l.id === selectedLineId.value);
+  return line ? line.color : '#58a6ff';
+});
+
+const toggleDrawMode = () => {
+  isDrawingLine.value = !isDrawingLine.value;
+  if (isDrawingLine.value) deselectLine();
+};
+
+const deselectLine = () => {
+  selectedLineId.value = null;
+  drawnLines.value.forEach(l => l.obj.applyOptions({ lineWidth: 2 }));
+};
+
+const addHorizontalLine = (id: string, price: number, color: string, isSource: boolean = false) => {
+  if (!candleSeries) return;
+  
+  const lineObj = candleSeries.createPriceLine({
+    price: price,
+    color: color,
+    lineWidth: 2,
+    lineStyle: LineStyle.Solid,
+    axisLabelVisible: true,
+    title: '',
+  });
+  
+  drawnLines.value.push({ id, price, color, obj: lineObj });
+
+  if (isSource && marketStore.isSyncEnabled) {
+    window.dispatchEvent(new CustomEvent('sync-drawing', {
+      detail: { action: 'add', id, price, color, symbol: props.symbol, sourceId: instanceId }
+    }));
+  }
+};
+
+const updateLineColor = (e: Event) => {
+  const newColor = (e.target as HTMLInputElement).value;
+  const line = drawnLines.value.find(l => l.id === selectedLineId.value);
+  if (line && candleSeries) {
+    line.color = newColor;
+    line.obj.applyOptions({ color: newColor });
+    if (marketStore.isSyncEnabled) {
+      window.dispatchEvent(new CustomEvent('sync-drawing', {
+        detail: { action: 'color', id: line.id, color: newColor, symbol: props.symbol, sourceId: instanceId }
+      }));
+    }
+  }
+};
+
+const deleteSelectedLine = () => {
+  if (selectedLineId.value && candleSeries) {
+    const id = selectedLineId.value;
+    const line = drawnLines.value.find(l => l.id === id);
+    if (line) {
+      candleSeries.removePriceLine(line.obj);
+      drawnLines.value = drawnLines.value.filter(l => l.id !== id);
+      if (marketStore.isSyncEnabled) {
+        window.dispatchEvent(new CustomEvent('sync-drawing', {
+          detail: { action: 'delete', id, symbol: props.symbol, sourceId: instanceId }
+        }));
+      }
+    }
+    selectedLineId.value = null;
+  }
+};
+
+const clearAllLines = (isSource: boolean = false) => {
+  if (!candleSeries) return;
+  drawnLines.value.forEach(line => candleSeries.removePriceLine(line.obj));
+  drawnLines.value = [];
+  selectedLineId.value = null;
+
+  if (isSource && marketStore.isSyncEnabled) {
+    window.dispatchEvent(new CustomEvent('sync-drawing', {
+      detail: { action: 'clear', symbol: props.symbol, sourceId: instanceId }
+    }));
+  }
+};
+
+// ==========================================
+// 🌟 核心修复：纯血 Pointer Events 接管交互
+// ==========================================
+const handleDown = (clientY: number) => {
+  if (!candleSeries || !chartContainer.value) return;
+  const rect = chartContainer.value.getBoundingClientRect();
+  const y = clientY - rect.top;
+
+  const hitLine = drawnLines.value.find(line => {
+    const lineY = candleSeries.priceToCoordinate(line.price);
+    return lineY !== null && Math.abs(lineY - y) < 10;
+  });
+
+  if (hitLine) {
+    selectedLineId.value = hitLine.id;
+    draggingLineId.value = hitLine.id;
+    
+    drawnLines.value.forEach(l => l.obj.applyOptions({ lineWidth: l.id === hitLine.id ? 4 : 2 }));
+    chart?.applyOptions({ handleScroll: false, handleScale: false });
+  } else if (!isDrawingLine.value) {
+    deselectLine();
+  }
+};
+
+const handleMove = (clientY: number) => {
+  if (!candleSeries || !chartContainer.value) return;
+  const rect = chartContainer.value.getBoundingClientRect();
+  const y = clientY - rect.top;
+
+  if (draggingLineId.value) {
+    const newPrice = candleSeries.coordinateToPrice(y);
+    if (newPrice !== null) {
+      const line = drawnLines.value.find(l => l.id === draggingLineId.value);
+      if (line) {
+        line.price = newPrice;
+        line.obj.applyOptions({ price: newPrice });
+      }
+    }
+  } else {
+    const hitLine = drawnLines.value.find(line => {
+      const lineY = candleSeries.priceToCoordinate(line.price);
+      return lineY !== null && Math.abs(lineY - y) < 10;
+    });
+    isHoveringLine.value = !!hitLine;
+  }
+};
+
+// 🌟 统一使用 Pointer 事件映射
+const onPointerDown = (e: PointerEvent) => handleDown(e.clientY);
+const onPointerMove = (e: PointerEvent) => handleMove(e.clientY);
+
+const onPointerUp = () => {
+  if (draggingLineId.value) {
+    // 恢复图表原生操作权限
+    chart?.applyOptions({
+      handleScroll: true,
+      handleScale: true
+    });
+
+    const line = drawnLines.value.find(l => l.id === draggingLineId.value);
+    if (line && marketStore.isSyncEnabled) {
+      window.dispatchEvent(new CustomEvent('sync-drawing', {
+        detail: { action: 'move', id: line.id, price: line.price, symbol: props.symbol, sourceId: instanceId }
+      }));
+    }
+    draggingLineId.value = null;
+  }
+};
+
+const onSyncDrawing = (e: any) => {
+  if (!marketStore.isSyncEnabled) return;
+  const { action, id, price, color, symbol, sourceId } = e.detail;
+  
+  if (sourceId !== instanceId && symbol === props.symbol) {
+    if (action === 'add') addHorizontalLine(id, price, color, false);
+    else if (action === 'clear') clearAllLines(false);
+    else if (action === 'move') {
+      const line = drawnLines.value.find(l => l.id === id);
+      if (line && candleSeries) {
+        line.price = price;
+        line.obj.applyOptions({ price });
+      }
+    }
+    else if (action === 'color') {
+      const line = drawnLines.value.find(l => l.id === id);
+      if (line) {
+        line.color = color;
+        line.obj.applyOptions({ color });
+      }
+    }
+    else if (action === 'delete') {
+      const line = drawnLines.value.find(l => l.id === id);
+      if (line && candleSeries) {
+        candleSeries.removePriceLine(line.obj);
+        drawnLines.value = drawnLines.value.filter(l => l.id !== id);
+        if (selectedLineId.value === id) selectedLineId.value = null;
+      }
+    }
+  }
+};
 
 const formatDateTime = (timestamp: number) => {
   const date = new Date(timestamp * 1000); 
@@ -220,37 +437,28 @@ const loadMoreHistory = async () => {
   }
 };
 
-// ==========================================
-// 🌟 缩放/平移同步引擎 (无需通过 Store，原生跨组件通信)
-// ==========================================
 let isSyncingRange = false;
 const onSyncRange = (e: any) => {
   if (!chart || !marketStore.isSyncEnabled) return;
   const { range, sourceId } = e.detail;
-  
-  // 接收到别人发来的同步信号，调整自己的可视区域
   if (sourceId !== instanceId) {
-    isSyncingRange = true; // 上锁，防止循环触发
+    isSyncingRange = true; 
     chart.timeScale().setVisibleLogicalRange(range);
-    setTimeout(() => { isSyncingRange = false; }, 50); // 解锁
+    setTimeout(() => { isSyncingRange = false; }, 50); 
   }
 };
 
 onMounted(async () => {
   if (!chartContainer.value) return;
 
-  // 注册全局事件监听缩放/平移
   window.addEventListener('sync-logical-range', onSyncRange);
+  window.addEventListener('sync-drawing', onSyncDrawing);
 
   chart = createChart(chartContainer.value, {
     layout: { textColor: '#8b949e', background: { type: 'solid', color: '#0d1117' } },
     grid: { vertLines: { color: '#21262d', style: LineStyle.Dotted }, horzLines: { color: '#21262d', style: LineStyle.Dotted } },
     crosshair: { mode: CrosshairMode.Normal, vertLine: { labelBackgroundColor: '#1f6feb' }, horzLine: { labelBackgroundColor: '#1f6feb' } },
-    timeScale: { 
-      borderColor: '#30363d', 
-      timeVisible: true,
-      secondsVisible: true, 
-    },
+    timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: true },
     localization: {
       timeFormatter: (businessDayOrTimestamp: any) => {
         if (typeof businessDayOrTimestamp === 'number') {
@@ -259,54 +467,27 @@ onMounted(async () => {
         return String(businessDayOrTimestamp);
       }
     },
-    rightPriceScale: { 
-      borderColor: '#30363d',
-      scaleMargins: { top: 0.05, bottom: 0.25 }
-    }
+    rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.05, bottom: 0.25 } }
   });
 
-  candleSeries = chart.addSeries(CandlestickSeries, {
-    upColor: '#2ea043', downColor: '#f85149', 
-    borderVisible: false,
-    wickUpColor: '#2ea043', wickDownColor: '#f85149'
-  });
+  candleSeries = chart.addSeries(CandlestickSeries, { upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149' });
+  volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', visible: showVolume.value });
+  volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
-  volumeSeries = chart.addSeries(HistogramSeries, {
-    priceFormat: { type: 'volume' },
-    priceScaleId: '', 
-    visible: showVolume.value
-  });
-  
-  volumeSeries.priceScale().applyOptions({
-    scaleMargins: { top: 0.8, bottom: 0 }
-  });
-
-  // 🌟 监听平移和缩放事件
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
-    // 1. 触发懒加载
-    if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) {
-      loadMoreHistory();
-    }
-    // 2. 广播缩放/平移同步指令
+    if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) loadMoreHistory();
     if (marketStore.isSyncEnabled && !isSyncingRange && logicalRange) {
-      window.dispatchEvent(new CustomEvent('sync-logical-range', {
-        detail: { range: logicalRange, sourceId: instanceId }
-      }));
+      window.dispatchEvent(new CustomEvent('sync-logical-range', { detail: { range: logicalRange, sourceId: instanceId } }));
     }
   });
 
-  // 🌟 监听十字光标移动，发送同步指令
   chart.subscribeCrosshairMove((param) => {
     if (
-      param.point === undefined ||
-      !param.time ||
-      param.point.x < 0 ||
-      param.point.x > chartContainer.value!.clientWidth ||
-      param.point.y < 0 ||
-      param.point.y > chartContainer.value!.clientHeight
+      param.point === undefined || !param.time ||
+      param.point.x < 0 || param.point.x > chartContainer.value!.clientWidth ||
+      param.point.y < 0 || param.point.y > chartContainer.value!.clientHeight
     ) {
       hoverData.value = null;
-      // 鼠标移出，通知 store 清除光标
       if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) {
         marketStore.updateGlobalCrosshair(0, 0, props.symbol, instanceId);
       }
@@ -320,15 +501,12 @@ onMounted(async () => {
       const isUp = candleData.close >= candleData.open;
       hoverData.value = {
         time: formatDateTime(Number(param.time)),
-        open: candleData.open.toFixed(2),
-        high: candleData.high.toFixed(2),
-        low: candleData.low.toFixed(2),
-        close: candleData.close.toFixed(2),
+        open: candleData.open.toFixed(2), high: candleData.high.toFixed(2),
+        low: candleData.low.toFixed(2), close: candleData.close.toFixed(2),
         vol: volData && volData.value !== undefined ? Number(volData.value).toFixed(2) : '0.00',
         colorClass: isUp ? 'text-up' : 'text-down' 
       };
 
-      // 发送十字光标位置到 store
       if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) {
         marketStore.updateGlobalCrosshair(Number(param.time), candleData.close, props.symbol, instanceId);
       }
@@ -337,7 +515,18 @@ onMounted(async () => {
     }
   });
 
-  chart.subscribeClick(() => takeFocus());
+  chart.subscribeClick((param) => {
+    if (isDrawingLine.value && param.point) {
+      const price = candleSeries.coordinateToPrice(param.point.y);
+      if (price !== null) {
+        const newId = Math.random().toString(36).substring(2, 10);
+        addHorizontalLine(newId, price, '#58a6ff', true);
+      }
+      isDrawingLine.value = false;
+      return;
+    }
+    takeFocus();
+  });
 
   resizeObserver = new ResizeObserver(entries => {
     if (entries[0].contentRect.width === 0) return;
@@ -349,26 +538,19 @@ onMounted(async () => {
   marketStore.subscribeKline(props.symbol, currentTf.value);
 });
 
-// ==========================================
-// 🌟 接收十字光标同步信号并渲染
-// ==========================================
 watch(() => marketStore.globalCrosshairTime, () => {
   if (!chart || !candleSeries || !marketStore.isSyncEnabled) return;
   const allCrosshairs = marketStore.crosshairData;
   if (!allCrosshairs) return;
 
-  // 寻找别人发出的光标数据
   const remoteCrosshair = Object.values(allCrosshairs as Record<string, any>).find(
     (c: any) => c.sourceId !== instanceId && c.time > 0
   );
 
-  // 如果别人鼠标移出了图表，我也清除光标
   if (!remoteCrosshair) {
     chart.clearCrosshairPosition();
     return;
   }
-
-  // 使用原生 API 在当前图表画出同步的十字光标！
   chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
 });
 
@@ -392,11 +574,8 @@ watch(currentKlineData, (newVal) => {
         ? Math.floor(Number(currentChartData.value[lastIndex].time) / 1000) 
         : Number(currentChartData.value[lastIndex].time);
 
-      if (lastTimeSec === rawFormat.time) {
-        currentChartData.value[lastIndex] = newVal; 
-      } else if (rawFormat.time > lastTimeSec) {
-        currentChartData.value.push(newVal);
-      }
+      if (lastTimeSec === rawFormat.time) currentChartData.value[lastIndex] = newVal; 
+      else if (rawFormat.time > lastTimeSec) currentChartData.value.push(newVal);
     }
 
     if (localChartType.value === 'heikinAshi') {
@@ -423,9 +602,7 @@ watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol
 
   if (pos) {
     const currentPrice = getCurrentPrice() || pos.entryPrice;
-    const pnl = pos.side === 'LONG' 
-      ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
-      : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+    const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
       
     positionLineId = candleSeries.createPriceLine({
       price: pos.entryPrice,
@@ -453,19 +630,15 @@ const changeChartType = (type: string) => {
 
 const toggleVolume = () => {
   showVolume.value = !showVolume.value;
-  if (volumeSeries) {
-    volumeSeries.applyOptions({ visible: showVolume.value });
-  }
+  if (volumeSeries) volumeSeries.applyOptions({ visible: showVolume.value });
 };
 
 onUnmounted(() => {
   window.removeEventListener('sync-logical-range', onSyncRange);
+  window.removeEventListener('sync-drawing', onSyncDrawing);
   marketStore.unsubscribeKline(props.symbol, currentTf.value);
   if (resizeObserver && chartContainer.value) resizeObserver.unobserve(chartContainer.value);
-  if (chart) {
-    chart.remove();
-    chart = null;
-  }
+  if (chart) { chart.remove(); chart = null; }
 });
 </script>
 
@@ -481,15 +654,19 @@ onUnmounted(() => {
 .chart-type-selector button { background: transparent; border: none; color: #8b949e; padding: 2px 8px; font-size: 12px; cursor: pointer; border-radius: 2px; }
 .chart-type-selector button.active { background: #30363d; color: #c9d1d9; font-weight: bold; }
 .sync-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
-.sync-btn.active { background: #1f6feb; color: white; border-color: #1f6feb; }
+.sync-btn.active { background: #58a6ff; color: white; border-color: #58a6ff; }
+.clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
 .divider { color: #30363d; margin: 0 2px; }
 .symbol-info-wrapper { display: flex; align-items: center; gap: 8px; }
 .symbol-info { font-size: 14px; font-weight: bold; color: #e6edf3; }
 .focus-badge { background: #1f6feb; color: #ffffff; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: normal; }
 
-.chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; transition: box-shadow 0.2s; }
+.is-drawing-mode { box-shadow: inset 0 0 15px rgba(88, 166, 255, 0.2); cursor: crosshair; }
 .chart-container { flex: 1; width: 100%; position: relative; }
+.is-resizing { cursor: ns-resize !important; }
 
+/* 悬浮数据面板 */
 .chart-legend {
   position: absolute;
   top: 8px;
@@ -508,4 +685,25 @@ onUnmounted(() => {
 .vol-text { color: #c9d1d9; font-weight: bold; }
 .text-up { color: #2ea043; font-weight: bold; }
 .text-down { color: #f85149; font-weight: bold; }
+
+/* 🌟 画线设置面板 */
+.line-settings-panel {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(22, 27, 34, 0.85);
+  border: 1px solid #30363d;
+  padding: 6px 12px;
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+}
+.setting-title { font-size: 12px; color: #8b949e; margin-right: 4px; }
+.line-settings-panel input[type="color"] { background: transparent; border: none; width: 24px; height: 24px; cursor: pointer; padding: 0; }
+.action-btn { background: transparent; border: 1px solid #30363d; color: #c9d1d9; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: 0.2s; }
+.action-btn:hover { background: #30363d; }
+.delete-btn:hover { border-color: #f85149; color: #f85149; }
 </style>
