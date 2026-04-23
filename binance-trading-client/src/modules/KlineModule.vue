@@ -131,9 +131,9 @@
         :class="{ 'is-resizing': isHoveringShape || draggingShapeId }"
         ref="chartContainer"
         @pointerdown.stop="onPointerDown"
-        @pointermove.stop="onPointerMove"
-        @pointerup.stop="onPointerUp"
-        @pointerleave.stop="onPointerUp"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointerleave="onPointerUp"
         @wheel.stop
         @contextmenu.prevent
       ></div>
@@ -169,21 +169,16 @@ let positionLineId: any = null;
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
-// 🌟 通知系统
 const notifications = ref<{id: number, msg: string}[]>([]);
 let notifIdCounter = 0;
 const showNotification = (msg: string) => {
   const id = notifIdCounter++;
   notifications.value.push({ id, msg });
-  // 5秒后自动消失
   setTimeout(() => {
     notifications.value = notifications.value.filter(n => n.id !== id);
   }, 5000);
 };
 
-// ==========================================
-// 🌟 绘图引擎状态 (扩展了 triggered 属性)
-// ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
 
@@ -210,7 +205,6 @@ const onDrawModeChange = () => {
 
 const deselectShape = () => { selectedShapeId.value = null; };
 
-// 🌟 SVG 渲染循环
 let animationFrameId: number;
 const renderSvgLoop = () => {
   if (chart && candleSeries && chartContainer.value) {
@@ -227,7 +221,6 @@ const renderSvgLoop = () => {
         pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x), y: pts[2].y + (pts[1].y - pts[0].y) };
       }
       
-      // 射线与提醒射线的数学延长
       if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
         const dx = pts[1].x - pts[0].x;
         const dy = pts[1].y - pts[0].y;
@@ -255,9 +248,6 @@ const renderSvgLoop = () => {
   animationFrameId = requestAnimationFrame(renderSvgLoop);
 };
 
-// ==========================================
-// 碰撞检测算法
-// ==========================================
 const distToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
   const l2 = (x1 - x2)**2 + (y1 - y2)**2;
   if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
@@ -295,7 +285,6 @@ const onPointerDown = (e: PointerEvent) => {
     } else if (['trend', 'ray', 'angle', 'alert_ray'].includes(currentDrawMode.value)) {
       if (drawStep.value === 0) {
         const newId = Math.random().toString(36).substring(2, 10);
-        // 提醒射线默认使用显眼的橙色
         const defaultColor = currentDrawMode.value === 'alert_ray' ? '#ff9800' : '#58a6ff';
         customShapes.value.push({ 
           id: newId, 
@@ -394,7 +383,6 @@ const onPointerMove = (e: PointerEvent) => {
         p.logical = logical + dragOffsets[idx].dl;
         p.price = price + dragOffsets[idx].dp;
       });
-      // 🌟 如果被移动了，重新激活警报器
       if (shape.type === 'alert_ray') {
         shape.triggered = false;
       }
@@ -426,9 +414,6 @@ const onPointerUp = () => {
   }
 };
 
-// ==========================================
-// 🌟 同步机制
-// ==========================================
 const broadcastSync = (detail: any) => {
   if (marketStore.isSyncEnabled) {
     window.dispatchEvent(new CustomEvent('sync-drawing', {
@@ -479,7 +464,6 @@ const onSyncDrawing = (e: any) => {
     }
     else if (action === 'delete') customShapes.value = customShapes.value.filter(l => l.id !== id);
     else if (action === 'clear') clearAllShapes(false);
-    // 🌟 接收全局报警触发
     else if (action === 'trigger') {
       const localShape = customShapes.value.find(s => s.id === id);
       if (localShape) localShape.triggered = true;
@@ -487,9 +471,6 @@ const onSyncDrawing = (e: any) => {
   }
 };
 
-// ==========================================
-// 基础图表配置与 API 加载
-// ==========================================
 const formatDateTime = (timestamp: number) => {
   const date = new Date(timestamp * 1000); 
   const y = date.getFullYear();
@@ -669,9 +650,6 @@ watch(() => marketStore.globalCrosshairTime, () => {
   else chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
 });
 
-// ==========================================
-// 🌟 核心引擎：实时价格碰撞检测处理器
-// ==========================================
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
@@ -699,19 +677,14 @@ watch(currentKlineData, (newVal) => {
     }
     applyDataToSeries(currentChartData.value);
 
-    // 🚨 执行提醒射线的物理穿透检测
     customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
       const p0 = shape.points[0];
       const p1 = shape.points[1];
       const dx = p1.logical - p0.logical;
       const dp = p1.price - p0.price;
 
-      // 判断当前最新 K 线是否在射线的延长方向上
       if ((dx > 0 && latestLogicalIndex >= p0.logical) || (dx < 0 && latestLogicalIndex <= p0.logical)) {
-        // 利用斜率计算出这根 K 线所在物理时间点的【射线预期价格】
         const expectedPrice = p0.price + (dx === 0 ? 0 : (dp / dx) * (latestLogicalIndex - p0.logical));
-        
-        // 如果这根 K 线的最高价和最低价贯穿了期望价格，触发警报！
         if (rawFormat.low <= expectedPrice && rawFormat.high >= expectedPrice) {
           shape.triggered = true;
           showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(2)}`);
@@ -770,7 +743,6 @@ onUnmounted(() => {
 
 .drawing-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
-/* 🌟 通知 Toast 样式 */
 .toast-container { position: absolute; top: 12px; right: 12px; z-index: 50; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .toast-message { background: rgba(255, 152, 0, 0.9); color: white; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: slideIn 0.3s ease-out; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2); }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
