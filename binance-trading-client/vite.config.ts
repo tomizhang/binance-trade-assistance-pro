@@ -21,7 +21,7 @@ export default defineConfig({
         // 🌟 核心修复：强制 Vite 代理走你的本地科学上网通道
         agent: new HttpsProxyAgent(localProxyUrl),
         // 如果遇到证书问题，可以把下面这行打开
-        // secure: false, 
+         secure: false, 
       }
     }
   }
