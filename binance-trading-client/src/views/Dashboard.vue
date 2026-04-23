@@ -58,6 +58,7 @@ import KlineModule from '@/modules/KlineModule.vue'
 import OrderModule from '@/modules/OrderModule.vue'
 import PositionModule from '@/modules/PositionModule.vue'
 import MarketListModule from '@/modules/MarketListModule.vue'
+import FourierModule from '@/modules/FourierModule.vue';
 
 const isSidebarVisible = ref(true)
 
@@ -86,14 +87,16 @@ const getComponentByType = (type: string) => {
     case 'kline': return KlineModule
     case 'order': return OrderModule
     case 'position': return PositionModule
+    case 'fourier': return FourierModule
     default: return 'div'
   }
 }
 
 const layout = ref([
-  { x: 0, y: 0, w: 16, h: 14, i: 'kline-btc', type: 'kline', symbol: 'BTCUSDT', title: 'BTC/USDT 永续' },
+  // { x: 0, y: 0, w: 16, h: 14, i: 'kline-btc', type: 'kline', symbol: 'BTCUSDT', title: 'BTC/USDT 永续' },
+  { i: 'fourier-main', x: 0, y: 12, w: 16, h: 12, type: 'fourier' },
   // { x: 16, y: 0, w: 8, h: 14, i: 'order-panel', type: 'order', title: '下单面板' },
-  // { x: 0, y: 14, w: 24, h: 8, i: 'position-panel', type: 'position', title: '仓位与挂单' }
+  { x: 0, y: 14, w: 24, h: 8, i: 'position-panel', type: 'position', title: '仓位与挂单' }
 ])
 
 const addKlinePanel = (symbol: string) => {

@@ -50,15 +50,31 @@
           🔗 同步
         </button>
       </div>
-      
+    </div>
+    
+    <div class="kline-sub-toolbar">
       <div class="symbol-info-wrapper">
         <span class="symbol-info">{{ symbol }}</span>
         <span v-if="isFocused" class="focus-badge">🟢 操作中</span>
       </div>
+
+      <div v-if="currentPosition" class="position-panel" :class="{ 'in-profit': currentPosition.pnl >= 0, 'in-loss': currentPosition.pnl < 0 }">
+        <span class="pos-direction" :class="currentPosition.side === 'LONG' ? 'text-up' : 'text-down'">
+          {{ currentPosition.side === 'LONG' ? '↗ 做多' : '↘ 做空' }} 
+        </span>
+        <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
+        <span class="divider">|</span>
+        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(4) }}</span>
+        <span class="divider">|</span>
+        <span class="pos-label">未结盈亏</span>
+        <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
+          {{ currentPosition.pnl >= 0 ? '+' : ''}}{{ currentPosition.pnl.toFixed(2) }}
+          <span class="pos-rate">({{ currentPosition.pnlRate >= 0 ? '+' : ''}}{{ currentPosition.pnlRate.toFixed(2) }}%)</span>
+        </span>
+      </div>
     </div>
-    
+
     <div class="chart-wrapper" :class="{ 'is-drawing-mode': currentDrawMode !== 'none' }">
-      
       <div class="toast-container">
         <div v-for="t in notifications" :key="t.id" class="toast-message">
           {{ t.msg }}
@@ -168,6 +184,33 @@ let resizeObserver: ResizeObserver | null = null;
 let positionLineId: any = null;
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
+
+// ==========================================
+// 🌟 核心计算：实时仓位与盈亏 (PnL)
+// ==========================================
+const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
+
+const currentPosition = computed(() => {
+  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
+  if (!pos) return null;
+
+  const currentPrice = getCurrentPrice() || pos.entryPrice;
+  // 盈亏额计算
+  const pnl = pos.side === 'LONG' 
+    ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
+    : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+  
+  // 收益率计算
+  const positionValue = pos.entryPrice * Math.abs(pos.amount);
+  const pnlRate = positionValue > 0 ? (pnl / positionValue) * 100 : 0;
+
+  return {
+    ...pos,
+    currentPrice,
+    pnl,
+    pnlRate
+  };
+});
 
 const notifications = ref<{id: number, msg: string}[]>([]);
 let notifIdCounter = 0;
@@ -677,6 +720,18 @@ watch(currentKlineData, (newVal) => {
     }
     applyDataToSeries(currentChartData.value);
 
+    // 🌟 在这里依然更新我们早先画的底层价格虚线 (如果还在图里的话)
+    const pos = marketStore.positions.find(p => p.symbol === props.symbol);
+    if (pos && positionLineId) {
+       // 更新盈亏数值
+       const currentPrice = rawFormat.close;
+       const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+       positionLineId.applyOptions({
+         color: pnl >= 0 ? '#2ea043' : '#f85149',
+         title: `${pos.side === 'LONG' ? '做多' : '做空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`
+       });
+    }
+
     customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
       const p0 = shape.points[0];
       const p1 = shape.points[1];
@@ -691,6 +746,30 @@ watch(currentKlineData, (newVal) => {
           broadcastSync({ action: 'trigger', id: shape.id });
         }
       }
+    });
+  }
+}, { deep: true });
+
+watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol]?.lastPrice], () => {
+  if (!candleSeries) return;
+  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
+  
+  if (positionLineId) {
+    candleSeries.removePriceLine(positionLineId);
+    positionLineId = null;
+  }
+
+  if (pos) {
+    const currentPrice = getCurrentPrice() || pos.entryPrice;
+    const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+      
+    positionLineId = candleSeries.createPriceLine({
+      price: pos.entryPrice,
+      color: pnl >= 0 ? '#2ea043' : '#f85149',
+      lineWidth: 2,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: `${pos.side === 'LONG' ? '做多' : '做空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
     });
   }
 }, { deep: true });
@@ -732,9 +811,21 @@ onUnmounted(() => {
 .sync-btn.active { background: #1f6feb; color: white; border-color: #1f6feb; }
 .clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
 .divider { color: #30363d; margin: 0 2px; }
-.symbol-info-wrapper { display: flex; align-items: center; gap: 8px; }
-.symbol-info { font-size: 14px; font-weight: bold; color: #e6edf3; }
+
+/* 🌟 副工具栏：专门用于展示币种与仓位信息 */
+.kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; }
+.symbol-info-wrapper { display: flex; align-items: center; gap: 8px; margin-right: 16px; }
+.symbol-info { font-size: 15px; font-weight: bold; color: #e6edf3; }
 .focus-badge { background: #1f6feb; color: #ffffff; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: normal; }
+
+/* 🌟 仓位面板样式 */
+.position-panel { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; background: rgba(22, 27, 34, 0.8); padding: 4px 12px; border-radius: 6px; border: 1px solid #30363d; transition: all 0.3s ease; }
+.position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
+.position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
+.pos-label { color: #8b949e; font-weight: normal; font-size: 12px; }
+.pos-val { color: #c9d1d9; }
+.pos-pnl { font-size: 14px; display: flex; gap: 4px; align-items: baseline; }
+.pos-rate { font-size: 12px; opacity: 0.8; }
 
 .chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; transition: box-shadow 0.2s; }
 .is-drawing-mode { box-shadow: inset 0 0 15px rgba(88, 166, 255, 0.2); cursor: crosshair; }
