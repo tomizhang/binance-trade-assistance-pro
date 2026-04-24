@@ -37,7 +37,10 @@
             <div class="panel-header">
               <span class="panel-title">{{ item.title }}</span>
               <div class="panel-actions">
-                <button @click="removePanel(item.i)">✕</button>
+                <button class="size-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
+                <button class="size-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
+                <span class="action-divider">|</span>
+                <button class="close-btn" @click="removePanel(item.i)" title="关闭面板">✕</button>
               </div>
             </div>
             <div class="panel-content">
@@ -62,24 +65,23 @@ import FourierModule from '@/modules/FourierModule.vue';
 
 const isSidebarVisible = ref(true)
 
-// 🌟 核心修复：强制网格重绘的逻辑
+// 核心修复：强制网格重绘的逻辑
 const triggerGridResize = () => {
-  // 等待 Vue DOM 更新完毕后，发送一个全局的 resize 事件
   nextTick(() => {
     setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
-    }, 150); // 给 150ms 延迟，确保 display:none 完全生效，避免网格库计算到错误的值
+    }, 150); 
   });
 };
 
 const handleCollapse = () => {
   isSidebarVisible.value = false;
-  triggerGridResize(); // 收起时重绘网格
+  triggerGridResize(); 
 };
 
 const handleExpand = () => {
   isSidebarVisible.value = true;
-  triggerGridResize(); // 展开时重绘网格
+  triggerGridResize(); 
 };
 
 const getComponentByType = (type: string) => {
@@ -94,7 +96,7 @@ const getComponentByType = (type: string) => {
 
 const layout = ref([
   // { x: 0, y: 0, w: 16, h: 14, i: 'kline-btc', type: 'kline', symbol: 'BTCUSDT', title: 'BTC/USDT 永续' },
-  // { i: 'fourier-main', x: 0, y: 12, w: 16, h: 12, type: 'fourier' },
+  // { i: 'fourier-main', x: 0, y: 12, w: 16, h: 12, type: 'fourier', title: '频域分析' },
   // { x: 16, y: 0, w: 8, h: 14, i: 'order-panel', type: 'order', title: '下单面板' },
   { x: 0, y: 14, w: 24, h: 8, i: 'position-panel', type: 'position', title: '仓位与挂单' }
 ])
@@ -106,6 +108,19 @@ const addKlinePanel = (symbol: string) => {
 
 const removePanel = (id: string) => {
   layout.value = layout.value.filter(item => item.i !== id)
+}
+
+// 🌟 新增：由 Dashboard 统一接管的面板宽度调整功能
+const updateGridWidth = (id: string, newWidth: number) => {
+  const index = layout.value.findIndex(item => item.i === id);
+  if (index !== -1) {
+    layout.value[index].w = newWidth;
+    // 强制触发 Vue 深层响应式更新，让 grid-layout-plus 重新排版
+    layout.value = [...layout.value];
+    
+    // 触发图表内部的自适应调整
+    triggerGridResize();
+  }
 }
 </script>
 
@@ -119,7 +134,6 @@ const removePanel = (id: string) => {
   overflow: hidden;
 }
 
-/* 🌟 宽度调整：从 280px 增加到 320px，视觉更舒展 */
 .sidebar-left { 
   width: 320px; 
   flex-shrink: 0; 
@@ -161,7 +175,17 @@ const removePanel = (id: string) => {
 .panel-container { background-color: #161b22; border: 1px solid #30363d; border-radius: 4px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .panel-header { height: 30px; background-color: #21262d; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; cursor: move; user-select: none; flex-shrink: 0; }
 .panel-title { font-size: 13px; font-weight: bold; }
-.panel-actions button { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 14px; }
-.panel-actions button:hover { color: #ff7b72; }
+
+/* 🌟 优化面板操作区的样式，让放大缩小按钮和关闭按钮排布更美观 */
+.panel-actions { display: flex; align-items: center; gap: 4px; }
+.size-btn { background: transparent; border: none; color: #8b949e; padding: 2px 4px; font-size: 12px; cursor: pointer; transition: 0.2s; border-radius: 4px; }
+.size-btn:hover { background: #30363d; color: #c9d1d9; }
+.size-btn.active { color: #58a6ff; font-weight: bold; background: rgba(88, 166, 255, 0.1); }
+
+.action-divider { color: #30363d; margin: 0 4px; font-size: 12px; }
+
+.close-btn { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; transition: 0.2s; }
+.close-btn:hover { color: #ff7b72; background: rgba(255, 123, 114, 0.1); }
+
 .panel-content { flex: 1; overflow: hidden; position: relative; }
 </style>
