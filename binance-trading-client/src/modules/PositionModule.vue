@@ -29,7 +29,6 @@
             <th @click="setSort('time')" class="sortable">开仓时间 {{ getSortIcon('time') }}</th>
             <th @click="setSort('symbol')" class="sortable">合约 {{ getSortIcon('symbol') }}</th>
             <th @click="setSort('side')" class="sortable">方向/杠杆 {{ getSortIcon('side') }}</th>
-            
             <th @click="setSort('amount')" class="sortable amount-th">
               <div class="th-stacked">
                 <span>持仓量 {{ getSortIcon('amount') }}</span>
@@ -38,8 +37,7 @@
                 </button>
               </div>
             </th>
-
-            <th @click="setSort('entryPrice')" class="sortable">开仓均价 / 最新价</th>
+            <th @click="setSort('entryPrice')" class="sortable">均价 / 最新 / 强平</th>
             <th title="保证金占用 = 名义价值 / 杠杆">占用保证金</th>
             <th @click="setSort('pnl')" class="sortable">未实现盈亏(ROE%) {{ getSortIcon('pnl') }}</th>
             <th>操作</th>
@@ -53,9 +51,7 @@
             :class="{ 'active-row': marketStore.currentSymbol === pos.symbol }"
           >
             <td class="font-mono text-muted">{{ formatDateTime(pos.updateTime) }}</td>
-            
             <td><strong>{{ pos.symbol }}</strong></td>
-            
             <td>
               <div class="side-col">
                 <span :class="pos.side === 'LONG' ? 'text-green' : 'text-red'" class="side-badge">
@@ -67,32 +63,24 @@
                 </span>
               </div>
             </td>
-
             <td class="font-mono">{{ getDisplayAmount(pos) }}</td>
-
             <td class="font-mono price-col">
-              <span class="entry-price">{{ pos.entryPrice.toFixed(getTickDecimals(pos.symbol)) }}</span>
-              <span :class="getPriceColor(pos.symbol)" class="current-price">
-                {{ getCurrentPrice(pos.symbol).toFixed(getTickDecimals(pos.symbol)) }}
+              <span class="entry-price" title="开仓均价">均: {{ pos.entryPrice.toFixed(getTickDecimals(pos.symbol)) }}</span>
+              <span :class="getPriceColor(pos.symbol)" class="current-price" title="最新价">
+                现: {{ getCurrentPrice(pos.symbol).toFixed(getTickDecimals(pos.symbol)) }}
+              </span>
+              <span class="liq-price" title="预估强平价">
+                平: {{ getLiqPrice(pos) > 0 ? getLiqPrice(pos).toFixed(getTickDecimals(pos.symbol)) : '--' }}
               </span>
             </td>
-
-            <td class="font-mono">
-              {{ getUsedMargin(pos) }} U
-            </td>
-
+            <td class="font-mono">{{ getUsedMargin(pos) }} U</td>
             <td class="font-mono pnl-col" :class="getPnlClass(getRealtimePnl(pos))">
               <span class="pnl-value">{{ getRealtimePnl(pos) > 0 ? '+' : '' }}{{ getRealtimePnl(pos).toFixed(2) }}</span>
               <span class="pnl-roe">({{ getRoe(pos) > 0 ? '+' : '' }}{{ getRoe(pos).toFixed(2) }}%)</span>
             </td>
-
-            <td>
-              <button class="btn-close" @click.stop="closePosition(pos)">市价平仓</button>
-            </td>
+            <td><button class="btn-close" @click.stop="closePosition(pos)">市价平仓</button></td>
           </tr>
-          <tr v-if="sortedActivePositions.length === 0">
-            <td colspan="8" class="empty-state">没有符合条件的持仓</td>
-          </tr>
+          <tr v-if="sortedActivePositions.length === 0"><td colspan="8" class="empty-state">没有符合条件的持仓</td></tr>
         </tbody>
       </table>
 
@@ -106,9 +94,7 @@
             <td><span :class="trade.side === 'BUY' ? 'text-green' : 'text-red'">{{ trade.side === 'BUY' ? '买入' : '卖出' }}</span></td>
             <td class="font-mono">{{ parseFloat(trade.price).toFixed(getTickDecimals(trade.symbol)) }}</td>
             <td class="font-mono">{{ parseFloat(trade.qty) }}</td>
-            <td class="font-mono" :class="getPnlClass(parseFloat(trade.realizedPnl))">
-              {{ parseFloat(trade.realizedPnl) > 0 ? '+' : '' }}{{ parseFloat(trade.realizedPnl).toFixed(4) }}
-            </td>
+            <td class="font-mono" :class="getPnlClass(parseFloat(trade.realizedPnl))">{{ parseFloat(trade.realizedPnl) > 0 ? '+' : '' }}{{ parseFloat(trade.realizedPnl).toFixed(4) }}</td>
           </tr>
         </tbody>
       </table>
@@ -120,6 +106,7 @@
 import { ref, computed } from 'vue';
 import { useMarketStore } from '@/store/market';
 import { useToast } from '@/utils/useToast';
+import { calculateLiquidationPrice } from '@/utils/tradeUtils';
 
 const marketStore = useMarketStore();
 const toast = useToast();
@@ -136,19 +123,12 @@ const switchToHistory = () => {
   marketStore.fetchPositionHistory(showCurrentOnly.value ? marketStore.currentSymbol : undefined);
 };
 
-// ==========================================
-// 🌟 核心引擎 1：排序与过滤机制
-// ==========================================
-const sortKey = ref('time'); // 默认按时间排序
+const sortKey = ref('time'); 
 const sortDesc = ref(true);
 
 const setSort = (key: string) => {
-  if (sortKey.value === key) {
-    sortDesc.value = !sortDesc.value;
-  } else {
-    sortKey.value = key;
-    sortDesc.value = true;
-  }
+  if (sortKey.value === key) { sortDesc.value = !sortDesc.value; } 
+  else { sortKey.value = key; sortDesc.value = true; }
 };
 
 const getSortIcon = (key: string) => {
@@ -179,17 +159,11 @@ const sortedActivePositions = computed(() => {
       case 'pnl': valA = getRealtimePnl(a); valB = getRealtimePnl(b); break;
       default: valA = 0; valB = 0;
     }
-    
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return sortDesc.value ? valB.localeCompare(valA) : valA.localeCompare(valB);
-    }
+    if (typeof valA === 'string' && typeof valB === 'string') { return sortDesc.value ? valB.localeCompare(valA) : valA.localeCompare(valB); }
     return sortDesc.value ? valB - valA : valA - valB;
   });
 });
 
-// ==========================================
-// 🌟 核心引擎 2：价格、盈亏、保证金计算
-// ==========================================
 const getCurrentPrice = (symbol: string) => marketStore.marketTickers[symbol]?.lastPrice || 0;
 const getPriceColor = (symbol: string) => (marketStore.marketTickers[symbol]?.priceChangePercent || 0) >= 0 ? 'text-green' : 'text-red';
 const getTickDecimals = (symbol: string) => {
@@ -199,13 +173,47 @@ const getTickDecimals = (symbol: string) => {
   return match ? match[1].length + 1 : 0;
 };
 
+// 🌟 核心升级：为当前计算的仓位，提取并注入其他全仓合约的实时数据
+const getLiqPrice = (pos: any) => {
+  // 1. 过滤出其他的全仓合约
+  const otherCrossPositions = marketStore.positions
+    .filter(p => p.symbol !== pos.symbol && p.marginType === 'cross')
+    .map(p => {
+      const currentPrice = getCurrentPrice(p.symbol);
+      const amount = Math.abs(p.amount);
+      const unrealizedPnL = p.side === 'LONG' 
+        ? (currentPrice - p.entryPrice) * amount 
+        : (p.entryPrice - currentPrice) * amount;
+        
+      return {
+        symbol: p.symbol,
+        side: p.side,
+        amount: p.amount,
+        entryPrice: p.entryPrice,
+        leverage: p.leverage || 1,
+        marginType: 'cross' as 'cross',
+        unrealizedPnL,
+        markPrice: currentPrice || p.entryPrice
+      };
+    });
+
+  // 2. 将数据喂给本地物理引擎
+  return calculateLiquidationPrice({
+    symbol: pos.symbol,
+    side: pos.side,
+    amount: pos.amount,
+    entryPrice: pos.entryPrice,
+    leverage: pos.leverage || 1,
+    marginType: pos.marginType || 'isolated'
+  }, marketStore.usdtBalance, otherCrossPositions);
+};
+
 const getDisplayAmount = (pos: any) => {
   const amount = Math.abs(pos.amount);
   if (displayMode.value === 'TOKEN') return `${amount} ${pos.symbol.replace('USDT', '')}`;
   return `${(amount * (getCurrentPrice(pos.symbol) || pos.entryPrice)).toFixed(2)}`;
 };
 
-// 🌟 计算保证金占用 = (持仓数量 * 开仓价) / 杠杆倍数
 const getUsedMargin = (pos: any) => {
   const notionalValue = Math.abs(pos.amount) * pos.entryPrice;
   const lev = pos.leverage || 1;
@@ -234,7 +242,6 @@ const getPnlClass = (pnl: number) => {
   return '';
 };
 
-// 🌟 格式化时间为 yyyy-MM-dd hh:mm:ss
 const formatDateTime = (timestamp: number) => {
   if (!timestamp) return '-';
   const d = new Date(timestamp);
@@ -267,26 +274,22 @@ const closePosition = async (pos: any) => {
 <style scoped>
 .position-module { height: 100%; background: #0d1117; display: flex; flex-direction: column; border: 1px solid #30363d; border-radius: 6px; }
 
-/* 头部设计 */
 .module-header { display: flex; justify-content: space-between; align-items: center; background: #161b22; border-bottom: 1px solid #30363d; padding-right: 15px; }
 .tabs { display: flex; }
 .tabs button { background: transparent; border: none; color: #8b949e; padding: 10px 16px; font-size: 13px; font-weight: bold; cursor: pointer; border-bottom: 2px solid transparent; }
 .tabs button.active { color: #58a6ff; border-bottom-color: #58a6ff; background: rgba(88, 166, 255, 0.05); }
 .balance-info { font-size: 12px; color: #8b949e; }
 
-/* 工具栏 */
 .toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; }
 .filter-group { display: flex; align-items: center; gap: 12px; }
 .search-input { background: #010409; border: 1px solid #30363d; color: #c9d1d9; padding: 3px 8px; border-radius: 4px; font-size: 12px; width: 140px; outline: none; }
 .checkbox-label { font-size: 12px; color: #c9d1d9; display: flex; align-items: center; gap: 4px; cursor: pointer; }
 
-/* 🌟 表格主体 (优化行高 padding 从 10px 降到 6px) */
 .position-table { flex: 1; overflow-y: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th { text-align: left; padding: 6px 12px; color: #8b949e; background: #0d1117; position: sticky; top: 0; border-bottom: 1px solid #21262d; font-weight: normal; z-index: 1; }
 td { padding: 6px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; cursor: pointer; }
 
-/* 表头切换按钮 */
 .th-stacked { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .mini-toggle { background: #21262d; border: 1px solid #30363d; color: #8b949e; font-size: 10px; padding: 1px 4px; border-radius: 3px; cursor: pointer; }
 .mini-toggle:hover { color: #58a6ff; border-color: #58a6ff; }
@@ -305,6 +308,7 @@ tr:hover td { background: rgba(139, 148, 158, 0.05); }
 .price-col { display: flex; flex-direction: column; gap: 2px; }
 .entry-price { font-size: 11px; color: #8b949e; }
 .current-price { font-size: 13px; font-weight: bold; }
+.liq-price { font-size: 11px; color: #d29922; border-top: 1px dashed rgba(48, 54, 61, 0.5); padding-top: 2px; } 
 
 .text-green { color: #2ea043 !important; }
 .text-red { color: #f85149 !important; }

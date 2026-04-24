@@ -17,37 +17,45 @@
         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
       </button>
 
-      <GridLayout
-        v-model:layout="layout"
-        :col-num="24"
-        :row-height="30"
-        :is-draggable="true"
-        :is-resizable="true"
-        :vertical-compact="true"
-        :use-css-transforms="true"
-        drag-allow-from=".panel-header"
-        drag-ignore-from=".tv-lightweight-charts, .chart-container, button, a, input"
-      >
+        <GridLayout
+          v-model:layout="layout"
+          :col-num="24"
+          :row-height="30"
+          :is-draggable="true"
+          :is-resizable="true"
+          :vertical-compact="true"
+          :use-css-transforms="true"
+            
+          drag-allow-from=".drag-handle"
+            
+          drag-ignore-from=".no-drag, .custom-slider, button, input, select, textarea, .chart-wrapper"
+        >
         <GridItem
           v-for="item in layout"
           :key="item.i"
           :x="item.x" :y="item.y" :w="item.w" :h="item.h" :i="item.i"
         >
-          <div class="panel-container">
-            <div class="panel-header">
-              <span class="panel-title">{{ item.title }}</span>
-              <div class="panel-actions">
-                <button class="size-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
-                <button class="size-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
-                <span class="action-divider">|</span>
-                <button class="close-btn" @click="removePanel(item.i)" title="关闭面板">✕</button>
-              </div>
-            </div>
-            <div class="panel-content">
-              <component :is="getComponentByType(item.type)" :symbol="item.symbol" />
+        <div class="panel-container">
+          <div class="panel-header">
+            <span class="panel-title">{{ item.title }}</span>
+            <div class="panel-actions">
+              <button class="size-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
+              <button class="size-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
+              <span class="action-divider">|</span>
+              <button class="close-btn" @click="removePanel(item.i)" title="关闭面板">✕</button>
             </div>
           </div>
-        </GridItem>
+          
+          <div 
+            class="panel-content no-drag"
+            @mousedown.stop
+            @touchstart.stop
+            @pointerdown.stop
+          >
+            <component :is="getComponentByType(item.type)" :symbol="item.symbol" />
+          </div>
+        </div>
+       </GridItem>
       </GridLayout>
     </main>
   </div>
@@ -65,7 +73,6 @@ import FourierModule from '@/modules/FourierModule.vue';
 
 const isSidebarVisible = ref(true)
 
-// 核心修复：强制网格重绘的逻辑
 const triggerGridResize = () => {
   nextTick(() => {
     setTimeout(() => {
@@ -97,7 +104,7 @@ const getComponentByType = (type: string) => {
 const layout = ref([
   // { x: 0, y: 0, w: 16, h: 14, i: 'kline-btc', type: 'kline', symbol: 'BTCUSDT', title: 'BTC/USDT 永续' },
   // { i: 'fourier-main', x: 0, y: 12, w: 16, h: 12, type: 'fourier', title: '频域分析' },
-  // { x: 16, y: 0, w: 8, h: 14, i: 'order-panel', type: 'order', title: '下单面板' },
+  { x: 16, y: 0, w: 8, h: 14, i: 'order-panel', type: 'order', title: '下单面板' },
   { x: 0, y: 14, w: 24, h: 8, i: 'position-panel', type: 'position', title: '仓位与挂单' }
 ])
 
@@ -110,15 +117,29 @@ const removePanel = (id: string) => {
   layout.value = layout.value.filter(item => item.i !== id)
 }
 
-// 🌟 新增：由 Dashboard 统一接管的面板宽度调整功能
 const updateGridWidth = (id: string, newWidth: number) => {
   const index = layout.value.findIndex(item => item.i === id);
   if (index !== -1) {
     layout.value[index].w = newWidth;
-    // 强制触发 Vue 深层响应式更新，让 grid-layout-plus 重新排版
     layout.value = [...layout.value];
+    triggerGridResize();
+  }
+}
+
+// 🌟 新增：面板克隆逻辑
+const duplicatePanel = (id: string) => {
+  const targetItem = layout.value.find(item => item.i === id);
+  if (targetItem) {
+    // 拷贝属性，生成新 ID，并利用 y: 999 让网格自动将其放置在最底部
+    const clonedItem = {
+      ...targetItem,
+      i: `${targetItem.type}-clone-${Date.now()}`,
+      y: 999, 
+    };
     
-    // 触发图表内部的自适应调整
+    layout.value.push(clonedItem);
+    
+    // 触发图表重新适配
     triggerGridResize();
   }
 }
@@ -176,11 +197,10 @@ const updateGridWidth = (id: string, newWidth: number) => {
 .panel-header { height: 30px; background-color: #21262d; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; cursor: move; user-select: none; flex-shrink: 0; }
 .panel-title { font-size: 13px; font-weight: bold; }
 
-/* 🌟 优化面板操作区的样式，让放大缩小按钮和关闭按钮排布更美观 */
 .panel-actions { display: flex; align-items: center; gap: 4px; }
-.size-btn { background: transparent; border: none; color: #8b949e; padding: 2px 4px; font-size: 12px; cursor: pointer; transition: 0.2s; border-radius: 4px; }
-.size-btn:hover { background: #30363d; color: #c9d1d9; }
-.size-btn.active { color: #58a6ff; font-weight: bold; background: rgba(88, 166, 255, 0.1); }
+.action-icon-btn { background: transparent; border: none; color: #8b949e; padding: 2px 4px; font-size: 12px; cursor: pointer; transition: 0.2s; border-radius: 4px; }
+.action-icon-btn:hover { background: #30363d; color: #c9d1d9; }
+.action-icon-btn.active { color: #58a6ff; font-weight: bold; background: rgba(88, 166, 255, 0.1); }
 
 .action-divider { color: #30363d; margin: 0 4px; font-size: 12px; }
 

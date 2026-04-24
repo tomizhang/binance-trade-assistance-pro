@@ -50,6 +50,12 @@
           🔗 同步
         </button>
       </div>
+
+      <div class="actions-group">
+        <button class="action-btn reload-btn" @click="hardReload" title="销毁图表引擎并彻底重载数据">
+          🔌 重载
+        </button>
+      </div>
     </div>
     
     <div class="kline-sub-toolbar">
@@ -164,6 +170,7 @@ import { useMarketStore } from '@/store/market';
 import { MarketAPI } from '@/api/market'; 
 
 const props = defineProps<{ symbol: string }>();
+
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
@@ -186,30 +193,19 @@ const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
 // ==========================================
-// 🌟 核心计算：实时仓位与盈亏 (PnL)
+// 仓位计算与通知
 // ==========================================
 const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
-
 const currentPosition = computed(() => {
   const pos = marketStore.positions.find(p => p.symbol === props.symbol);
   if (!pos) return null;
-
   const currentPrice = getCurrentPrice() || pos.entryPrice;
-  // 盈亏额计算
   const pnl = pos.side === 'LONG' 
     ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
     : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
-  
-  // 收益率计算
   const positionValue = pos.entryPrice * Math.abs(pos.amount);
   const pnlRate = positionValue > 0 ? (pnl / positionValue) * 100 : 0;
-
-  return {
-    ...pos,
-    currentPrice,
-    pnl,
-    pnlRate
-  };
+  return { ...pos, currentPrice, pnl, pnlRate };
 });
 
 const notifications = ref<{id: number, msg: string}[]>([]);
@@ -222,6 +218,9 @@ const showNotification = (msg: string) => {
   }, 5000);
 };
 
+// ==========================================
+// 绘图引擎核心
+// ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
 
@@ -525,17 +524,24 @@ const formatDateTime = (timestamp: number) => {
   return `${y}-${m}-${d} ${H}:${M}:${S}`;
 };
 
+// ==========================================
+// 🌟 核心修复：安全提取成交量以防丢失
+// ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA: any = null;
   for (const raw of rawData) {
-    const ha = { time: raw.time, open: 0, high: 0, low: 0, close: 0, value: raw.value, color: raw.color };
+    // 修复：兼容提取 volume/vol 字段，防止 HA 数据在应用时丢失成交量
+    const rawVolume = raw.value !== undefined ? raw.value : (raw.volume !== undefined ? raw.volume : (raw.vol || 0));
+    const ha = { time: raw.time, open: 0, high: 0, low: 0, close: 0, value: rawVolume, color: raw.color };
+    
     ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
     if (!prevHA) { ha.open = (Number(raw.open) + Number(raw.close)) / 2; } 
     else { ha.open = (Number(prevHA.open) + Number(prevHA.close)) / 2; }
     ha.high = Math.max(Number(raw.high), ha.open, ha.close);
     ha.low = Math.min(Number(raw.low), ha.open, ha.close);
     ha.color = ha.close >= ha.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';
+    
     haData.push(ha);
     prevHA = ha;
   }
@@ -613,11 +619,11 @@ const onSyncRange = (e: any) => {
   }
 };
 
-onMounted(async () => {
+// ==========================================
+// 图表初始化与硬重载
+// ==========================================
+const initCharts = () => {
   if (!chartContainer.value) return;
-
-  window.addEventListener('sync-logical-range', onSyncRange);
-  window.addEventListener('sync-drawing', onSyncDrawing);
 
   chart = createChart(chartContainer.value, {
     layout: { textColor: '#8b949e', background: { type: 'solid', color: '#0d1117' } },
@@ -671,12 +677,39 @@ onMounted(async () => {
     } else hoverData.value = null;
   });
 
+  if (resizeObserver) resizeObserver.disconnect();
   resizeObserver = new ResizeObserver(entries => {
     if (entries[0].contentRect.width === 0) return;
     chart?.applyOptions({ width: chartContainer.value!.clientWidth, height: chartContainer.value!.clientHeight });
   });
   resizeObserver.observe(chartContainer.value);
+};
 
+const disposeCharts = () => {
+  if (resizeObserver) resizeObserver.disconnect();
+  if (chart) { chart.remove(); chart = null; }
+  candleSeries = null;
+  volumeSeries = null;
+};
+
+const hardReload = async () => {
+  disposeCharts();
+  currentChartData.value = [];
+  customShapes.value = [];
+  svgShapes.value = [];
+  
+  initCharts();
+  await loadHistory(props.symbol, currentTf.value);
+  showNotification(`[${props.symbol}] K 线控件引擎已彻底重载`);
+};
+
+onMounted(async () => {
+  if (!chartContainer.value) return;
+
+  window.addEventListener('sync-logical-range', onSyncRange);
+  window.addEventListener('sync-drawing', onSyncDrawing);
+
+  initCharts();
   await loadHistory(props.symbol, currentTf.value);
   marketStore.subscribeKline(props.symbol, currentTf.value);
   
@@ -720,10 +753,8 @@ watch(currentKlineData, (newVal) => {
     }
     applyDataToSeries(currentChartData.value);
 
-    // 🌟 在这里依然更新我们早先画的底层价格虚线 (如果还在图里的话)
     const pos = marketStore.positions.find(p => p.symbol === props.symbol);
     if (pos && positionLineId) {
-       // 更新盈亏数值
        const currentPrice = rawFormat.close;
        const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
        positionLineId.applyOptions({
@@ -790,8 +821,7 @@ onUnmounted(() => {
   window.removeEventListener('sync-logical-range', onSyncRange);
   window.removeEventListener('sync-drawing', onSyncDrawing);
   marketStore.unsubscribeKline(props.symbol, currentTf.value);
-  if (resizeObserver && chartContainer.value) resizeObserver.unobserve(chartContainer.value);
-  if (chart) { chart.remove(); chart = null; }
+  disposeCharts();
 });
 </script>
 
@@ -812,13 +842,16 @@ onUnmounted(() => {
 .clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
 .divider { color: #30363d; margin: 0 2px; }
 
-/* 🌟 副工具栏：专门用于展示币种与仓位信息 */
+.actions-group { display: flex; align-items: center; gap: 6px; }
+.action-btn { background: rgba(226, 181, 20, 0.1); border: 1px solid #e2b514; color: #e2b514; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
+.reload-btn { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); padding: 3px 8px; border-radius: 4px; font-weight: normal;}
+.reload-btn:hover { background: #58a6ff; color: #0d1117; }
+
+/* 副工具栏 */
 .kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; }
 .symbol-info-wrapper { display: flex; align-items: center; gap: 8px; margin-right: 16px; }
 .symbol-info { font-size: 15px; font-weight: bold; color: #e6edf3; }
 .focus-badge { background: #1f6feb; color: #ffffff; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: normal; }
-
-/* 🌟 仓位面板样式 */
 .position-panel { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; background: rgba(22, 27, 34, 0.8); padding: 4px 12px; border-radius: 6px; border: 1px solid #30363d; transition: all 0.3s ease; }
 .position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
 .position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
@@ -848,7 +881,7 @@ onUnmounted(() => {
 .line-settings-panel { position: absolute; top: 8px; right: 12px; z-index: 10; display: flex; align-items: center; gap: 8px; background: rgba(22, 27, 34, 0.85); border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; backdrop-filter: blur(4px); }
 .setting-title { font-size: 12px; color: #8b949e; margin-right: 4px; }
 .line-settings-panel input[type="color"] { background: transparent; border: none; width: 24px; height: 24px; cursor: pointer; padding: 0; }
-.action-btn { background: transparent; border: 1px solid #30363d; color: #c9d1d9; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: 0.2s; }
-.action-btn:hover { background: #30363d; }
-.delete-btn:hover { border-color: #f85149; color: #f85149; }
+.line-settings-panel .action-btn { background: transparent; border: 1px solid #30363d; color: #c9d1d9; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: 0.2s; }
+.line-settings-panel .action-btn:hover { background: #30363d; }
+.line-settings-panel .delete-btn:hover { border-color: #f85149; color: #f85149; }
 </style>
