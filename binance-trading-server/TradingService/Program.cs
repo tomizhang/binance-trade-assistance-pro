@@ -6,6 +6,8 @@ using Serilog.Events;
 using System;
 using TradingService.BackgroundWorkers;
 using TradingService.Services;
+using TradingTerminal.Hubs;
+using TradingTerminal.Services;
 using YourApp.Infrastructure; // 记得替换为你的实际命名空间
 
 // ==========================================
@@ -47,6 +49,10 @@ try
 
     // 🌟 2. 再将其作为后台宿主服务启动，触发 ExecuteAsync
     builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
+    // 2. 🌟 关键：将 WebSocket 转发服务注册为单例并启动后台任务
+    builder.Services.AddSingleton<BinanceWebSocketService>();
+    // 2. 注册后台 WebSocket 转发服务
+    builder.Services.AddHostedService<BinanceDataForwarderService>();
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)
     builder.Services.AddCors(options =>
     {
@@ -79,6 +85,8 @@ try
     }
 
     app.MapHub<AccountHub>("/hubs/account");
+    // 3. 映射 Hub 路由
+    app.MapHub<MarketHub>("/hubs/market");
 
     app.UseCors("AllowVueFrontend");
     app.UseAuthorization();

@@ -17,6 +17,19 @@
         当前标的: <span>{{ marketStore.currentSymbol }}</span>
       </div>
 
+      <div class="data-source-toggle">
+  <span style="color: #8b949e; font-size: 12px; margin-right: 8px;">行情数据源:</span>
+  <button 
+    :class="{ active: marketStore.dataSource === 'backend' }" 
+    @click="marketStore.switchDataSource('backend')"
+  >C# 中继</button>
+  
+  <button 
+    :class="{ active: marketStore.dataSource === 'binance' }" 
+    @click="marketStore.switchDataSource('binance')"
+  >直连币安</button>
+</div>
+
       <div class="ws-status" :class="statusClass" :title="statusText">
         <span class="pulse-dot"></span>
         <span class="status-label">{{ statusText }}</span>

@@ -19,7 +19,7 @@ export const MarketAPI = {
         close: parseFloat(item[4]),
         volume: parseFloat(item[5]), // 🚨 核心修复：把币安的成交量数据拿出来！
       }))
-      return [result[0]]
+      // return [result[0]]
       return result;
     } catch (error) {
       console.error('获取历史 K 线失败:', error)
