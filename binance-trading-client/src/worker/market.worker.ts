@@ -1,4 +1,3 @@
-// src/worker/market.worker.ts
 import * as signalR from '@microsoft/signalr';
 
 const connectedPorts = new Set<MessagePort>();
@@ -10,20 +9,19 @@ let currentListenKey: string | null = null;
 
 let currentDataSource: 'binance' | 'backend' = 'backend';
 
+// 🌟 这里记录所有存活的流
 const activeSubscriptions = new Set<string>();
 const defaultStreams = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
 function broadcastToPorts(type: string, payload: any) {
-  connectedPorts.forEach((port) => {
-    port.postMessage({ type, payload });
-  });
+  connectedPorts.forEach((port) => port.postMessage({ type, payload }));
 }
 
 function processMarketData(payload: any) {
   if (payload.stream && payload.data) {
     const stream = payload.stream;
     if (stream.includes('miniTicker') || stream.includes('markPrice')) {
-      broadcastToPorts('TICKERS_DATA', payload); 
+      broadcastToPorts('TICKERS_DATA', payload);
     } else if (stream.includes('@kline_')) {
       broadcastToPorts('KLINE_DATA', payload);
     }
@@ -41,8 +39,6 @@ async function connectPublicStream() {
   if (publicWs) { publicWs.onclose = null; publicWs.close(); publicWs = null; }
   if (signalRConnection) { await signalRConnection.stop(); signalRConnection = null; }
 
-  const streamsToSubscribe = [...defaultStreams, ...Array.from(activeSubscriptions)];
-
   if (currentDataSource === 'backend') {
     signalRConnection = new signalR.HubConnectionBuilder()
       .withUrl("http://localhost:5000/hubs/market")
@@ -50,34 +46,44 @@ async function connectPublicStream() {
       .build();
 
     signalRConnection.on("ReceiveMarketData", (rawJson: string) => {
-      try { processMarketData(JSON.parse(rawJson)); } catch (e) {}
+      try { processMarketData(JSON.parse(rawJson)); } catch (e) { }
     });
 
     signalRConnection.onreconnected(() => {
-      streamsToSubscribe.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
+      // 🌟 修复断层：重连后，动态获取当前最新的订阅列表发送给 C#
+      console.log('🔄 Worker: SignalR 重连成功，延迟2秒后恢复订阅...');
+      // 🌟 延迟 2 秒，等 C# 底层彻底连上币安后再发，防止丢包
+      setTimeout(() => {
+        const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
+        currentStreams.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
+      }, 1000);
     });
 
     try {
       await signalRConnection.start();
       console.log('🚀 Worker: C# 后端 SignalR 连接成功');
-      streamsToSubscribe.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
+      // 🌟 修复并发丢失：必须在 start 成功后，去获取实时的 activeSubscriptions
+      const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
+      currentStreams.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
     } catch (err) {
       setTimeout(connectPublicStream, 5000);
     }
-  } 
+  }
   else {
-    // 🌟 币安新规：行情必须加 /market 前缀
+    // 🌟 币安新规前缀 /market
     publicWs = new WebSocket('wss://fstream.binance.com/market/stream');
 
     publicWs.onopen = () => {
       console.log('🌐 Worker: 币安直连 /market 成功');
-      if (streamsToSubscribe.length > 0) {
-        publicWs?.send(JSON.stringify({ method: 'SUBSCRIBE', params: streamsToSubscribe, id: Date.now() }));
+      // 🌟 动态获取，确保不会错过 Vue 发来的早期订阅
+      const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
+      if (currentStreams.length > 0) {
+        publicWs?.send(JSON.stringify({ method: 'SUBSCRIBE', params: currentStreams, id: Date.now() }));
       }
     };
 
     publicWs.onmessage = (event) => {
-      try { processMarketData(JSON.parse(event.data)); } catch (e) {}
+      try { processMarketData(JSON.parse(event.data)); } catch (e) { }
     };
 
     publicWs.onclose = () => setTimeout(connectPublicStream, 3000);
@@ -88,12 +94,12 @@ function connectUserDataStream() {
   if (!currentListenKey) return;
   if (userDataWs) { userDataWs.onclose = null; userDataWs.close(); }
 
-  // 🌟 币安新规：私有流必须加 /private 前缀
+  // 🌟 币安新规前缀 /private
   userDataWs = new WebSocket(`wss://fstream.binance.com/private/ws/${currentListenKey}`);
-  
+
   userDataWs.onopen = () => console.log('🔐 Worker: 账户私有流直连成功');
   userDataWs.onmessage = (event) => {
-    try { broadcastToPorts('ACCOUNT_DATA', JSON.parse(event.data)); } catch (err) {}
+    try { broadcastToPorts('ACCOUNT_DATA', JSON.parse(event.data)); } catch (err) { }
   };
   userDataWs.onclose = () => setTimeout(connectUserDataStream, 5000);
 }
@@ -112,13 +118,14 @@ onconnect = (e: MessageEvent) => {
       case 'SWITCH_SOURCE':
         if (source && source !== currentDataSource) {
           currentDataSource = source;
-          connectPublicStream(); 
+          connectPublicStream();
         }
         break;
 
       case 'SUBSCRIBE':
         if (stream && !activeSubscriptions.has(stream)) {
           activeSubscriptions.add(stream);
+          // 如果网络已经通了，直接发；如果没通，刚才写在 onopen 的动态获取逻辑会兜底把它发出去！
           if (currentDataSource === 'backend' && signalRConnection?.state === signalR.HubConnectionState.Connected) {
             signalRConnection.invoke("Subscribe", stream).catch(console.error);
           } else if (currentDataSource === 'binance' && publicWs?.readyState === WebSocket.OPEN) {

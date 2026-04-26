@@ -14,13 +14,83 @@ export const useMarketStore = defineStore('market', () => {
 
   const usdtBalance = ref(0.00);
   const dataSource = ref<'binance' | 'backend'>('backend');
+  const positions = ref<any[]>([]); // 持仓列
 
   const symbolRules = ref<Record<string, { tickSize: string, stepSize: string }>>({});
-  const fetchExchangeInfo = async () => { /* 略，需保留你业务逻辑 */ };
-  
-  const positions = ref<any[]>([]);
-  const fetchInitialPositions = async () => { /* 略 */ };
-  const fetchInitialRiskConfig = async () => { /* 略 */ };
+  const fetchExchangeInfo = async () => {
+    if (Object.keys(symbolRules.value).length > 0) return;
+    try {
+      const res = await fetch('http://localhost:5000/api/market/exchangeInfo');
+      const data = await res.json();
+      const rules: Record<string, { tickSize: string, stepSize: string }> = {};
+      data.symbols.forEach((s: any) => {
+        const priceFilter = s.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+        const lotSize = s.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+        rules[s.symbol] = {
+          tickSize: priceFilter?.tickSize || '0.01',
+          stepSize: lotSize?.stepSize || '0.001'
+        };
+      });
+      symbolRules.value = rules;
+      console.log('✅ 币安精度规则加载完成!');
+    } catch (e) {
+      console.error('❌ 获取交易规则失败:', e);
+    }
+  };
+
+  const fetchInitialPositions = async () => {
+    try {
+      // 调用后端我们之前补全的 positionRisk 接口
+      const res = await fetch('http://localhost:5000/api/account/positionRisk');
+      if (!res.ok) return;
+
+      const riskData = await res.json();
+
+      // 过滤出所有持仓量不为 0 的项目
+      const activePositions = riskData
+        .filter((r: any) => parseFloat(r.positionAmt) !== 0)
+        .map((r: any) => {
+          const amount = parseFloat(r.positionAmt);
+          return {
+            symbol: r.symbol,
+            amount: amount,
+            entryPrice: parseFloat(r.entryPrice),
+            unrealizedPnL: parseFloat(r.unRealizedProfit),
+            marginType: r.marginType,
+            leverage: parseInt(r.leverage),
+            side: amount > 0 ? 'LONG' : 'SHORT'
+          };
+        });
+
+      // 🌟 将拉取到的全量数据存入响应式数组
+      positions.value = activePositions;
+      console.log(`✅ 已同步初始仓位: ${activePositions.length} 个`);
+    } catch (e) {
+      console.error('❌ 拉取初始仓位失败:', e);
+    }
+  };
+
+  // 在 market.ts 中：
+  const fetchInitialRiskConfig = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/account/positionRisk');
+      const riskData = await res.json();
+
+      // 把拉取到的所有币种杠杆存进字典
+      riskData.forEach((r: any) => {
+        symbolConfigs.value[r.symbol] = {
+          leverage: parseInt(r.leverage),
+          marginType: r.marginType === 'cross' ? 'cross' : 'isolated'
+        };
+
+        // 如果有持仓，顺便给持仓也附加上杠杆
+        const pos = positions.value.find(p => p.symbol === r.symbol && p.side === (parseFloat(r.positionAmt) > 0 ? 'LONG' : 'SHORT'));
+        if (pos) pos.leverage = parseInt(r.leverage);
+      });
+    } catch (e) {
+      console.error('获取初始风控参数失败', e);
+    }
+  };
   const clickedPrice = ref(0);
   const setClickedPrice = (price: number) => { clickedPrice.value = price; };
 
@@ -43,7 +113,7 @@ export const useMarketStore = defineStore('market', () => {
   // 🌟 核心升级：Worker 调度与引用计数
   // ==========================================
   let worker: SharedWorker | null = null;
-  
+
   // 使用 Map 记录流的订阅次数
   const mySubscriptions = new Map<string, number>();
   const wsStatus = ref<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
@@ -112,7 +182,7 @@ export const useMarketStore = defineStore('market', () => {
 
       if (listenKeyTimer) clearInterval(listenKeyTimer);
       listenKeyTimer = setInterval(async () => {
-        try { await fetch('http://localhost:5000/api/account/listenKey', { method: 'PUT' }); } 
+        try { await fetch('http://localhost:5000/api/account/listenKey', { method: 'PUT' }); }
         catch (e) { console.error('ListenKey 保活失败'); }
       }, 28 * 60 * 1000);
     } catch (e) {
@@ -166,7 +236,7 @@ export const useMarketStore = defineStore('market', () => {
 
   const handleAccountData = (payload: any) => {
     if (payload.e === 'ACCOUNT_CONFIG_UPDATE') {
-      const ac = payload.ac; 
+      const ac = payload.ac;
       if (ac && ac.s) {
         if (!symbolConfigs.value[ac.s]) symbolConfigs.value[ac.s] = { leverage: 1, marginType: 'cross' };
         if (ac.l) symbolConfigs.value[ac.s].leverage = parseInt(ac.l);
@@ -201,7 +271,31 @@ export const useMarketStore = defineStore('market', () => {
 
   const positionHistory = ref<any[]>([]);
   const isLoadingHistory = ref(false);
-  const fetchPositionHistory = async (symbol?: string, limit: number = 50) => { /* 略 */ };
+  const fetchPositionHistory = async (symbol?: string, limit: number = 50) => {
+    // 🚨 应对币安限制：如果没有明确指定币种，强制使用全局当前币种
+    const targetSymbol = symbol || currentSymbol.value;
+
+    if (!targetSymbol) return;
+
+    isLoadingHistory.value = true;
+    try {
+      // 必须带上 symbol 才能成功请求后端
+      const url = `http://localhost:5000/api/account/trades?limit=${limit}&symbol=${targetSymbol}`;
+
+      const res = await fetch(url, { method: 'GET' });
+      if (res.ok) {
+        const data = await res.json();
+        // 币安返回的直接就是历史成交数组
+        positionHistory.value = data;
+      } else {
+        console.error('后端返回错误:', await res.text());
+      }
+    } catch (e) {
+      console.error('获取历史记录失败:', e);
+    } finally {
+      isLoadingHistory.value = false;
+    }
+  };
 
   const connectAllTickers = () => initWorker();
   const connectWs = () => initWorker();
@@ -211,9 +305,9 @@ export const useMarketStore = defineStore('market', () => {
     initWorker();
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
     const currentCount = mySubscriptions.get(streamName) || 0;
-    
+
     mySubscriptions.set(streamName, currentCount + 1);
-    
+
     // 只有第一个窗口订阅时，才真正发送网络请求
     if (currentCount === 0) {
       worker?.port.postMessage({ type: 'SUBSCRIBE', stream: streamName });

@@ -60,6 +60,14 @@ namespace TradingTerminal.Services
 
                     await _publicWs.ConnectAsync(new Uri("wss://fstream.binance.com/market/stream?streams=!miniTicker@arr/!markPrice@arr@1s"), stoppingToken);
                     _logger.LogInformation("✅ [公共行情轨] 已连接");
+                    // 🌟 3. 核心防御：C# 自身断网重连后，把小本本上的流全量补订一遍
+                    if (_activeStreams.Any())
+                    {
+                        var streams = string.Join("\",\"", _activeStreams);
+                        var req = $"{{\"method\":\"SUBSCRIBE\",\"params\":[\"{streams}\"],\"id\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}}}";
+                        await _publicWs.SendAsync(Encoding.UTF8.GetBytes(req), WebSocketMessageType.Text, true, CancellationToken.None);
+                        _logger.LogInformation($"🔄 自动恢复了 {_activeStreams.Count} 个因断网丢失的订阅流");
+                    }
 
                     while (_publicWs.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
                     {
@@ -129,18 +137,35 @@ namespace TradingTerminal.Services
         // ==========================================
         // 对外暴露接口 1：动态订阅/退订行情 (前端 SignalR 触发)
         // ==========================================
+        // 🌟 1. 新增：用小本本记住当前所有活跃的订阅
+        private readonly HashSet<string> _activeStreams = new();
+
         public async Task SubscribeStreamAsync(string streamName)
         {
-            if (_publicWs.State == WebSocketState.Open)
+            // 记在内存里，就算币安断了，下次重连也能找回来
+            _activeStreams.Add(streamName);
+
+            // 🌟 2. 核心防御：如果币安还没连上，就死等！最多等 10 秒
+            int retry = 0;
+            while ((_publicWs == null || _publicWs.State != WebSocketState.Open) && retry < 20)
+            {
+                await Task.Delay(500);
+                retry++;
+            }
+
+            if (_publicWs?.State == WebSocketState.Open)
             {
                 var req = $"{{\"method\":\"SUBSCRIBE\",\"params\":[\"{streamName}\"],\"id\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}}}";
                 await _publicWs.SendAsync(Encoding.UTF8.GetBytes(req), WebSocketMessageType.Text, true, CancellationToken.None);
+                _logger.LogInformation($"📡 已向币安发送订阅: {streamName}");
             }
         }
 
         public async Task UnsubscribeStreamAsync(string streamName)
         {
-            if (_publicWs.State == WebSocketState.Open)
+            _activeStreams.Remove(streamName); // 从小本本划掉
+
+            if (_publicWs?.State == WebSocketState.Open)
             {
                 var req = $"{{\"method\":\"UNSUBSCRIBE\",\"params\":[\"{streamName}\"],\"id\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}}}";
                 await _publicWs.SendAsync(Encoding.UTF8.GetBytes(req), WebSocketMessageType.Text, true, CancellationToken.None);
