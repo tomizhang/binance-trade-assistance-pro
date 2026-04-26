@@ -193,11 +193,11 @@ const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
 // ==========================================
-// 🌟 核心：动态精度计算逻辑
+// 核心：动态精度计算逻辑
 // ==========================================
 const getPriceDecimals = () => {
   const rule = marketStore.symbolRules[props.symbol];
-  if (!rule || !rule.tickSize) return 2; // 默认两位
+  if (!rule || !rule.tickSize) return 2; 
   const parts = rule.tickSize.split('.');
   return parts.length > 1 ? parts[1].length : 0;
 };
@@ -207,7 +207,6 @@ const getMinMove = () => {
   return rule && rule.tickSize ? parseFloat(rule.tickSize) : 0.01;
 };
 
-// 如果 symbolRules 延迟加载，实时刷新图表精度
 watch(() => marketStore.symbolRules[props.symbol], (rule) => {
   if (rule && candleSeries) {
     candleSeries.applyOptions({
@@ -244,7 +243,6 @@ const showNotification = (msg: string) => {
   setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id); }, 5000);
 };
 
-// 断线重连与数据断层填补
 watch(
   () => marketStore.wsStatus,
   async (newStatus, oldStatus) => {
@@ -565,11 +563,13 @@ const loadMoreHistory = async () => {
   }
 };
 
+// 🌟 修复：拖拽缩放同步严格校验 symbol
 let isSyncingRange = false;
 const onSyncRange = (e: any) => {
   if (!chart || !marketStore.isSyncEnabled) return;
-  const { range, sourceId } = e.detail;
-  if (sourceId !== instanceId) {
+  const { range, sourceId, symbol } = e.detail;
+  
+  if (sourceId !== instanceId && symbol === props.symbol) {
     isSyncingRange = true; 
     chart.timeScale().setVisibleLogicalRange(range);
     setTimeout(() => { isSyncingRange = false; }, 50); 
@@ -588,7 +588,6 @@ const initCharts = () => {
     rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.05, bottom: 0.25 } }
   });
 
-  // 🌟 将动态精度应用于图表 Y 轴
   candleSeries = chart.addSeries(CandlestickSeries, { 
     upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
     priceFormat: {
@@ -604,7 +603,8 @@ const initCharts = () => {
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
     if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) loadMoreHistory();
     if (marketStore.isSyncEnabled && !isSyncingRange && logicalRange) {
-      window.dispatchEvent(new CustomEvent('sync-logical-range', { detail: { range: logicalRange, sourceId: instanceId } }));
+      // 🌟 抛出缩放事件时，带上自身 symbol
+      window.dispatchEvent(new CustomEvent('sync-logical-range', { detail: { range: logicalRange, sourceId: instanceId, symbol: props.symbol } }));
     }
   });
 
@@ -626,7 +626,7 @@ const initCharts = () => {
 
     if (candleData) {
       const isUp = candleData.close >= candleData.open;
-      const dec = getPriceDecimals(); // 🌟 应用动态精度到悬浮数据 OHLC
+      const dec = getPriceDecimals(); 
       hoverData.value = {
         time: formatDateTime(Number(param.time)),
         open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec),
@@ -681,14 +681,29 @@ onMounted(async () => {
   renderSvgLoop();
 });
 
+// 🌟 修复：十字线同步只认同币种，并使用 try-catch 防止引擎崩溃
 watch(() => marketStore.globalCrosshairTime, () => {
   if (!chart || !candleSeries || !marketStore.isSyncEnabled) return;
+  
   const allCrosshairs = marketStore.crosshairData;
   if (!allCrosshairs) return;
 
-  const remoteCrosshair = Object.values(allCrosshairs as Record<string, any>).find((c: any) => c.sourceId !== instanceId && c.time > 0);
-  if (!remoteCrosshair) chart.clearCrosshairPosition();
-  else chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
+  // 只取当前币种的数据
+  const remoteCrosshair = allCrosshairs[props.symbol];
+
+  // 校验有效性：不存在、是自己发出的、或时间为0 -> 清除十字线
+  if (!remoteCrosshair || remoteCrosshair.sourceId === instanceId || remoteCrosshair.time === 0) {
+    chart.clearCrosshairPosition();
+    return;
+  }
+
+  try {
+    // 强制设置十字线
+    chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
+  } catch (e) {
+    // 若不同周期图表之间找不到对应精确时间点，静默捕捉并清除，防止控制台爆红报错卡死整个图表
+    chart.clearCrosshairPosition();
+  }
 });
 
 // 动态流式更新 (杜绝锁死)
@@ -749,7 +764,6 @@ watch(currentKlineData, (newVal) => {
         const expectedPrice = p0.price + (dx === 0 ? 0 : (dp / dx) * (latestLogicalIndex - p0.logical));
         if (Number(newVal.low) <= expectedPrice && Number(newVal.high) >= expectedPrice) {
           shape.triggered = true;
-          // 🌟 提醒日志中的预期价格也支持自适应精度
           showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(getPriceDecimals())}`);
           broadcastSync({ action: 'trigger', id: shape.id });
         }
@@ -818,11 +832,9 @@ onUnmounted(() => {
 .reload-btn { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); padding: 3px 8px; border-radius: 4px; font-weight: normal;}
 .reload-btn:hover { background: #58a6ff; color: #0d1117; }
 
-/* 🌟 新增复制按钮样式 */
 .copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; }
 .copy-btn:hover { background: #2ea043; color: #ffffff; }
 
-/* 副工具栏 */
 .kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; }
 .symbol-info-wrapper { display: flex; align-items: center; gap: 8px; margin-right: 16px; }
 .symbol-info { font-size: 15px; font-weight: bold; color: #e6edf3; }
