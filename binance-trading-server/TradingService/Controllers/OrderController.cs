@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 using TradingService.Services;
 using System;
+using TradingTerminal.Services;
 
 namespace TradingService.Controllers
 {
@@ -12,12 +13,11 @@ namespace TradingService.Controllers
     {
         private readonly BinanceTradeService _tradeService;
         // 在 OrderController 中注入新服务
-        private readonly BinanceWsApiService _wsApiService;
+        private readonly BinanceWebSocketService _wsApiService;
 
-        public OrderController(BinanceTradeService tradeService, BinanceWsApiService wsApiService)
+        public OrderController(BinanceTradeService tradeService)
         {
             _tradeService = tradeService;
-            _wsApiService = wsApiService;
         }
         // 定义前端传过来的数据结构
         public class PlaceOrderRequest

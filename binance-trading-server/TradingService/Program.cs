@@ -45,10 +45,10 @@ try
     builder.Services.AddHostedService<BinanceUserDataWorker>();
     builder.Services.AddHttpClient<BinanceTradeService>();
     // 🌟 1. 先注册为单例，让 Controller 可以注入它
-    builder.Services.AddSingleton<BinanceWsApiService>();
+    //builder.Services.AddSingleton<BinanceWsApiService>();
 
     // 🌟 2. 再将其作为后台宿主服务启动，触发 ExecuteAsync
-    builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
+    //builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
 
     // 🌟 步骤 1：先把引擎注册为单例，这样 MarketHub 才能在构造函数里拿到它！
     builder.Services.AddSingleton<TradingTerminal.Services.BinanceWebSocketService>();
