@@ -2,9 +2,6 @@ import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 
 export const useMarketStore = defineStore('market', () => {
-  // ==========================================
-  // 1. 核心数据源与基础状态
-  // ==========================================
   const marketTickers = reactive<Record<string, any>>({});
   const latestKlines = reactive<Record<string, any>>({});
   const symbolConfigs = ref<Record<string, { leverage: number, marginType: string }>>({});
@@ -16,25 +13,17 @@ export const useMarketStore = defineStore('market', () => {
   };
 
   const usdtBalance = ref(0.00);
-  
-  // 🌟 数据源状态 (UI 驱动 Worker 切换)
   const dataSource = ref<'binance' | 'backend'>('backend');
 
-  // ==========================================
-  // 2. 精度规则与 Click-to-Fill (保持原样)
-  // ==========================================
   const symbolRules = ref<Record<string, { tickSize: string, stepSize: string }>>({});
-  const fetchExchangeInfo = async () => { /* 略，同你原有代码 */ };
+  const fetchExchangeInfo = async () => { /* 略，需保留你业务逻辑 */ };
   
   const positions = ref<any[]>([]);
-  const fetchInitialPositions = async () => { /* 略，同你原有代码 */ };
-  const fetchInitialRiskConfig = async () => { /* 略，同你原有代码 */ };
+  const fetchInitialPositions = async () => { /* 略 */ };
+  const fetchInitialRiskConfig = async () => { /* 略 */ };
   const clickedPrice = ref(0);
   const setClickedPrice = (price: number) => { clickedPrice.value = price; };
 
-  // ==========================================
-  // 3. 多窗口同步状态 (保持原样)
-  // ==========================================
   const isSyncEnabled = ref(false);
   const toggleSync = () => { isSyncEnabled.value = !isSyncEnabled.value; };
   const globalCrosshairTime = ref(0);
@@ -51,11 +40,12 @@ export const useMarketStore = defineStore('market', () => {
   const setGlobalChartType = (symbol: string, type: string, sourceId: string) => { globalChartType[symbol] = { type, sourceId }; };
 
   // ==========================================
-  // 🌟 4. SharedWorker 调度与心跳 (完全恢复你的架构)
+  // 🌟 核心升级：Worker 调度与引用计数
   // ==========================================
   let worker: SharedWorker | null = null;
-  const mySubscriptions = new Set<string>();
-
+  
+  // 使用 Map 记录流的订阅次数
+  const mySubscriptions = new Map<string, number>();
   const wsStatus = ref<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
   let lastDataTimestamp = 0;
 
@@ -76,8 +66,6 @@ export const useMarketStore = defineStore('market', () => {
     };
 
     worker.port.start();
-    
-    // 初始化时告诉 worker 当前配置的数据源
     worker.port.postMessage({ type: 'SWITCH_SOURCE', source: dataSource.value });
 
     setInterval(() => {
@@ -88,21 +76,20 @@ export const useMarketStore = defineStore('market', () => {
     }, 2000);
 
     window.addEventListener('beforeunload', () => {
-      mySubscriptions.forEach(stream => worker?.port.postMessage({ type: 'UNSUBSCRIBE', stream }));
+      // 页面关闭时，只清理有计数的订阅
+      mySubscriptions.forEach((count, stream) => {
+        if (count > 0) worker?.port.postMessage({ type: 'UNSUBSCRIBE', stream });
+      });
       worker?.port.postMessage({ type: 'DISCONNECT' });
     });
   };
 
-  // 🌟 暴露给 UI 的切换通道方法
   const switchDataSource = (source: 'binance' | 'backend') => {
     if (dataSource.value === source) return;
     dataSource.value = source;
     worker?.port.postMessage({ type: 'SWITCH_SOURCE', source });
   };
 
-  // ==========================================
-  // 5. 私有数据流初始化 (保持原样)
-  // ==========================================
   let listenKeyTimer: ReturnType<typeof setInterval> | null = null;
 
   const connectUserDataStream = async () => {
@@ -128,7 +115,6 @@ export const useMarketStore = defineStore('market', () => {
         try { await fetch('http://localhost:5000/api/account/listenKey', { method: 'PUT' }); } 
         catch (e) { console.error('ListenKey 保活失败'); }
       }, 28 * 60 * 1000);
-
     } catch (e) {
       setTimeout(connectUserDataStream, 5000);
     }
@@ -136,9 +122,6 @@ export const useMarketStore = defineStore('market', () => {
     await fetchInitialPositions();
   };
 
-  // ==========================================
-  // 6. 数据处理路由 (解析 Worker 传来的清洗后数据)
-  // ==========================================
   const handleTickersData = (payload: any) => {
     lastDataTimestamp = Date.now();
     if (wsStatus.value !== 'CONNECTED') wsStatus.value = 'CONNECTED';
@@ -151,11 +134,9 @@ export const useMarketStore = defineStore('market', () => {
         const symbol = item.s;
         if (!symbol.endsWith('USDT')) continue;
         if (!marketTickers[symbol]) marketTickers[symbol] = { fundingRate: 0 };
-
         marketTickers[symbol].lastPrice = parseFloat(item.c);
         const openPrice = parseFloat(item.o);
         marketTickers[symbol].volume = parseFloat(item.q);
-        // Worker 已经统一了数据，我们直接使用
         marketTickers[symbol].priceChangePercent = item.P !== undefined ? parseFloat(item.P) : ((marketTickers[symbol].lastPrice - openPrice) / openPrice) * 100;
       }
     } else if (stream.startsWith('!markPrice@arr')) {
@@ -184,7 +165,6 @@ export const useMarketStore = defineStore('market', () => {
   };
 
   const handleAccountData = (payload: any) => {
-    // 逻辑和之前完全一致，直接解析 payload 更新 positions 和 balances
     if (payload.e === 'ACCOUNT_CONFIG_UPDATE') {
       const ac = payload.ac; 
       if (ac && ac.s) {
@@ -219,9 +199,6 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
-  // ==========================================
-  // 7. 对外接口暴露
-  // ==========================================
   const positionHistory = ref<any[]>([]);
   const isLoadingHistory = ref(false);
   const fetchPositionHistory = async (symbol?: string, limit: number = 50) => { /* 略 */ };
@@ -229,19 +206,37 @@ export const useMarketStore = defineStore('market', () => {
   const connectAllTickers = () => initWorker();
   const connectWs = () => initWorker();
 
+  // 🌟 核心升级：基于 Map 的订阅逻辑
   const subscribeKline = (symbol: string, interval: string) => {
     initWorker();
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
-    mySubscriptions.add(streamName);
-    worker?.port.postMessage({ type: 'SUBSCRIBE', stream: streamName });
-  }
+    const currentCount = mySubscriptions.get(streamName) || 0;
+    
+    mySubscriptions.set(streamName, currentCount + 1);
+    
+    // 只有第一个窗口订阅时，才真正发送网络请求
+    if (currentCount === 0) {
+      worker?.port.postMessage({ type: 'SUBSCRIBE', stream: streamName });
+    }
+  };
 
+  // 🌟 核心升级：基于 Map 的退订逻辑
   const unsubscribeKline = (symbol: string, interval: string) => {
     if (!worker) return;
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
-    mySubscriptions.delete(streamName);
-    worker.port.postMessage({ type: 'UNSUBSCRIBE', stream: streamName });
-  }
+    const currentCount = mySubscriptions.get(streamName) || 0;
+
+    if (currentCount > 0) {
+      const newCount = currentCount - 1;
+      if (newCount === 0) {
+        // 最后一个窗口关闭时，才真正发起退订
+        mySubscriptions.delete(streamName);
+        worker.port.postMessage({ type: 'UNSUBSCRIBE', stream: streamName });
+      } else {
+        mySubscriptions.set(streamName, newCount);
+      }
+    }
+  };
 
   return {
     marketTickers, latestKlines, connectAllTickers, connectWs, subscribeKline, unsubscribeKline,
@@ -251,6 +246,6 @@ export const useMarketStore = defineStore('market', () => {
     symbolRules, fetchExchangeInfo, clickedPrice, setClickedPrice,
     lastOverlayEvent, broadcastOverlay, wsStatus, globalCrosshairTime, updateGlobalCrosshair,
     positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory,
-    dataSource, switchDataSource // 🌟 暴露切换开关
+    dataSource, switchDataSource
   }
 })

@@ -49,10 +49,15 @@ try
 
     // 🌟 2. 再将其作为后台宿主服务启动，触发 ExecuteAsync
     builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
-    // 2. 🌟 关键：将 WebSocket 转发服务注册为单例并启动后台任务
-    builder.Services.AddSingleton<BinanceWebSocketService>();
+
+    // 🌟 步骤 1：先把引擎注册为单例，这样 MarketHub 才能在构造函数里拿到它！
+    builder.Services.AddSingleton<TradingTerminal.Services.BinanceWebSocketService>();
+
+    // 🌟 步骤 2：再把这个单例引擎作为后台任务跑起来
+    builder.Services.AddHostedService(provider =>
+        provider.GetRequiredService<TradingTerminal.Services.BinanceWebSocketService>());
     // 2. 注册后台 WebSocket 转发服务
-    builder.Services.AddHostedService<BinanceDataForwarderService>();
+    //builder.Services.AddHostedService<BinanceDataForwarderService>();
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)
     builder.Services.AddCors(options =>
     {

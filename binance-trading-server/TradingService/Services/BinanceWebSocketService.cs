@@ -25,7 +25,8 @@ namespace TradingTerminal.Services
                 {
                     _publicWs = new ClientWebSocket();
                     // 🌟 仅连接公共组合流 (Ticker 和 标记价格)
-                    await _publicWs.ConnectAsync(new Uri("wss://fstream.binance.com/stream?streams=!miniTicker@arr/!markPrice@arr@1s"), stoppingToken);
+                    //await _publicWs.ConnectAsync(new Uri("wss://fstream.binance.com/stream?streams=!miniTicker@arr/!markPrice@arr@1s"), stoppingToken);
+                    await _publicWs.ConnectAsync(new Uri("wss://fstream.binance.com/market/stream?streams=!miniTicker@arr/!markPrice@arr@1s"), stoppingToken);
                     _logger.LogInformation("✅ [C# 数据中枢] 已连接币安公共流");
 
                     var buffer = new byte[1024 * 128];
