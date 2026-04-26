@@ -15,9 +15,10 @@ namespace TradingService.Controllers
         // 在 OrderController 中注入新服务
         private readonly BinanceWebSocketService _wsApiService;
 
-        public OrderController(BinanceTradeService tradeService)
+        public OrderController(BinanceTradeService tradeService, BinanceWebSocketService wsApiService)
         {
             _tradeService = tradeService;
+            _wsApiService = wsApiService;
         }
         // 定义前端传过来的数据结构
         public class PlaceOrderRequest

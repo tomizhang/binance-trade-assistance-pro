@@ -70,7 +70,7 @@
         </span>
         <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
         <span class="divider">|</span>
-        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(4) }}</span>
+        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPriceDecimals()) }}</span>
         <span class="divider">|</span>
         <span class="pos-label">未结盈亏</span>
         <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
@@ -143,7 +143,7 @@
           <template v-if="s.type === 'hline' && s.pts.length >= 1">
             <line x1="0" :y1="s.pts[0].y" :x2="containerWidth" :y2="s.pts[0].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 3 : 2" />
             <rect v-if="s.id === selectedShapeId" x="10" :y="s.pts[0].y - 12" width="60" height="24" fill="rgba(22,27,34,0.9)" rx="4" border="1px solid #30363d"/>
-            <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(2) }}</text>
+            <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(getPriceDecimals()) }}</text>
           </template>
         </g>
       </svg>
@@ -193,6 +193,34 @@ const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
 // ==========================================
+// 🌟 核心：动态精度计算逻辑
+// ==========================================
+const getPriceDecimals = () => {
+  const rule = marketStore.symbolRules[props.symbol];
+  if (!rule || !rule.tickSize) return 2; // 默认两位
+  const parts = rule.tickSize.split('.');
+  return parts.length > 1 ? parts[1].length : 0;
+};
+
+const getMinMove = () => {
+  const rule = marketStore.symbolRules[props.symbol];
+  return rule && rule.tickSize ? parseFloat(rule.tickSize) : 0.01;
+};
+
+// 如果 symbolRules 延迟加载，实时刷新图表精度
+watch(() => marketStore.symbolRules[props.symbol], (rule) => {
+  if (rule && candleSeries) {
+    candleSeries.applyOptions({
+      priceFormat: {
+        type: 'price',
+        precision: getPriceDecimals(),
+        minMove: getMinMove()
+      }
+    });
+  }
+}, { deep: true });
+
+// ==========================================
 // 仓位计算与通知
 // ==========================================
 const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
@@ -213,12 +241,10 @@ let notifIdCounter = 0;
 const showNotification = (msg: string) => {
   const id = notifIdCounter++;
   notifications.value.push({ id, msg });
-  setTimeout(() => {
-    notifications.value = notifications.value.filter(n => n.id !== id);
-  }, 5000);
+  setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id); }, 5000);
 };
 
-// 🌟 断线重连与数据断层填补
+// 断线重连与数据断层填补
 watch(
   () => marketStore.wsStatus,
   async (newStatus, oldStatus) => {
@@ -230,7 +256,7 @@ watch(
 );
 
 // ==========================================
-// 绘图引擎核心 (保留你的绘图逻辑不变)
+// 绘图引擎核心
 // ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
@@ -448,7 +474,7 @@ const formatDateTime = (timestamp: number) => {
 };
 
 // ==========================================
-// 🌟 终极修复：数据清洗与应用防重引擎
+// 数据清洗与应用防重引擎
 // ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
@@ -470,17 +496,14 @@ const calculateHeikinAshi = (rawData: any[]) => {
   return haData;
 };
 
-// 严苛清洗全量数据：只有调用 loadHistory 时执行
 const applyDataToSeries = (data: any[]) => {
   if (!candleSeries || !volumeSeries || data.length === 0) return;
   
-  // 1. 时间统一秒级化，排序保证绝对升序，避免引擎崩溃
   const normalizedData = data.map(d => {
     const t = Number(d.time);
     return { ...d, parsedTime: t > 9999999999 ? Math.floor(t / 1000) : t };
   }).sort((a, b) => a.parsedTime - b.parsedTime);
 
-  // 2. 去重，相同时间戳只保留最后一条
   const uniqueData = normalizedData.filter((item, index, self) => index === self.length - 1 || item.parsedTime !== self[index + 1].parsedTime);
 
   const finalData = localChartType.value === 'heikinAshi' ? calculateHeikinAshi(uniqueData) : uniqueData;
@@ -565,7 +588,16 @@ const initCharts = () => {
     rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.05, bottom: 0.25 } }
   });
 
-  candleSeries = chart.addSeries(CandlestickSeries, { upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149' });
+  // 🌟 将动态精度应用于图表 Y 轴
+  candleSeries = chart.addSeries(CandlestickSeries, { 
+    upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
+    priceFormat: {
+      type: 'price',
+      precision: getPriceDecimals(),
+      minMove: getMinMove()
+    }
+  });
+  
   volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', visible: showVolume.value });
   volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
@@ -594,10 +626,11 @@ const initCharts = () => {
 
     if (candleData) {
       const isUp = candleData.close >= candleData.open;
+      const dec = getPriceDecimals(); // 🌟 应用动态精度到悬浮数据 OHLC
       hoverData.value = {
         time: formatDateTime(Number(param.time)),
-        open: candleData.open.toFixed(2), high: candleData.high.toFixed(2),
-        low: candleData.low.toFixed(2), close: candleData.close.toFixed(2),
+        open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec),
+        low: candleData.low.toFixed(dec), close: candleData.close.toFixed(dec),
         vol: volData && volData.value !== undefined ? Number(volData.value).toFixed(2) : '0.00',
         colorClass: isUp ? 'text-up' : 'text-down' 
       };
@@ -631,7 +664,7 @@ const hardReload = async () => {
   
   initCharts();
   await loadHistory(props.symbol, currentTf.value);
-  marketStore.subscribeKline(props.symbol, currentTf.value); // 明确重发订阅事件
+  marketStore.subscribeKline(props.symbol, currentTf.value); 
   showNotification(`[${props.symbol}] K 线控件引擎已彻底重载`);
 };
 
@@ -658,9 +691,7 @@ watch(() => marketStore.globalCrosshairTime, () => {
   else chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
 });
 
-// ==========================================
-// 🌟 终极修复：动态流式更新 (杜绝锁死)
-// ==========================================
+// 动态流式更新 (杜绝锁死)
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
@@ -672,7 +703,6 @@ watch(currentKlineData, (newVal) => {
     const lastCandle = currentChartData.value[latestLogicalIndex];
     const lastTimeSec = Number(lastCandle.time) > 9999999999 ? Math.floor(Number(lastCandle.time) / 1000) : Number(lastCandle.time);
 
-    // 🌟 屏障：丢弃网络延迟带来的“迟到” Tick，防止引擎被倒序数据抛错卡死
     if (timeInSeconds < lastTimeSec) return;
 
     if (timeInSeconds === lastTimeSec) {
@@ -685,11 +715,9 @@ watch(currentKlineData, (newVal) => {
     const isUp = Number(newVal.close) >= Number(newVal.open);
     const volValue = Number(newVal.volume !== undefined ? newVal.volume : (newVal.vol || 0));
 
-    // 🌟 HA 线因为依赖上一根，全量刷新更稳妥
     if (localChartType.value === 'heikinAshi') {
       applyDataToSeries(currentChartData.value);
     } else {
-      // 🌟 标准 K 线：使用极致性能的 update，且保证数据顺序绝对合法
       try {
         candleSeries.update({
           time: timeInSeconds as any,
@@ -721,7 +749,8 @@ watch(currentKlineData, (newVal) => {
         const expectedPrice = p0.price + (dx === 0 ? 0 : (dp / dx) * (latestLogicalIndex - p0.logical));
         if (Number(newVal.low) <= expectedPrice && Number(newVal.high) >= expectedPrice) {
           shape.triggered = true;
-          showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(2)}`);
+          // 🌟 提醒日志中的预期价格也支持自适应精度
+          showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(getPriceDecimals())}`);
           broadcastSync({ action: 'trigger', id: shape.id });
         }
       }
@@ -767,7 +796,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 继承你完美的 CSS 无修改 */
+/* 继承你的 CSS 无修改 */
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; border: 1px solid transparent; transition: all 0.2s ease; box-sizing: border-box; }
 .kline-module.is-focused { border-color: #58a6ff; box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1); }
 .kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; }
@@ -788,6 +817,10 @@ onUnmounted(() => {
 .action-btn { background: rgba(226, 181, 20, 0.1); border: 1px solid #e2b514; color: #e2b514; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
 .reload-btn { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); padding: 3px 8px; border-radius: 4px; font-weight: normal;}
 .reload-btn:hover { background: #58a6ff; color: #0d1117; }
+
+/* 🌟 新增复制按钮样式 */
+.copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; }
+.copy-btn:hover { background: #2ea043; color: #ffffff; }
 
 /* 副工具栏 */
 .kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; }

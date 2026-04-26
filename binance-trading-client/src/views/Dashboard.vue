@@ -39,6 +39,7 @@
           <div class="panel-header">
             <span class="panel-title">{{ item.title }}</span>
             <div class="panel-actions">
+              <button class="size-btn" @click="duplicatePanel(item.i)" :class="{ active: item.w === 12 }" title="复制">复制</button>
               <button class="size-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
               <button class="size-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
               <span class="action-divider">|</span>
