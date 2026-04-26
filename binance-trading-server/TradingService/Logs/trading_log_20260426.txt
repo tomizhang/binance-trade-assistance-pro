@@ -2116,3 +2116,7 @@ System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed t
 2026-04-26 22:22:02.647 +08:00 [INF] Received HTTP response headers after 1313.8856ms - 200
 2026-04-26 22:22:02.657 +08:00 [INF] End processing HTTP request after 1352.0504ms - 200
 2026-04-26 22:22:02.667 +08:00 [INF] ✅ 下单成功: {"orderId":55304692,"symbol":"OPGUSDT","status":"NEW","clientOrderId":"0oBjIU83nxIXIb9ccVUflS","price":"0.0000000","avgPrice":"0.00","origQty":"29","executedQty":"0","cumQty":"0","cumQuote":"0.0000000","timeInForce":"GTC","type":"MARKET","reduceOnly":false,"closePosition":false,"side":"BUY","positionSide":"BOTH","stopPrice":"0.0000000","workingType":"CONTRACT_PRICE","priceProtect":false,"origType":"MARKET","priceMatch":"NONE","selfTradePreventionMode":"EXPIRE_MAKER","goodTillDate":0,"updateTime":1777213322384}
+2026-04-26 22:24:59.871 +08:00 [INF] 📡 已向币安发送订阅: btcusdt@kline_1m
+2026-04-26 22:25:00.014 +08:00 [INF] 📡 已向币安发送订阅: opgusdt@kline_1m
+2026-04-26 22:25:01.445 +08:00 [INF] 📡 已向币安发送订阅: ethusdt@kline_1m
+2026-04-26 22:25:59.370 +08:00 [INF] 📡 已向币安发送订阅: btcusdt@kline_5m

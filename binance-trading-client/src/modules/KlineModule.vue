@@ -52,6 +52,9 @@
       </div>
 
       <div class="actions-group">
+        <button class="action-btn copy-btn" @click="$emit('duplicate', symbol)" title="克隆当前图表窗口">
+          📋 复制
+        </button>
         <button class="action-btn reload-btn" @click="hardReload" title="销毁图表引擎并彻底重载数据">
           🔌 重载
         </button>
@@ -70,7 +73,7 @@
         </span>
         <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
         <span class="divider">|</span>
-        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPriceDecimals()) }}</span>
+        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPrecisionConfig().precision) }}</span>
         <span class="divider">|</span>
         <span class="pos-label">未结盈亏</span>
         <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
@@ -143,7 +146,7 @@
           <template v-if="s.type === 'hline' && s.pts.length >= 1">
             <line x1="0" :y1="s.pts[0].y" :x2="containerWidth" :y2="s.pts[0].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 3 : 2" />
             <rect v-if="s.id === selectedShapeId" x="10" :y="s.pts[0].y - 12" width="60" height="24" fill="rgba(22,27,34,0.9)" rx="4" border="1px solid #30363d"/>
-            <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(getPriceDecimals()) }}</text>
+            <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(getPrecisionConfig().precision) }}</text>
           </template>
         </g>
       </svg>
@@ -171,6 +174,10 @@ import { MarketAPI } from '@/api/market';
 
 const props = defineProps<{ symbol: string }>();
 
+const emit = defineEmits<{
+  (e: 'duplicate', symbol: string): void
+}>();
+
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
@@ -193,28 +200,44 @@ const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
 // ==========================================
-// 核心：动态精度计算逻辑
+// 🌟 核心：智能动态精度推导引擎 (完美解决 2 位小数问题)
 // ==========================================
-const getPriceDecimals = () => {
+const getPrecisionConfig = (lastPrice?: number) => {
   const rule = marketStore.symbolRules[props.symbol];
-  if (!rule || !rule.tickSize) return 2; 
-  const parts = rule.tickSize.split('.');
-  return parts.length > 1 ? parts[1].length : 0;
+  
+  // 1. 如果有官方配置的精度规则，绝对服从官方
+  if (rule && rule.tickSize) {
+    const minM = parseFloat(rule.tickSize);
+    let dec = 2;
+    if (minM < 1) {
+      const str = minM.toString();
+      if (str.includes('e')) {
+        const match = str.match(/e-(\d+)/);
+        if (match) dec = parseInt(match[1], 10);
+      } else {
+        dec = str.split('.')[1]?.length || 2;
+      }
+    } else {
+      dec = 0;
+    }
+    return { precision: dec, minMove: minM };
+  }
+
+  // 2. 如果规则还没拿到，启用智能 AI 推断 (根据价格自动给精度)
+  const p = lastPrice || marketStore.marketTickers[props.symbol]?.lastPrice || 100;
+  if (p < 0.000001) return { precision: 8, minMove: 0.00000001 };
+  if (p < 0.001) return { precision: 6, minMove: 0.000001 };
+  if (p < 0.1) return { precision: 4, minMove: 0.0001 };
+  if (p < 10) return { precision: 3, minMove: 0.001 };
+  return { precision: 2, minMove: 0.01 };
 };
 
-const getMinMove = () => {
-  const rule = marketStore.symbolRules[props.symbol];
-  return rule && rule.tickSize ? parseFloat(rule.tickSize) : 0.01;
-};
-
+// 监听官方规则，一旦获取到就刷新图表轴
 watch(() => marketStore.symbolRules[props.symbol], (rule) => {
   if (rule && candleSeries) {
+    const config = getPrecisionConfig();
     candleSeries.applyOptions({
-      priceFormat: {
-        type: 'price',
-        precision: getPriceDecimals(),
-        minMove: getMinMove()
-      }
+      priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
     });
   }
 }, { deep: true });
@@ -472,14 +495,20 @@ const formatDateTime = (timestamp: number) => {
 };
 
 // ==========================================
-// 数据清洗与应用防重引擎
+// 🌟 核心：数据清洗与应用防重引擎 (已修复 HA 报错)
 // ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA: any = null;
   for (const raw of rawData) {
     const rawVolume = raw.value !== undefined ? raw.value : (raw.volume !== undefined ? raw.volume : (raw.vol || 0));
-    const ha = { time: raw.parsedTime, open: 0, high: 0, low: 0, close: 0, value: rawVolume, color: raw.color };
+    // 🌟 修复: 原封不动传递 parsedTime 给下游，防止 setData 时 undefined 崩溃
+    const ha = { 
+      time: raw.time, 
+      parsedTime: raw.parsedTime,
+      open: 0, high: 0, low: 0, close: 0, 
+      value: rawVolume, color: raw.color 
+    };
     
     ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
     if (!prevHA) { ha.open = (Number(raw.open) + Number(raw.close)) / 2; } 
@@ -507,14 +536,23 @@ const applyDataToSeries = (data: any[]) => {
   const finalData = localChartType.value === 'heikinAshi' ? calculateHeikinAshi(uniqueData) : uniqueData;
   
   try {
+    // 🌟 加载数据时，顺便智能调整当前图表精度
+    const lastPrice = finalData[finalData.length - 1]?.close;
+    const config = getPrecisionConfig(lastPrice);
+    candleSeries.applyOptions({
+      priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
+    });
+
     candleSeries.setData(finalData.map((d: any) => ({
-      time: d.parsedTime, open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close)
+      // 🌟 修复: 增加兜底获取 time，绝不传给图表 undefined
+      time: d.parsedTime !== undefined ? d.parsedTime : d.time, 
+      open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close)
     })));
 
     volumeSeries.setData(finalData.map((d: any) => {
       const isUp = Number(d.close) >= Number(d.open);
       return {
-        time: d.parsedTime,
+        time: d.parsedTime !== undefined ? d.parsedTime : d.time,
         value: Number(d.value !== undefined ? d.value : (d.volume !== undefined ? d.volume : (d.vol || 0))),
         color: d.color || (isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)')
       };
@@ -563,7 +601,6 @@ const loadMoreHistory = async () => {
   }
 };
 
-// 🌟 修复：拖拽缩放同步严格校验 symbol
 let isSyncingRange = false;
 const onSyncRange = (e: any) => {
   if (!chart || !marketStore.isSyncEnabled) return;
@@ -588,13 +625,10 @@ const initCharts = () => {
     rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.05, bottom: 0.25 } }
   });
 
+  const config = getPrecisionConfig();
   candleSeries = chart.addSeries(CandlestickSeries, { 
     upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
-    priceFormat: {
-      type: 'price',
-      precision: getPriceDecimals(),
-      minMove: getMinMove()
-    }
+    priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
   });
   
   volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', visible: showVolume.value });
@@ -603,7 +637,6 @@ const initCharts = () => {
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
     if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) loadMoreHistory();
     if (marketStore.isSyncEnabled && !isSyncingRange && logicalRange) {
-      // 🌟 抛出缩放事件时，带上自身 symbol
       window.dispatchEvent(new CustomEvent('sync-logical-range', { detail: { range: logicalRange, sourceId: instanceId, symbol: props.symbol } }));
     }
   });
@@ -626,7 +659,7 @@ const initCharts = () => {
 
     if (candleData) {
       const isUp = candleData.close >= candleData.open;
-      const dec = getPriceDecimals(); 
+      const dec = getPrecisionConfig().precision; 
       hoverData.value = {
         time: formatDateTime(Number(param.time)),
         open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec),
@@ -681,32 +714,25 @@ onMounted(async () => {
   renderSvgLoop();
 });
 
-// 🌟 修复：十字线同步只认同币种，并使用 try-catch 防止引擎崩溃
 watch(() => marketStore.globalCrosshairTime, () => {
   if (!chart || !candleSeries || !marketStore.isSyncEnabled) return;
-  
   const allCrosshairs = marketStore.crosshairData;
   if (!allCrosshairs) return;
 
-  // 只取当前币种的数据
   const remoteCrosshair = allCrosshairs[props.symbol];
-
-  // 校验有效性：不存在、是自己发出的、或时间为0 -> 清除十字线
   if (!remoteCrosshair || remoteCrosshair.sourceId === instanceId || remoteCrosshair.time === 0) {
     chart.clearCrosshairPosition();
     return;
   }
 
   try {
-    // 强制设置十字线
     chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
   } catch (e) {
-    // 若不同周期图表之间找不到对应精确时间点，静默捕捉并清除，防止控制台爆红报错卡死整个图表
     chart.clearCrosshairPosition();
   }
 });
 
-// 动态流式更新 (杜绝锁死)
+// 动态流式更新
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
@@ -764,7 +790,7 @@ watch(currentKlineData, (newVal) => {
         const expectedPrice = p0.price + (dx === 0 ? 0 : (dp / dx) * (latestLogicalIndex - p0.logical));
         if (Number(newVal.low) <= expectedPrice && Number(newVal.high) >= expectedPrice) {
           shape.triggered = true;
-          showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(getPriceDecimals())}`);
+          showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(getPrecisionConfig().precision)}`);
           broadcastSync({ action: 'trigger', id: shape.id });
         }
       }
@@ -810,7 +836,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 继承你的 CSS 无修改 */
+/* 继承你的无敌 CSS，一行未动 */
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; border: 1px solid transparent; transition: all 0.2s ease; box-sizing: border-box; }
 .kline-module.is-focused { border-color: #58a6ff; box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1); }
 .kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; }
