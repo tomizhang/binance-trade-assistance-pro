@@ -275,7 +275,7 @@ const formatDateTime = (timestamp: number) => {
 const closePosition = async (pos: any) => {
   try {
     toast.info(`正在平仓 ${pos.symbol}...`);
-    const res = await fetch('http://localhost:5000/api/order/place', {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

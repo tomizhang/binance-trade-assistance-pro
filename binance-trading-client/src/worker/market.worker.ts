@@ -41,7 +41,7 @@ async function connectPublicStream() {
 
   if (currentDataSource === 'backend') {
     signalRConnection = new signalR.HubConnectionBuilder()
-      .withUrl("http://localhost:5000/hubs/market")
+      .withUrl(`${import.meta.env.VITE_API_BASE_URL}/hubs/market`)
       .withAutomaticReconnect([0, 2000, 5000, 10000])
       .build();
 

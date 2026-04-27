@@ -21,7 +21,7 @@ export const useMarketStore = defineStore('market', () => {
   const fetchExchangeInfo = async () => {
     if (Object.keys(symbolRules.value).length > 0) return;
     try {
-      const res = await fetch('http://localhost:5000/api/market/exchangeInfo');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/market/exchangeInfo`);
       const data = await res.json();
       const rules: Record<string, { tickSize: string, stepSize: string }> = {};
       data.symbols.forEach((s: any) => {
@@ -42,7 +42,7 @@ export const useMarketStore = defineStore('market', () => {
   const fetchInitialPositions = async () => {
     try {
       // 调用后端我们之前补全的 positionRisk 接口
-      const res = await fetch('http://localhost:5000/api/account/positionRisk');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/positionRisk`);
       if (!res.ok) return;
 
       const riskData = await res.json();
@@ -74,7 +74,7 @@ export const useMarketStore = defineStore('market', () => {
   // 在 market.ts 中：
   const fetchInitialRiskConfig = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/account/positionRisk');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/positionRisk`);
       const riskData = await res.json();
 
       // 把拉取到的所有币种杠杆存进字典
@@ -284,7 +284,7 @@ export const useMarketStore = defineStore('market', () => {
     isLoadingHistory.value = true;
     try {
       // 必须带上 symbol 才能成功请求后端
-      const url = `http://localhost:5000/api/account/trades?limit=${limit}&symbol=${targetSymbol}`;
+      const url = `${import.meta.env.VITE_API_BASE_URL}/api/account/trades?limit=${limit}&symbol=${targetSymbol}`;
 
       const res = await fetch(url, { method: 'GET' });
       if (res.ok) {
