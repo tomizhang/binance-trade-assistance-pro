@@ -17,6 +17,30 @@
         当前标的: <span>{{ marketStore.currentSymbol }}</span>
       </div>
 
+      <div class="module-adder">
+        <div class="dropdown">
+          <button class="add-btn" @click="showAddMenu = !showAddMenu">
+            <span class="plus">+</span> 添加组件
+          </button>
+          <div v-if="showAddMenu" class="dropdown-menu no-drag" @mouseleave="showAddMenu = false">
+            <div class="menu-header">可用组件</div>
+            <div class="menu-item" @click="dispatchAdd('order', '下单面板')">
+              <span class="icon">🛒</span> 下单面板
+            </div>
+            <div class="menu-item" @click="dispatchAdd('position', '仓位与挂单')">
+              <span class="icon">📑</span> 仓位与挂单
+            </div>
+            <div class="menu-item" @click="dispatchAdd('fourier', '频域分析')">
+              <span class="icon">🌊</span> 频域分析
+            </div>
+            <div class="menu-divider"></div>
+            <div class="menu-item" @click="dispatchAdd('kline', 'K 线图表')">
+              <span class="icon">📈</span> K 线图表 ({{ marketStore.currentSymbol }})
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="route-switcher">
         <span class="switcher-label">数据路线</span>
         <div class="segmented-control">
@@ -72,6 +96,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useMarketStore } from '@/store/market';
 
 const marketStore = useMarketStore();
+const showAddMenu = ref(false);
 
 const statusClass = computed(() => {
   switch (marketStore.wsStatus) {
@@ -89,6 +114,18 @@ const statusText = computed(() => {
   }
 });
 
+// 🌟 发送全局事件，让 Dashboard.vue 接收面板添加请求
+const dispatchAdd = (type: string, title: string) => {
+  window.dispatchEvent(new CustomEvent('add-panel', {
+    detail: { 
+      type, 
+      title: type === 'kline' ? `${marketStore.currentSymbol} 永续` : title,
+      symbol: type === 'kline' ? marketStore.currentSymbol : undefined
+    }
+  }));
+  showAddMenu.value = false;
+};
+
 // ==========================================
 // 🌟 真实网络延迟测量逻辑
 // ==========================================
@@ -100,7 +137,7 @@ const measureLatency = async () => {
   if (marketStore.wsStatus !== 'CONNECTED') return;
 
   if (marketStore.dataSource === 'backend') {
-    // 测算: 前端到本地 C# 中继的真实延迟 (极轻量级 HEAD 请求抓取纯网络 RTT)
+    // 测算: 前端到本地 C# 中继的真实延迟 (请求心跳接口)
     const start = Date.now();
     try {
       await fetch(`${import.meta.env.VITE_API_BASE_URL}/ping`, { method: 'GET' }).catch(() => {});
@@ -193,6 +230,43 @@ onUnmounted(() => {
   border-radius: 4px;
   margin-left: 5px;
 }
+
+/* 🌟 组件库添加菜单样式 */
+.module-adder { position: relative; }
+.add-btn {
+  background: #238636;
+  color: white;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.add-btn:hover { background: #2ea043; }
+.add-btn .plus { font-size: 16px; }
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  width: 180px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 1000;
+  padding: 4px 0;
+}
+.menu-header { padding: 8px 12px; font-size: 11px; color: #8b949e; text-transform: uppercase; border-bottom: 1px solid #21262d; }
+.menu-item { padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: 0.2s; font-size: 13px; }
+.menu-item:hover { background: #1f6feb; color: white; }
+.menu-divider { height: 1px; background: #30363d; margin: 4px 0; }
+.menu-item .icon { font-size: 14px; }
 
 /* 胶囊式切换器样式 */
 .route-switcher {

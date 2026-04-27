@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, reactive ,computed} from 'vue'
+import { ref, reactive, computed } from 'vue'
 
 export const useMarketStore = defineStore('market', () => {
   const marketTickers = reactive<Record<string, any>>({});
@@ -33,11 +33,24 @@ export const useMarketStore = defineStore('market', () => {
         };
       });
       symbolRules.value = rules;
+      isInitialized.value = true;
       console.log('✅ 币安精度规则加载完成!');
     } catch (e) {
       console.error('❌ 获取交易规则失败:', e);
     }
   };
+
+  const isInitialized = ref(false); // 标记是否完成首次强制同步
+
+  const isReady = computed(() => {
+    // 必须满足：1. WS已连接 2. 交易规则已加载 3. 杠杆配置已加载 4. 余额已获取
+    const hasRules = Object.keys(symbolRules.value).length > 0;
+    const hasConfigs = Object.keys(symbolConfigs.value).length > 0;
+    const hasBalance = usdtBalance.value !== 0; // 假设非 0 余额为加载完成
+    const isConnected = wsStatus.value === 'CONNECTED';
+
+    return hasRules && hasConfigs && isConnected;
+  });
 
   const fetchInitialPositions = async () => {
     try {
@@ -185,7 +198,7 @@ export const useMarketStore = defineStore('market', () => {
 
       if (listenKeyTimer) clearInterval(listenKeyTimer);
       listenKeyTimer = setInterval(async () => {
-        try { fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/listenKey`, { method: 'PUT' });}
+        try { fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/listenKey`, { method: 'PUT' }); }
         catch (e) { console.error('ListenKey 保活失败'); }
       }, 28 * 60 * 1000);
     } catch (e) {
@@ -382,6 +395,7 @@ export const useMarketStore = defineStore('market', () => {
     symbolRules, fetchExchangeInfo, clickedPrice, setClickedPrice,
     lastOverlayEvent, broadcastOverlay, wsStatus, globalCrosshairTime, updateGlobalCrosshair,
     positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory,
-    dataSource, switchDataSource, symbolConfigs,dynamicUsdtBalance,backendLatency
+    dataSource, switchDataSource, symbolConfigs, dynamicUsdtBalance, backendLatency, isReady,
+    isInitialized
   }
 })
