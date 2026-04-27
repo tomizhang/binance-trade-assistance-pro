@@ -307,10 +307,10 @@ const renderSvgLoop = () => {
         const y = candleSeries.priceToCoordinate(p.price);
         return { x, y };
       });
-      if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) { pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x), y: pts[2].y + (pts[1].y - pts[0].y) }; }
+      if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) { pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x) as any, y: pts[2].y + (pts[1].y - pts[0].y) }; }
       if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
         const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y;
-        if (dx !== 0 || dy !== 0) { pts[2] = { x: pts[1].x + dx * 10000, y: pts[1].y + dy * 10000 }; } else { pts[2] = { ...pts[1] }; }
+        if (dx !== 0 || dy !== 0) { pts[2] = { x: pts[1].x + dx * 10000 as any, y: pts[1].y + dy * 10000 }; } else { pts[2] = { ...pts[1] }; }
       }
       let angleStr = '';
       if (shape.type === 'angle' && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
@@ -583,7 +583,7 @@ const loadMoreHistory = async () => {
   try {
     const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 1000, targetEndTimeMs);
     if (olderHistory && olderHistory.length > 0) {
-      const safeNewData = olderHistory.filter(item => {
+      const safeNewData = olderHistory.filter(( item : any) => {
         const itemTime = Number(item.time) > 9999999999 ? Math.floor(Number(item.time) / 1000) : Number(item.time);
         return itemTime < oldestTimeSec;
       });
@@ -617,7 +617,7 @@ const initCharts = () => {
   if (!chartContainer.value) return;
 
   chart = createChart(chartContainer.value, {
-    layout: { textColor: '#8b949e', background: { type: 'solid', color: '#0d1117' } },
+    layout: { textColor: '#8b949e', background: { type: 'solid' as any, color: '#0d1117' } },
     grid: { vertLines: { color: '#21262d', style: LineStyle.Dotted }, horzLines: { color: '#21262d', style: LineStyle.Dotted } },
     crosshair: { mode: CrosshairMode.Normal, vertLine: { labelBackgroundColor: '#1f6feb' }, horzLine: { labelBackgroundColor: '#1f6feb' } },
     timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: true },
@@ -726,7 +726,7 @@ watch(() => marketStore.globalCrosshairTime, () => {
   }
 
   try {
-    chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
+    chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time as any, candleSeries);
   } catch (e) {
     chart.clearCrosshairPosition();
   }

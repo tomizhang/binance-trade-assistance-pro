@@ -109,7 +109,7 @@ function connectUserDataStream() {
   userDataWs.onclose = () => setTimeout(connectUserDataStream, 5000);
 }
 
-onconnect = (e: MessageEvent) => {
+(self as any).onconnect = (e: MessageEvent) => {
   const port = e.ports[0];
   connectedPorts.add(port);
   port.start();

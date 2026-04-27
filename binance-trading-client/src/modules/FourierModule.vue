@@ -168,7 +168,7 @@ const fetchData = async () => {
     const history = await MarketAPI.getHistoricalKlines(currentSymbol.value, currentTf.value, 500);
     if (!history || history.length === 0) return;
     
-    rawKlines = history.filter(d => !isNaN(Number(d.time))).sort((a, b) => Number(a.time) - Number(b.time));
+    rawKlines = history.filter((d: any) => !isNaN(Number(d.time))).sort((a: any, b: any) => Number(a.time) - Number(b.time));
     signalTimes = rawKlines.map(d => Number(d.time) > 9999999999 ? Math.floor(Number(d.time)/1000) : Number(d.time));
     
     processFourier();
@@ -199,7 +199,7 @@ const loadMoreHistory = async () => {
   try {
     const olderHistory = await MarketAPI.getHistoricalKlines(currentSymbol.value, currentTf.value, 500, targetEndTimeMs);
     if (olderHistory && olderHistory.length > 0) {
-      const safeNewData = olderHistory.filter(item => {
+        const safeNewData = olderHistory.filter((item: any) => {
         const itemTime = Number(item.time) > 9999999999 ? Math.floor(Number(item.time) / 1000) : Number(item.time);
         return itemTime < oldestTimeSec;
       });
