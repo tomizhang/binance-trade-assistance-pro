@@ -564,7 +564,7 @@ const applyDataToSeries = (data: any[]) => {
 
 const loadHistory = async (symbol: string, interval: string) => {
   try {
-    const history = await MarketAPI.getHistoricalKlines(symbol, interval, 1000);
+    const history = await MarketAPI.getHistoricalKlines(symbol, interval, 500);
     if (!history || history.length === 0) return;
     currentChartData.value = history;
     applyDataToSeries(currentChartData.value);
@@ -581,7 +581,7 @@ const loadMoreHistory = async () => {
   const targetEndTimeMs = (oldestTimeSec - (parseInt(currentTf.value) * (currentTf.value.endsWith('m') ? 60 : 3600))) * 1000;
 
   try {
-    const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 1000, targetEndTimeMs);
+    const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 500, targetEndTimeMs);
     if (olderHistory && olderHistory.length > 0) {
       const safeNewData = olderHistory.filter(( item : any) => {
         const itemTime = Number(item.time) > 9999999999 ? Math.floor(Number(item.time) / 1000) : Number(item.time);
