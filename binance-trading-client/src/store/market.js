@@ -19,7 +19,7 @@ export const useMarketStore = defineStore('market', () => {
         if (Object.keys(symbolRules.value).length > 0)
             return;
         try {
-            const res = await fetch('http://localhost:5000/api/market/exchangeInfo');
+            const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/market/exchangeInfo`);
             const data = await res.json();
             const rules = {};
             data.symbols.forEach((s) => {
