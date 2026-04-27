@@ -50,7 +50,7 @@ namespace TradingService.BackgroundWorkers
                 }, null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
 
                 using var ws = new ClientWebSocket();
-                await ws.ConnectAsync(new Uri($"wss://fstream.binance.com/ws/{listenKey}"), stoppingToken);
+                await ws.ConnectAsync(new Uri($"wss://fstream.binance.com/private/ws/{listenKey}"), stoppingToken);
                 _logger.LogInformation("🟢 币安私有 WebSocket 连接成功！开始监听数据...");
 
                 var buffer = new byte[1024 * 8];

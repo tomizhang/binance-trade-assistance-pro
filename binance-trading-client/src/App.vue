@@ -1,7 +1,7 @@
 <template>
   <div id="app" class="app-container">
-    <TopNavBar /> 
     <div class="main-content">
+      <TopNavBar /> 
       <Dashboard />
       <ToastContainer />
     </div>

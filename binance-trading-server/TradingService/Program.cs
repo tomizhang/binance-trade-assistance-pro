@@ -6,6 +6,8 @@ using Serilog.Events;
 using System;
 using TradingService.BackgroundWorkers;
 using TradingService.Services;
+using TradingTerminal.Hubs;
+using TradingTerminal.Services;
 using YourApp.Infrastructure; // 记得替换为你的实际命名空间
 
 // ==========================================
@@ -43,10 +45,19 @@ try
     builder.Services.AddHostedService<BinanceUserDataWorker>();
     builder.Services.AddHttpClient<BinanceTradeService>();
     // 🌟 1. 先注册为单例，让 Controller 可以注入它
-    builder.Services.AddSingleton<BinanceWsApiService>();
+    //builder.Services.AddSingleton<BinanceWsApiService>();
 
     // 🌟 2. 再将其作为后台宿主服务启动，触发 ExecuteAsync
-    builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
+    //builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
+
+    // 🌟 步骤 1：先把引擎注册为单例，这样 MarketHub 才能在构造函数里拿到它！
+    builder.Services.AddSingleton<TradingTerminal.Services.BinanceWebSocketService>();
+
+    // 🌟 步骤 2：再把这个单例引擎作为后台任务跑起来
+    builder.Services.AddHostedService(provider =>
+        provider.GetRequiredService<TradingTerminal.Services.BinanceWebSocketService>());
+    // 2. 注册后台 WebSocket 转发服务
+    //builder.Services.AddHostedService<BinanceDataForwarderService>();
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)
     builder.Services.AddCors(options =>
     {
@@ -64,7 +75,7 @@ try
     // builder.Services.AddHttpClient<BinanceTradeService>();
 
     var app = builder.Build();
-
+    app.MapGet("/ping", () => "pong");
     // ==========================================
     // 3. 配置 HTTP 请求管道 (Middleware)
     // ==========================================
@@ -79,6 +90,8 @@ try
     }
 
     app.MapHub<AccountHub>("/hubs/account");
+    // 3. 映射 Hub 路由
+    app.MapHub<MarketHub>("/hubs/market");
 
     app.UseCors("AllowVueFrontend");
     app.UseAuthorization();

@@ -1,0 +1,766 @@
+2026-04-27 08:43:57.883 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-27 08:44:01.497 +08:00 [INF] 🚀 [统一引擎] 币安双轨 WebSocket 服务启动...
+2026-04-27 08:44:01.498 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-27 08:44:01.695 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-27 08:44:01.920 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 08:44:01.942 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 08:44:03.805 +08:00 [INF] Received HTTP response headers after 1855.059ms - 200
+2026-04-27 08:44:03.818 +08:00 [INF] End processing HTTP request after 1998.0208ms - 200
+2026-04-27 08:44:03.833 +08:00 [INF] 🔑 已成功获取 ListenKey: I9bvJWC6nBRqYnsEMJq5t83LovSQELKebg0vhjM2fWJnwIIE2lK5sP25RYnkzhga
+2026-04-27 08:44:04.005 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 08:44:04.383 +08:00 [INF] ✅ [公共行情轨] 已连接
+2026-04-27 08:44:06.653 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-27 08:44:21.767 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:44:21.777 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:44:22.032 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777250661765&signature=ca579d16a1f9f9f29761adc03f09d4879535a9fed41bfcaa61ce571d12a7144f
+2026-04-27 08:44:22.041 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777250661765&signature=ca579d16a1f9f9f29761adc03f09d4879535a9fed41bfcaa61ce571d12a7144f
+2026-04-27 08:44:23.594 +08:00 [INF] Received HTTP response headers after 1813.5798ms - 200
+2026-04-27 08:44:23.600 +08:00 [INF] End processing HTTP request after 1832.9037ms - 200
+2026-04-27 08:44:23.834 +08:00 [INF] Received HTTP response headers after 1790.1683ms - 200
+2026-04-27 08:44:23.840 +08:00 [INF] End processing HTTP request after 1808.9101ms - 200
+2026-04-27 08:44:24.394 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 08:44:24.408 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 08:44:25.152 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 08:44:25.160 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 08:44:25.680 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:44:25.705 +08:00 [INF] Received HTTP response headers after 532.2251ms - 200
+2026-04-27 08:44:25.712 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:44:25.731 +08:00 [INF] End processing HTTP request after 578.9104ms - 200
+2026-04-27 08:44:25.843 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250665843&signature=2a99a7f696732b7cd84656ee7bfe054a796c5c218e05e6211507f9dee1cef5cb
+2026-04-27 08:44:25.855 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250665843&signature=2a99a7f696732b7cd84656ee7bfe054a796c5c218e05e6211507f9dee1cef5cb
+2026-04-27 08:44:26.251 +08:00 [INF] Received HTTP response headers after 517.1192ms - 200
+2026-04-27 08:44:26.263 +08:00 [INF] End processing HTTP request after 583.0129ms - 200
+2026-04-27 08:44:26.397 +08:00 [INF] Received HTTP response headers after 539.2307ms - 200
+2026-04-27 08:44:26.406 +08:00 [INF] End processing HTTP request after 562.0927ms - 200
+2026-04-27 08:44:26.773 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250666772&signature=2caa5224434536fc097748f2897ce19c0284d9af9ba6be483d32c3f94976fbb5
+2026-04-27 08:44:26.784 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250666772&signature=2caa5224434536fc097748f2897ce19c0284d9af9ba6be483d32c3f94976fbb5
+2026-04-27 08:44:27.307 +08:00 [INF] Received HTTP response headers after 511.248ms - 200
+2026-04-27 08:44:27.320 +08:00 [INF] End processing HTTP request after 547.4682ms - 200
+2026-04-27 08:44:50.474 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=4&timestamp=1777250690474&signature=92b38ef5af2b76a3f2305dd41c7d3dd3fb511a39c9d1d3c85a83edd48086b0ce
+2026-04-27 08:44:50.490 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=4&timestamp=1777250690474&signature=92b38ef5af2b76a3f2305dd41c7d3dd3fb511a39c9d1d3c85a83edd48086b0ce
+2026-04-27 08:44:51.022 +08:00 [INF] Received HTTP response headers after 527.8242ms - 200
+2026-04-27 08:44:51.029 +08:00 [INF] End processing HTTP request after 554.8055ms - 200
+2026-04-27 08:45:32.760 +08:00 [INF] 📡 已向币安发送订阅: orcausdt@kline_1m
+2026-04-27 08:45:42.660 +08:00 [INF] 🚀 [WS专线] 已发送订单: ORCAUSDT SELL 13.9
+2026-04-27 08:45:55.196 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=12&timestamp=1777250755195&signature=acfd1715739cb09ac14999933666ecd7414578c9cb9b9b97d29a102e4a7b0276
+2026-04-27 08:45:55.205 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=12&timestamp=1777250755195&signature=acfd1715739cb09ac14999933666ecd7414578c9cb9b9b97d29a102e4a7b0276
+2026-04-27 08:45:56.459 +08:00 [INF] Received HTTP response headers after 1250.3166ms - 200
+2026-04-27 08:45:56.472 +08:00 [INF] End processing HTTP request after 1276.7383ms - 200
+2026-04-27 08:46:09.017 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250769017&signature=a665876d8ba6c88660f985df117f79d3e10cff5de71caaa744cf81cb263bc2ab
+2026-04-27 08:46:09.029 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250769017&signature=a665876d8ba6c88660f985df117f79d3e10cff5de71caaa744cf81cb263bc2ab
+2026-04-27 08:46:09.546 +08:00 [INF] Received HTTP response headers after 513.9507ms - 200
+2026-04-27 08:46:09.564 +08:00 [INF] End processing HTTP request after 546.3003ms - 200
+2026-04-27 08:46:12.390 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250772389&signature=8e4a22234c273ebbb7907bcb144435c2046b137edd4a59acd7ec6f38d34eae2b
+2026-04-27 08:46:12.401 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250772389&signature=8e4a22234c273ebbb7907bcb144435c2046b137edd4a59acd7ec6f38d34eae2b
+2026-04-27 08:46:12.916 +08:00 [INF] Received HTTP response headers after 511.2503ms - 200
+2026-04-27 08:46:12.934 +08:00 [INF] End processing HTTP request after 544.0402ms - 200
+2026-04-27 08:46:18.982 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=64&timestamp=1777250778982&signature=720e34aed4b68fbc3ed7c9590ecbbe67663c9114e21fbf1cbd8beba9c7f4fba7
+2026-04-27 08:46:18.999 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=64&timestamp=1777250778982&signature=720e34aed4b68fbc3ed7c9590ecbbe67663c9114e21fbf1cbd8beba9c7f4fba7
+2026-04-27 08:46:19.498 +08:00 [INF] Received HTTP response headers after 494.1779ms - 400
+2026-04-27 08:46:19.507 +08:00 [INF] End processing HTTP request after 525.0141ms - 400
+2026-04-27 08:46:21.715 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=53&timestamp=1777250781715&signature=6b744bad8508feec9ca04b0a71fc1b776deaaaa4ff7e501ced67b5aa0153e943
+2026-04-27 08:46:21.730 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=53&timestamp=1777250781715&signature=6b744bad8508feec9ca04b0a71fc1b776deaaaa4ff7e501ced67b5aa0153e943
+2026-04-27 08:46:22.969 +08:00 [INF] Received HTTP response headers after 1232.9862ms - 400
+2026-04-27 08:46:22.976 +08:00 [INF] End processing HTTP request after 1261.0388ms - 400
+2026-04-27 08:46:23.568 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=40&timestamp=1777250783567&signature=b6c34025612ae98e8f3a5119a47958e5eddf7b5e71a3bdd49d340c6edf164a23
+2026-04-27 08:46:23.580 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=40&timestamp=1777250783567&signature=b6c34025612ae98e8f3a5119a47958e5eddf7b5e71a3bdd49d340c6edf164a23
+2026-04-27 08:46:24.086 +08:00 [INF] Received HTTP response headers after 501.1255ms - 200
+2026-04-27 08:46:24.095 +08:00 [INF] End processing HTTP request after 527.5ms - 200
+2026-04-27 08:46:24.251 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=31&timestamp=1777250784251&signature=66f2f7c5bece2a1e6455fa469b6eb93ec9d92035f321b2e5356a2bea0440b040
+2026-04-27 08:46:24.259 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=31&timestamp=1777250784251&signature=66f2f7c5bece2a1e6455fa469b6eb93ec9d92035f321b2e5356a2bea0440b040
+2026-04-27 08:46:24.758 +08:00 [INF] Received HTTP response headers after 496.9476ms - 200
+2026-04-27 08:46:24.765 +08:00 [INF] End processing HTTP request after 513.3399ms - 200
+2026-04-27 08:46:27.600 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=21&timestamp=1777250787599&signature=b99364787340c74759e6348b4db42128616341f3e028def91f410c7a26d280e2
+2026-04-27 08:46:27.623 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=ORCAUSDT&leverage=21&timestamp=1777250787599&signature=b99364787340c74759e6348b4db42128616341f3e028def91f410c7a26d280e2
+2026-04-27 08:46:28.111 +08:00 [INF] Received HTTP response headers after 484.616ms - 200
+2026-04-27 08:46:28.130 +08:00 [INF] End processing HTTP request after 530.2274ms - 200
+2026-04-27 08:46:43.779 +08:00 [INF] 🚀 [WS专线] 已发送订单: ORCAUSDT SELL 46.6
+2026-04-27 08:47:06.068 +08:00 [INF] 🚀 正在发送订单: BUY 60.5 ORCAUSDT @ MARKET
+2026-04-27 08:47:06.075 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/order?symbol=ORCAUSDT&side=BUY&type=MARKET&quantity=60.5&timestamp=1777250826068&signature=5f7d33e5760a9f0a68cad8c6e92e3f65a926fc5d57db52dc12bb8311f3c63089
+2026-04-27 08:47:06.081 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/order?symbol=ORCAUSDT&side=BUY&type=MARKET&quantity=60.5&timestamp=1777250826068&signature=5f7d33e5760a9f0a68cad8c6e92e3f65a926fc5d57db52dc12bb8311f3c63089
+2026-04-27 08:47:06.606 +08:00 [INF] Received HTTP response headers after 514.2867ms - 200
+2026-04-27 08:47:06.618 +08:00 [INF] End processing HTTP request after 542.2455ms - 200
+2026-04-27 08:47:06.649 +08:00 [INF] ✅ 下单成功: {"orderId":1591327854,"symbol":"ORCAUSDT","status":"NEW","clientOrderId":"QsCQy7xTgu2iI2hZ83tEeC","price":"0.0000000","avgPrice":"0.00","origQty":"60.5","executedQty":"0.0","cumQty":"0.0","cumQuote":"0.00000000","timeInForce":"GTC","type":"MARKET","reduceOnly":false,"closePosition":false,"side":"BUY","positionSide":"BOTH","stopPrice":"0.0000000","workingType":"CONTRACT_PRICE","priceProtect":false,"origType":"MARKET","priceMatch":"NONE","selfTradePreventionMode":"EXPIRE_MAKER","goodTillDate":0,"updateTime":1777250826375}
+2026-04-27 08:47:17.140 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250837140&signature=855613ec1052d390f7f1d98e30cd3c6d0508dd2576a9e550522de726b2a9f0a1
+2026-04-27 08:47:17.149 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250837140&signature=855613ec1052d390f7f1d98e30cd3c6d0508dd2576a9e550522de726b2a9f0a1
+2026-04-27 08:47:17.652 +08:00 [INF] Received HTTP response headers after 499.7212ms - 200
+2026-04-27 08:47:17.659 +08:00 [INF] End processing HTTP request after 519.4847ms - 200
+2026-04-27 08:47:18.953 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250838952&signature=dc42accab3257e55976e316d80cc2cc89f7a330dab755061930c496b35c56bcb
+2026-04-27 08:47:18.967 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777250838952&signature=dc42accab3257e55976e316d80cc2cc89f7a330dab755061930c496b35c56bcb
+2026-04-27 08:47:19.487 +08:00 [INF] Received HTTP response headers after 515.3967ms - 200
+2026-04-27 08:47:19.495 +08:00 [INF] End processing HTTP request after 542.9465ms - 200
+2026-04-27 08:47:22.400 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:47:22.410 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:47:22.497 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 08:47:22.499 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 08:47:22.926 +08:00 [INF] Received HTTP response headers after 504.2824ms - 200
+2026-04-27 08:47:22.933 +08:00 [INF] End processing HTTP request after 532.8841ms - 200
+2026-04-27 08:47:28.924 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777250848924&signature=35c2e76269ac9b3fbcbd5ebba77d27d69c63067083f75edc7818f92b4c2637e3
+2026-04-27 08:47:28.952 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:47:28.962 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777250848924&signature=35c2e76269ac9b3fbcbd5ebba77d27d69c63067083f75edc7818f92b4c2637e3
+2026-04-27 08:47:28.964 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 08:47:29.492 +08:00 [INF] Received HTTP response headers after 525.6061ms - 200
+2026-04-27 08:47:29.499 +08:00 [INF] End processing HTTP request after 575.0146ms - 200
+2026-04-27 08:47:29.616 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 08:47:29.618 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 08:47:30.073 +08:00 [INF] Received HTTP response headers after 1065.3725ms - 200
+2026-04-27 08:47:30.088 +08:00 [INF] End processing HTTP request after 1135.4794ms - 200
+2026-04-27 08:47:30.264 +08:00 [INF] Received HTTP response headers after 640.4579ms - 200
+2026-04-27 08:47:30.271 +08:00 [INF] End processing HTTP request after 654.978ms - 200
+2026-04-27 08:47:30.312 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250850312&signature=e6061afdde3841ff7ce6dc5469051c9f3988d70cda531edce939700897b800c6
+2026-04-27 08:47:30.331 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250850312&signature=e6061afdde3841ff7ce6dc5469051c9f3988d70cda531edce939700897b800c6
+2026-04-27 08:47:31.351 +08:00 [INF] Received HTTP response headers after 1015.8926ms - 200
+2026-04-27 08:47:31.358 +08:00 [INF] End processing HTTP request after 1046.069ms - 200
+2026-04-27 08:47:32.589 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250852588&signature=df70083aa873bacd43fe742b3218810d2cf40fe47c20f7f845f70a21b63f482d
+2026-04-27 08:47:32.605 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777250852588&signature=df70083aa873bacd43fe742b3218810d2cf40fe47c20f7f845f70a21b63f482d
+2026-04-27 08:47:33.151 +08:00 [INF] Received HTTP response headers after 543.1523ms - 200
+2026-04-27 08:47:33.160 +08:00 [INF] End processing HTTP request after 571.067ms - 200
+2026-04-27 08:47:47.857 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=29&timestamp=1777250867857&signature=50b6dc844df6457b985a3e88ef798b333c899c178f88650960126e9fb1aeba18
+2026-04-27 08:47:47.865 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=29&timestamp=1777250867857&signature=50b6dc844df6457b985a3e88ef798b333c899c178f88650960126e9fb1aeba18
+2026-04-27 08:47:48.364 +08:00 [INF] Received HTTP response headers after 496.2605ms - 200
+2026-04-27 08:47:48.374 +08:00 [INF] End processing HTTP request after 516.9514ms - 200
+2026-04-27 08:47:48.972 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=4&timestamp=1777250868972&signature=f61d8d107e66545312e6958bd255fd8ae2394dd8047e5d0208b3c21ed7b9bda7
+2026-04-27 08:47:48.983 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=4&timestamp=1777250868972&signature=f61d8d107e66545312e6958bd255fd8ae2394dd8047e5d0208b3c21ed7b9bda7
+2026-04-27 08:47:49.488 +08:00 [INF] Received HTTP response headers after 501.7795ms - 200
+2026-04-27 08:47:49.495 +08:00 [INF] End processing HTTP request after 522.7978ms - 200
+2026-04-27 08:47:52.932 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=23&timestamp=1777250872932&signature=904159f97d72562b7cf6f7adb1806fae6e52ed99f2b6db021208c04e40f319a7
+2026-04-27 08:47:52.943 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=23&timestamp=1777250872932&signature=904159f97d72562b7cf6f7adb1806fae6e52ed99f2b6db021208c04e40f319a7
+2026-04-27 08:47:53.459 +08:00 [INF] Received HTTP response headers after 512.8889ms - 200
+2026-04-27 08:47:53.468 +08:00 [INF] End processing HTTP request after 535.4971ms - 200
+2026-04-27 08:47:54.254 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=18&timestamp=1777250874254&signature=6065c71074235f21b172e603a3dc3948e506fa20e4bf78c0e96cd098785f17e1
+2026-04-27 08:47:54.264 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/leverage?symbol=BTCUSDT&leverage=18&timestamp=1777250874254&signature=6065c71074235f21b172e603a3dc3948e506fa20e4bf78c0e96cd098785f17e1
+2026-04-27 08:47:54.769 +08:00 [INF] Received HTTP response headers after 497.5035ms - 200
+2026-04-27 08:47:54.777 +08:00 [INF] End processing HTTP request after 522.9101ms - 200
+2026-04-27 08:54:04.098 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 08:54:13.508 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:02:13.579 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:02:20.569 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:05:02.848 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777251902848&signature=7c66eb37ca521a9bd92dce2b3298a568585ded144afc65d7c0f42384597eadfb
+2026-04-27 09:05:02.860 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777251902848&signature=7c66eb37ca521a9bd92dce2b3298a568585ded144afc65d7c0f42384597eadfb
+2026-04-27 09:05:04.679 +08:00 [INF] Received HTTP response headers after 1816.0138ms - 200
+2026-04-27 09:05:04.685 +08:00 [INF] End processing HTTP request after 1837.3113ms - 200
+2026-04-27 09:05:05.933 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:05:05.942 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:05:06.594 +08:00 [INF] Received HTTP response headers after 641.7609ms - 200
+2026-04-27 09:05:06.603 +08:00 [INF] End processing HTTP request after 670.554ms - 200
+2026-04-27 09:05:06.649 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777251906648&signature=bb7d2aa7cc6661a240f6e4a87c8c6cf42315b68a441ac869e73560c20c4e497c
+2026-04-27 09:05:06.651 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777251906648&signature=bb7d2aa7cc6661a240f6e4a87c8c6cf42315b68a441ac869e73560c20c4e497c
+2026-04-27 09:05:07.203 +08:00 [INF] Received HTTP response headers after 546.0786ms - 200
+2026-04-27 09:05:07.212 +08:00 [INF] End processing HTTP request after 563.6465ms - 200
+2026-04-27 09:05:07.582 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777251907581&signature=274ccc6ea6fa02441925bfd264dcbeb33d5a1eef94267ad1f149774965bea727
+2026-04-27 09:05:07.597 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777251907581&signature=274ccc6ea6fa02441925bfd264dcbeb33d5a1eef94267ad1f149774965bea727
+2026-04-27 09:05:08.136 +08:00 [INF] Received HTTP response headers after 535.3672ms - 200
+2026-04-27 09:05:08.141 +08:00 [INF] End processing HTTP request after 559.8605ms - 200
+2026-04-27 09:06:49.037 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:06:49.068 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252009068&signature=b619f45bfd44e1f64756ef5ecf65eaf3057dc98a90108392520a41f72c0b7339
+2026-04-27 09:06:49.071 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:06:49.114 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:06:49.144 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252009068&signature=b619f45bfd44e1f64756ef5ecf65eaf3057dc98a90108392520a41f72c0b7339
+2026-04-27 09:06:49.185 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:06:50.966 +08:00 [INF] Received HTTP response headers after 1813.4248ms - 200
+2026-04-27 09:06:50.971 +08:00 [INF] End processing HTTP request after 1933.9606ms - 200
+2026-04-27 09:06:50.998 +08:00 [INF] Received HTTP response headers after 1806.3596ms - 200
+2026-04-27 09:06:51.000 +08:00 [INF] End processing HTTP request after 1932.4873ms - 200
+2026-04-27 09:06:52.574 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252012574&signature=7366765c3053b157f6fdf5bfb311751abdf8bb7881c286aa9930fb24a3db6b06
+2026-04-27 09:06:52.584 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252012574&signature=7366765c3053b157f6fdf5bfb311751abdf8bb7881c286aa9930fb24a3db6b06
+2026-04-27 09:06:53.034 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:06:53.040 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:06:53.121 +08:00 [INF] Received HTTP response headers after 533.7882ms - 200
+2026-04-27 09:06:53.123 +08:00 [INF] End processing HTTP request after 549.1923ms - 200
+2026-04-27 09:06:53.560 +08:00 [INF] Received HTTP response headers after 511.8459ms - 200
+2026-04-27 09:06:53.575 +08:00 [INF] End processing HTTP request after 541.5546ms - 200
+2026-04-27 09:06:54.117 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:06:54.125 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:06:54.648 +08:00 [INF] Received HTTP response headers after 513.8004ms - 200
+2026-04-27 09:06:54.657 +08:00 [INF] End processing HTTP request after 540.6527ms - 200
+2026-04-27 09:06:54.718 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252014718&signature=c5c2d080b31fa064698a67ad121b098a9fc6ad600bd8dd9107d51f00bab14e25
+2026-04-27 09:06:54.734 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252014718&signature=c5c2d080b31fa064698a67ad121b098a9fc6ad600bd8dd9107d51f00bab14e25
+2026-04-27 09:06:55.266 +08:00 [INF] Received HTTP response headers after 518.5308ms - 200
+2026-04-27 09:06:55.274 +08:00 [INF] End processing HTTP request after 555.9178ms - 200
+2026-04-27 09:06:56.156 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252016156&signature=ff951d63bd4839fa1c456821eaa843073fe4bbd0cdd45b8821ea0408985c7520
+2026-04-27 09:06:56.172 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252016156&signature=ff951d63bd4839fa1c456821eaa843073fe4bbd0cdd45b8821ea0408985c7520
+2026-04-27 09:06:56.727 +08:00 [INF] Received HTTP response headers after 544.3927ms - 200
+2026-04-27 09:06:56.738 +08:00 [INF] End processing HTTP request after 581.592ms - 200
+2026-04-27 09:07:01.109 +08:00 [INF] 📡 已向币安发送订阅: orcausdt@kline_1m
+2026-04-27 09:07:06.734 +08:00 [INF] 🚀 [WS专线] 已发送订单: ORCAUSDT SELL 38.1
+2026-04-27 09:07:14.175 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777252034175&signature=3740d0998fea226ab206693c09e56c9730466ee8ff769ec06a3ea3cd13bae8ef
+2026-04-27 09:07:14.183 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777252034175&signature=3740d0998fea226ab206693c09e56c9730466ee8ff769ec06a3ea3cd13bae8ef
+2026-04-27 09:07:15.442 +08:00 [INF] Received HTTP response headers after 1256.4442ms - 200
+2026-04-27 09:07:15.448 +08:00 [INF] End processing HTTP request after 1272.81ms - 200
+2026-04-27 09:07:26.930 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:07:26.956 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252046955&signature=974e46df717141a5f8b2e193a8f2638153ea86700c1199aafca3bfd9df7e4209
+2026-04-27 09:07:26.958 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:07:27.003 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252046955&signature=974e46df717141a5f8b2e193a8f2638153ea86700c1199aafca3bfd9df7e4209
+2026-04-27 09:07:26.985 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:07:27.102 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:07:27.929 +08:00 [INF] Received HTTP response headers after 912.1804ms - 200
+2026-04-27 09:07:27.938 +08:00 [INF] End processing HTTP request after 1007.8974ms - 200
+2026-04-27 09:07:28.848 +08:00 [INF] Received HTTP response headers after 1782.5566ms - 200
+2026-04-27 09:07:28.859 +08:00 [INF] End processing HTTP request after 1902.8773ms - 200
+2026-04-27 09:07:29.998 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:07:30.005 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:07:30.537 +08:00 [INF] Received HTTP response headers after 491.7818ms - 200
+2026-04-27 09:07:30.547 +08:00 [INF] End processing HTTP request after 548.827ms - 200
+2026-04-27 09:07:30.602 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252050602&signature=b511e83efefd74882d395733e7d8b00a9fcfa9201cfc5df12057c98a8263edac
+2026-04-27 09:07:30.611 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252050602&signature=b511e83efefd74882d395733e7d8b00a9fcfa9201cfc5df12057c98a8263edac
+2026-04-27 09:07:31.604 +08:00 [INF] Received HTTP response headers after 984.1326ms - 200
+2026-04-27 09:07:31.615 +08:00 [INF] End processing HTTP request after 1012.7037ms - 200
+2026-04-27 09:07:33.363 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:07:33.373 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:07:34.804 +08:00 [INF] Received HTTP response headers after 1419.075ms - 200
+2026-04-27 09:07:34.813 +08:00 [INF] End processing HTTP request after 1449.5156ms - 200
+2026-04-27 09:07:34.867 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252054866&signature=4ddecf122b65779a806fd2ec763a74d6d3cb520fb44aa49a2720901e1db27baf
+2026-04-27 09:07:34.875 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252054866&signature=4ddecf122b65779a806fd2ec763a74d6d3cb520fb44aa49a2720901e1db27baf
+2026-04-27 09:07:36.296 +08:00 [INF] Received HTTP response headers after 1418.0749ms - 200
+2026-04-27 09:07:36.305 +08:00 [INF] End processing HTTP request after 1438.4261ms - 200
+2026-04-27 09:07:36.689 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252056688&signature=8a203b4fbf2916bdbecdb952b6ec0520e8d367a99d93a51a203987d71d12a2da
+2026-04-27 09:07:36.699 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252056688&signature=8a203b4fbf2916bdbecdb952b6ec0520e8d367a99d93a51a203987d71d12a2da
+2026-04-27 09:07:37.685 +08:00 [INF] Received HTTP response headers after 963.3915ms - 200
+2026-04-27 09:07:37.699 +08:00 [INF] End processing HTTP request after 1010.1562ms - 200
+2026-04-27 09:13:27.089 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:13:27.123 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252407123&signature=da831d3d240d005a46752e3bbf2ccdaea5f33df0697f4ab403155b93fbb56ccd
+2026-04-27 09:13:27.129 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:13:27.489 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:13:27.442 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252407123&signature=da831d3d240d005a46752e3bbf2ccdaea5f33df0697f4ab403155b93fbb56ccd
+2026-04-27 09:13:27.528 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:13:29.217 +08:00 [INF] Received HTTP response headers after 1722.7226ms - 200
+2026-04-27 09:13:29.226 +08:00 [INF] End processing HTTP request after 2137.1354ms - 200
+2026-04-27 09:13:29.367 +08:00 [INF] Received HTTP response headers after 1816.5956ms - 200
+2026-04-27 09:13:29.373 +08:00 [INF] End processing HTTP request after 2250.1078ms - 200
+2026-04-27 09:13:31.452 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252411452&signature=9d906abc7f415d4fd5f7533a2bf0506ab41f6f60cbf55b93904a870804ebd4a6
+2026-04-27 09:13:31.461 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252411452&signature=9d906abc7f415d4fd5f7533a2bf0506ab41f6f60cbf55b93904a870804ebd4a6
+2026-04-27 09:13:32.018 +08:00 [INF] Received HTTP response headers after 546.9905ms - 200
+2026-04-27 09:13:32.031 +08:00 [INF] End processing HTTP request after 579.1639ms - 200
+2026-04-27 09:13:32.682 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:13:32.691 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:13:32.898 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:13:32.903 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:13:33.745 +08:00 [INF] Received HTTP response headers after 1033.5382ms - 200
+2026-04-27 09:13:33.756 +08:00 [INF] End processing HTTP request after 1074.5089ms - 200
+2026-04-27 09:13:34.133 +08:00 [INF] Received HTTP response headers after 1215.0061ms - 200
+2026-04-27 09:13:34.141 +08:00 [INF] End processing HTTP request after 1242.9305ms - 200
+2026-04-27 09:13:34.179 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252414179&signature=c1f28f3ec3dd06783998e01bf16b581e2cdcb783bfec299adf0a8cc4a5039862
+2026-04-27 09:13:34.187 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252414179&signature=c1f28f3ec3dd06783998e01bf16b581e2cdcb783bfec299adf0a8cc4a5039862
+2026-04-27 09:13:34.713 +08:00 [INF] Received HTTP response headers after 520.8206ms - 200
+2026-04-27 09:13:34.720 +08:00 [INF] End processing HTTP request after 540.41ms - 200
+2026-04-27 09:13:35.805 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252415805&signature=00589df3ac59deba2e7b10a3de4472677c680ccee8d9526f2c1a2a7bcad94085
+2026-04-27 09:13:35.817 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777252415805&signature=00589df3ac59deba2e7b10a3de4472677c680ccee8d9526f2c1a2a7bcad94085
+2026-04-27 09:13:36.800 +08:00 [INF] Received HTTP response headers after 976.555ms - 200
+2026-04-27 09:13:36.810 +08:00 [INF] End processing HTTP request after 1005.2196ms - 200
+2026-04-27 09:14:03.857 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:14:03.866 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:14:05.120 +08:00 [INF] Received HTTP response headers after 1239.869ms - 200
+2026-04-27 09:14:05.128 +08:00 [INF] End processing HTTP request after 1270.6113ms - 200
+2026-04-27 09:14:05.148 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 09:14:20.639 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:14:27.501 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:16:05.533 +08:00 [INF] 📡 已向币安发送订阅: orcausdt@kline_1m
+2026-04-27 09:16:19.519 +08:00 [INF] 📡 已向币安发送订阅: orcausdt@kline_1m
+2026-04-27 09:17:05.646 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252625646&signature=62f841a3cde7bd4063c680cd488322b55005993b5f759e9e1dfb9215808e752c
+2026-04-27 09:17:05.664 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777252625646&signature=62f841a3cde7bd4063c680cd488322b55005993b5f759e9e1dfb9215808e752c
+2026-04-27 09:17:07.423 +08:00 [INF] Received HTTP response headers after 1755.312ms - 200
+2026-04-27 09:17:07.429 +08:00 [INF] End processing HTTP request after 1782.873ms - 200
+2026-04-27 09:22:27.566 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:22:34.234 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:23:26.396 +08:00 [INF] 📡 已向币安发送订阅: orcausdt@kline_1m
+2026-04-27 09:23:27.237 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:23:27.267 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253007266&signature=6e3bb217df40b0be1c1355d6aec59198d9de7f801d6ac041a964b8b5d8a8cdac
+2026-04-27 09:23:27.269 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:23:27.275 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253007266&signature=6e3bb217df40b0be1c1355d6aec59198d9de7f801d6ac041a964b8b5d8a8cdac
+2026-04-27 09:23:27.298 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:23:27.332 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:23:29.125 +08:00 [INF] Received HTTP response headers after 1825.95ms - 200
+2026-04-27 09:23:29.131 +08:00 [INF] End processing HTTP request after 1864.0145ms - 200
+2026-04-27 09:23:29.432 +08:00 [INF] Received HTTP response headers after 2151.8537ms - 200
+2026-04-27 09:23:29.440 +08:00 [INF] End processing HTTP request after 2203.4502ms - 200
+2026-04-27 09:23:30.596 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253010596&signature=56f338fd6c43a0c465109db48f0140317291d37fc6780f3299b6a4c302b8ec8f
+2026-04-27 09:23:30.611 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253010596&signature=56f338fd6c43a0c465109db48f0140317291d37fc6780f3299b6a4c302b8ec8f
+2026-04-27 09:23:31.152 +08:00 [INF] Received HTTP response headers after 532.2352ms - 200
+2026-04-27 09:23:31.160 +08:00 [INF] End processing HTTP request after 564.5314ms - 200
+2026-04-27 09:23:32.404 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:23:32.413 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:23:32.900 +08:00 [INF] Received HTTP response headers after 481.5541ms - 200
+2026-04-27 09:23:32.908 +08:00 [INF] End processing HTTP request after 503.7232ms - 200
+2026-04-27 09:23:32.957 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253012957&signature=3dcd53ab0da5377e604d05be575989fc5b2b98d20baf4aad8042e07f55b93cc4
+2026-04-27 09:23:32.963 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253012957&signature=3dcd53ab0da5377e604d05be575989fc5b2b98d20baf4aad8042e07f55b93cc4
+2026-04-27 09:23:33.237 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:23:33.247 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:23:33.475 +08:00 [INF] Received HTTP response headers after 509.7595ms - 200
+2026-04-27 09:23:33.481 +08:00 [INF] End processing HTTP request after 523.6827ms - 200
+2026-04-27 09:23:34.246 +08:00 [INF] Received HTTP response headers after 985.0291ms - 200
+2026-04-27 09:23:34.254 +08:00 [INF] End processing HTTP request after 1016.7123ms - 200
+2026-04-27 09:23:34.308 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253014308&signature=7c3b43b363779c7f5d68e8f3922f6eff287c5dd89bd19a561093ea9e0c3f2664
+2026-04-27 09:23:34.315 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253014308&signature=7c3b43b363779c7f5d68e8f3922f6eff287c5dd89bd19a561093ea9e0c3f2664
+2026-04-27 09:23:34.823 +08:00 [INF] Received HTTP response headers after 503.4721ms - 200
+2026-04-27 09:23:34.829 +08:00 [INF] End processing HTTP request after 521.3199ms - 200
+2026-04-27 09:23:37.185 +08:00 [INF] 🚀 正在发送订单: BUY 76.4 ORCAUSDT @ MARKET
+2026-04-27 09:23:37.191 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/order?symbol=ORCAUSDT&side=BUY&type=MARKET&quantity=76.4&timestamp=1777253017185&signature=ac37afa366aeb272f38d17fe508382768bca0ada43eb04ac5f8693ef247da3f7
+2026-04-27 09:23:37.200 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/order?symbol=ORCAUSDT&side=BUY&type=MARKET&quantity=76.4&timestamp=1777253017185&signature=ac37afa366aeb272f38d17fe508382768bca0ada43eb04ac5f8693ef247da3f7
+2026-04-27 09:23:37.682 +08:00 [INF] Received HTTP response headers after 479.5851ms - 200
+2026-04-27 09:23:37.704 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253017703&signature=f59d84ed6653729c0e33499f1db868fa59581f82c21ca77579509a36606da1a2
+2026-04-27 09:23:37.706 +08:00 [INF] End processing HTTP request after 515.1612ms - 200
+2026-04-27 09:23:37.720 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253017703&signature=f59d84ed6653729c0e33499f1db868fa59581f82c21ca77579509a36606da1a2
+2026-04-27 09:23:37.723 +08:00 [INF] ✅ 下单成功: {"orderId":1592926190,"symbol":"ORCAUSDT","status":"NEW","clientOrderId":"8N7rS2ELC9fR3G6NYfV8VP","price":"0.0000000","avgPrice":"0.00","origQty":"76.4","executedQty":"0.0","cumQty":"0.0","cumQuote":"0.00000000","timeInForce":"GTC","type":"MARKET","reduceOnly":false,"closePosition":false,"side":"BUY","positionSide":"BOTH","stopPrice":"0.0000000","workingType":"CONTRACT_PRICE","priceProtect":false,"origType":"MARKET","priceMatch":"NONE","selfTradePreventionMode":"EXPIRE_MAKER","goodTillDate":0,"updateTime":1777253017452}
+2026-04-27 09:23:38.745 +08:00 [INF] Received HTTP response headers after 1018.4004ms - 200
+2026-04-27 09:23:38.755 +08:00 [INF] End processing HTTP request after 1051.0943ms - 200
+2026-04-27 09:23:38.964 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253018964&signature=a362c3bdb618bb784a8992bfe5ee7321e69237989171e63c3951e8551eed3d9c
+2026-04-27 09:23:38.980 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253018964&signature=a362c3bdb618bb784a8992bfe5ee7321e69237989171e63c3951e8551eed3d9c
+2026-04-27 09:23:39.995 +08:00 [INF] Received HTTP response headers after 1006.119ms - 200
+2026-04-27 09:23:40.004 +08:00 [INF] End processing HTTP request after 1040.2066ms - 200
+2026-04-27 09:30:34.303 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:30:41.220 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:32:39.310 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253559310&signature=e942dd2b83bf131d6353ec005cf48afcfc9af48e60089cbf2ccccfe2a06081be
+2026-04-27 09:32:39.320 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253559310&signature=e942dd2b83bf131d6353ec005cf48afcfc9af48e60089cbf2ccccfe2a06081be
+2026-04-27 09:32:41.098 +08:00 [INF] Received HTTP response headers after 1775.0502ms - 200
+2026-04-27 09:32:41.109 +08:00 [INF] End processing HTTP request after 1798.8424ms - 200
+2026-04-27 09:32:41.354 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253561352&signature=8c2a189524d3110a1c6477ee44a04d0a8f3402434b7dad9ffb3f196b169498a0
+2026-04-27 09:32:41.483 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:32:41.552 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253561352&signature=8c2a189524d3110a1c6477ee44a04d0a8f3402434b7dad9ffb3f196b169498a0
+2026-04-27 09:32:41.561 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:32:41.592 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:32:41.955 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:32:43.621 +08:00 [INF] Received HTTP response headers after 1608.3389ms - 200
+2026-04-27 09:32:43.624 +08:00 [INF] End processing HTTP request after 2141.2094ms - 200
+2026-04-27 09:32:43.775 +08:00 [INF] Received HTTP response headers after 2129.4828ms - 200
+2026-04-27 09:32:43.779 +08:00 [INF] End processing HTTP request after 2424.9889ms - 200
+2026-04-27 09:33:00.586 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-27 09:33:03.747 +08:00 [INF] 🚀 [统一引擎] 币安双轨 WebSocket 服务启动...
+2026-04-27 09:33:03.747 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-27 09:33:03.791 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-27 09:33:03.906 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:33:03.940 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:33:05.914 +08:00 [INF] Received HTTP response headers after 1945.0268ms - 200
+2026-04-27 09:33:05.927 +08:00 [INF] End processing HTTP request after 2115.4308ms - 200
+2026-04-27 09:33:05.939 +08:00 [INF] 🔑 已成功获取 ListenKey: I9bvJWC6nBRqYnsEMJq5t83LovSQELKebg0vhjM2fWJnwIIE2lK5sP25RYnkzhga
+2026-04-27 09:33:06.063 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:33:06.976 +08:00 [INF] ✅ [公共行情轨] 已连接
+2026-04-27 09:33:07.868 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253587633&signature=9d87ec374c5340b89ed9bc9cfbe2df7cb0f2de73b57b7e8f19dab8fb2b8fb408
+2026-04-27 09:33:07.879 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253587633&signature=9d87ec374c5340b89ed9bc9cfbe2df7cb0f2de73b57b7e8f19dab8fb2b8fb408
+2026-04-27 09:33:08.713 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-27 09:33:10.114 +08:00 [INF] Received HTTP response headers after 2231.4909ms - 200
+2026-04-27 09:33:10.121 +08:00 [INF] End processing HTTP request after 2253.9146ms - 200
+2026-04-27 09:33:11.757 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253591755&signature=b6a27a406f2332dd087ce78176597333622172c54c94ae0e58e4360ea52f40aa
+2026-04-27 09:33:11.766 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253591755&signature=b6a27a406f2332dd087ce78176597333622172c54c94ae0e58e4360ea52f40aa
+2026-04-27 09:33:12.244 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:33:12.259 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:33:12.339 +08:00 [INF] Received HTTP response headers after 570.8755ms - 200
+2026-04-27 09:33:12.344 +08:00 [INF] End processing HTTP request after 588.5807ms - 200
+2026-04-27 09:33:13.315 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:33:13.323 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:33:13.855 +08:00 [INF] Received HTTP response headers after 529.2237ms - 200
+2026-04-27 09:33:13.861 +08:00 [INF] End processing HTTP request after 546.037ms - 200
+2026-04-27 09:33:13.915 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253593914&signature=daa3f1aa0c57540fb2eb1bd38ccb4d5d19a26719c330c075470c9f5ec60e4609
+2026-04-27 09:33:13.922 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253593914&signature=daa3f1aa0c57540fb2eb1bd38ccb4d5d19a26719c330c075470c9f5ec60e4609
+2026-04-27 09:33:14.471 +08:00 [INF] Received HTTP response headers after 546.8968ms - 200
+2026-04-27 09:33:14.491 +08:00 [INF] End processing HTTP request after 576.3532ms - 200
+2026-04-27 09:33:15.321 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253595321&signature=beec5a19f047583a113029ab4cd7445f62cb972ba163a5c1da1fbcf86829b65c
+2026-04-27 09:33:15.337 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253595321&signature=beec5a19f047583a113029ab4cd7445f62cb972ba163a5c1da1fbcf86829b65c
+2026-04-27 09:33:15.875 +08:00 [INF] Received HTTP response headers after 527.8877ms - 200
+2026-04-27 09:33:15.884 +08:00 [INF] End processing HTTP request after 562.1658ms - 200
+2026-04-27 09:33:42.989 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253622988&signature=03724e85f3f8fc9c942dedd6f3f21d629d7bb0790740146272984bc3183d1856
+2026-04-27 09:33:43.021 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:33:43.025 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253622988&signature=03724e85f3f8fc9c942dedd6f3f21d629d7bb0790740146272984bc3183d1856
+2026-04-27 09:33:43.028 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:33:43.039 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:33:43.152 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:33:43.599 +08:00 [INF] Received HTTP response headers after 532.3805ms - 200
+2026-04-27 09:33:43.606 +08:00 [INF] End processing HTTP request after 617.3351ms - 200
+2026-04-27 09:33:44.225 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253624224&signature=f046f60fb6d1821d006dd7f162126dc8a048e2744f91facf91c164293fe0e6e3
+2026-04-27 09:33:44.238 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777253624224&signature=f046f60fb6d1821d006dd7f162126dc8a048e2744f91facf91c164293fe0e6e3
+2026-04-27 09:33:44.800 +08:00 [INF] Received HTTP response headers after 559.4831ms - 200
+2026-04-27 09:33:44.808 +08:00 [INF] End processing HTTP request after 583.5808ms - 200
+2026-04-27 09:33:44.881 +08:00 [INF] Received HTTP response headers after 1773.8759ms - 200
+2026-04-27 09:33:44.885 +08:00 [INF] End processing HTTP request after 1864.204ms - 200
+2026-04-27 09:33:45.166 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:33:45.173 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:33:45.703 +08:00 [INF] Received HTTP response headers after 518.7913ms - 200
+2026-04-27 09:33:45.737 +08:00 [INF] End processing HTTP request after 571.856ms - 200
+2026-04-27 09:33:45.811 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253625811&signature=96bbff77493cf932ac7685e90ac6c5c61c15a86f56320dc29ffe9196345da6a6
+2026-04-27 09:33:45.822 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253625811&signature=96bbff77493cf932ac7685e90ac6c5c61c15a86f56320dc29ffe9196345da6a6
+2026-04-27 09:33:46.372 +08:00 [INF] Received HTTP response headers after 547.1372ms - 200
+2026-04-27 09:33:46.379 +08:00 [INF] End processing HTTP request after 567.5912ms - 200
+2026-04-27 09:33:46.965 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:33:46.975 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:33:47.213 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253627213&signature=480f5dd2bf5221e682f8302751ac64a3585b7490dfe5aac60722bf85a8b4be82
+2026-04-27 09:33:47.222 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777253627213&signature=480f5dd2bf5221e682f8302751ac64a3585b7490dfe5aac60722bf85a8b4be82
+2026-04-27 09:33:47.522 +08:00 [INF] Received HTTP response headers after 540.4472ms - 200
+2026-04-27 09:33:47.530 +08:00 [INF] End processing HTTP request after 565.372ms - 200
+2026-04-27 09:33:47.786 +08:00 [INF] Received HTTP response headers after 560.9659ms - 200
+2026-04-27 09:33:47.799 +08:00 [INF] End processing HTTP request after 585.9318ms - 200
+2026-04-27 09:41:06.142 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:41:13.564 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:45:17.259 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:45:17.287 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777254317287&signature=59399949b64d649024fe57f2454dd9de080457ad4cfdfaea4285b91bccfb9a88
+2026-04-27 09:45:17.288 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:45:17.307 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 09:45:17.314 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777254317287&signature=59399949b64d649024fe57f2454dd9de080457ad4cfdfaea4285b91bccfb9a88
+2026-04-27 09:45:17.351 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 09:45:19.107 +08:00 [INF] Received HTTP response headers after 1750.3793ms - 200
+2026-04-27 09:45:19.120 +08:00 [INF] End processing HTTP request after 1832.7009ms - 200
+2026-04-27 09:45:19.147 +08:00 [INF] Received HTTP response headers after 1829.8714ms - 200
+2026-04-27 09:45:19.156 +08:00 [INF] End processing HTTP request after 1896.7911ms - 200
+2026-04-27 09:45:20.731 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777254320730&signature=10568c06c2b7e1ab4712b5ddd3da671feec6318fc44eac9d4740510fe902c8c0
+2026-04-27 09:45:20.751 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777254320730&signature=10568c06c2b7e1ab4712b5ddd3da671feec6318fc44eac9d4740510fe902c8c0
+2026-04-27 09:45:21.502 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:45:21.512 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 09:45:21.730 +08:00 [INF] Received HTTP response headers after 972.9066ms - 200
+2026-04-27 09:45:21.737 +08:00 [INF] End processing HTTP request after 1005.7459ms - 200
+2026-04-27 09:45:22.049 +08:00 [INF] Received HTTP response headers after 528.3517ms - 200
+2026-04-27 09:45:22.057 +08:00 [INF] End processing HTTP request after 554.6698ms - 200
+2026-04-27 09:45:22.477 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:45:22.483 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 09:45:22.998 +08:00 [INF] Received HTTP response headers after 507.7686ms - 200
+2026-04-27 09:45:23.007 +08:00 [INF] End processing HTTP request after 530.8332ms - 200
+2026-04-27 09:45:23.066 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777254323066&signature=f19f6b69ee82f2a8df812d5e2055a97cd26a0271a6c5856dbdaafe26c157ca38
+2026-04-27 09:45:23.071 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777254323066&signature=f19f6b69ee82f2a8df812d5e2055a97cd26a0271a6c5856dbdaafe26c157ca38
+2026-04-27 09:45:23.607 +08:00 [INF] Received HTTP response headers after 528.9732ms - 200
+2026-04-27 09:45:23.617 +08:00 [INF] End processing HTTP request after 550.7626ms - 200
+2026-04-27 09:45:23.675 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777254323674&signature=9777fd45893404f046faf64931a179c1cb0ab7ea0c06ac7c349ef2250f810681
+2026-04-27 09:45:23.689 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777254323674&signature=9777fd45893404f046faf64931a179c1cb0ab7ea0c06ac7c349ef2250f810681
+2026-04-27 09:45:24.222 +08:00 [INF] Received HTTP response headers after 528.6971ms - 200
+2026-04-27 09:45:24.237 +08:00 [INF] End processing HTTP request after 562.2524ms - 200
+2026-04-27 09:49:13.633 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:49:20.576 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 09:57:07.056 +08:00 [WRN] ⚠️ [公共行情轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:57:13.938 +08:00 [INF] ✅ [公共行情轨] 已连接
+2026-04-27 09:57:13.945 +08:00 [INF] 🔄 自动恢复了 2 个因断网丢失的订阅流
+2026-04-27 09:57:20.632 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 09:57:27.565 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:03:05.946 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:03:05.959 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:03:08.256 +08:00 [INF] Received HTTP response headers after 2274.6487ms - 200
+2026-04-27 10:03:08.260 +08:00 [INF] End processing HTTP request after 2313.9986ms - 200
+2026-04-27 10:03:08.271 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 10:05:27.639 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 10:05:34.556 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:07:17.933 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-27 10:07:21.911 +08:00 [INF] 🚀 [统一引擎] 币安双轨 WebSocket 服务启动...
+2026-04-27 10:07:21.911 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-27 10:07:22.247 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-27 10:07:22.593 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:07:22.756 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:07:23.375 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:07:23.381 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:07:23.625 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255643374&signature=831d10f5f3202689bc8b7d64f1bdbfd43760761bb43837f60df75a3de9754364
+2026-04-27 10:07:23.631 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255643374&signature=831d10f5f3202689bc8b7d64f1bdbfd43760761bb43837f60df75a3de9754364
+2026-04-27 10:07:24.868 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:07:24.868 +08:00 [INF] ✅ [公共行情轨] 已连接
+2026-04-27 10:07:24.868 +08:00 [INF] Received HTTP response headers after 2038.8714ms - 200
+2026-04-27 10:07:24.878 +08:00 [INF] 🔄 自动恢复了 1 个因断网丢失的订阅流
+2026-04-27 10:07:24.885 +08:00 [INF] End processing HTTP request after 2615.0701ms - 200
+2026-04-27 10:07:24.900 +08:00 [INF] 🔑 已成功获取 ListenKey: I9bvJWC6nBRqYnsEMJq5t83LovSQELKebg0vhjM2fWJnwIIE2lK5sP25RYnkzhga
+2026-04-27 10:07:24.996 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 10:07:25.008 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 10:07:25.505 +08:00 [INF] Received HTTP response headers after 2121.0925ms - 200
+2026-04-27 10:07:25.512 +08:00 [INF] End processing HTTP request after 2137.6917ms - 200
+2026-04-27 10:07:25.766 +08:00 [INF] Received HTTP response headers after 2132.2898ms - 200
+2026-04-27 10:07:25.772 +08:00 [INF] End processing HTTP request after 2147.6715ms - 200
+2026-04-27 10:07:26.780 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-27 10:07:27.623 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255647622&signature=bb88055766e77383021b7b99fa490a4cb0137f002324ac3167a31313a4ba46ba
+2026-04-27 10:07:27.632 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255647622&signature=bb88055766e77383021b7b99fa490a4cb0137f002324ac3167a31313a4ba46ba
+2026-04-27 10:07:28.878 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:07:28.888 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:07:29.116 +08:00 [INF] Received HTTP response headers after 1480.5674ms - 200
+2026-04-27 10:07:29.123 +08:00 [INF] End processing HTTP request after 1499.8925ms - 200
+2026-04-27 10:07:29.179 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:07:29.182 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:07:29.405 +08:00 [INF] Received HTTP response headers after 504.614ms - 200
+2026-04-27 10:07:29.430 +08:00 [INF] End processing HTTP request after 551.5178ms - 200
+2026-04-27 10:07:29.714 +08:00 [INF] Received HTTP response headers after 522.0071ms - 200
+2026-04-27 10:07:29.723 +08:00 [INF] End processing HTTP request after 543.6662ms - 200
+2026-04-27 10:07:29.803 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255649803&signature=75a32e87475c6716e9611b73e94f5c7d5980891d1a88709fa8c2dbc8b4ad60f2
+2026-04-27 10:07:29.846 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255649803&signature=75a32e87475c6716e9611b73e94f5c7d5980891d1a88709fa8c2dbc8b4ad60f2
+2026-04-27 10:07:31.082 +08:00 [INF] Received HTTP response headers after 1165.4465ms - 200
+2026-04-27 10:07:31.091 +08:00 [INF] End processing HTTP request after 1287.257ms - 200
+2026-04-27 10:07:33.057 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255653057&signature=24b7ba7995160c1db9292c94ad15c9e60ced4adba3ca82d215696aca957a8637
+2026-04-27 10:07:33.073 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255653057&signature=24b7ba7995160c1db9292c94ad15c9e60ced4adba3ca82d215696aca957a8637
+2026-04-27 10:07:34.164 +08:00 [INF] Received HTTP response headers after 1086.096ms - 200
+2026-04-27 10:07:34.174 +08:00 [INF] End processing HTTP request after 1116.8155ms - 200
+2026-04-27 10:12:26.323 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-27 10:12:30.576 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-27 10:12:30.576 +08:00 [INF] 🚀 [统一引擎] 币安双轨 WebSocket 服务启动...
+2026-04-27 10:12:30.622 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-27 10:12:30.737 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:12:30.752 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:12:32.740 +08:00 [INF] Received HTTP response headers after 1979.1585ms - 200
+2026-04-27 10:12:32.757 +08:00 [INF] End processing HTTP request after 2118.3055ms - 200
+2026-04-27 10:12:32.769 +08:00 [INF] 🔑 已成功获取 ListenKey: I9bvJWC6nBRqYnsEMJq5t83LovSQELKebg0vhjM2fWJnwIIE2lK5sP25RYnkzhga
+2026-04-27 10:12:32.846 +08:00 [INF] ✅ [公共行情轨] 已连接
+2026-04-27 10:12:32.937 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:12:34.671 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-27 10:12:39.146 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 10:12:39.154 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 10:13:10.372 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:13:10.380 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:13:10.441 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 10:13:10.455 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 10:13:10.632 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255990372&signature=cd0dea7e9028e64e9d0132622211283140a7236746089e3690b189b3c1fed4e5
+2026-04-27 10:13:10.641 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255990372&signature=cd0dea7e9028e64e9d0132622211283140a7236746089e3690b189b3c1fed4e5
+2026-04-27 10:13:12.769 +08:00 [INF] Received HTTP response headers after 2126.0358ms - 200
+2026-04-27 10:13:12.775 +08:00 [INF] End processing HTTP request after 2144.5619ms - 200
+2026-04-27 10:13:14.002 +08:00 [INF] Received HTTP response headers after 3614.7051ms - 200
+2026-04-27 10:13:14.016 +08:00 [INF] End processing HTTP request after 3644.4057ms - 200
+2026-04-27 10:13:14.332 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255994331&signature=8b3e3e724b6d80a1a1b12d278aa1d01dcfb8d3b5cc66aa9d88c022f00aa28494
+2026-04-27 10:13:14.338 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777255994331&signature=8b3e3e724b6d80a1a1b12d278aa1d01dcfb8d3b5cc66aa9d88c022f00aa28494
+2026-04-27 10:13:14.897 +08:00 [INF] Received HTTP response headers after 555.242ms - 200
+2026-04-27 10:13:14.907 +08:00 [INF] End processing HTTP request after 574.818ms - 200
+2026-04-27 10:13:15.525 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:13:15.531 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:13:16.069 +08:00 [INF] Received HTTP response headers after 517.4197ms - 200
+2026-04-27 10:13:16.076 +08:00 [INF] End processing HTTP request after 550.517ms - 200
+2026-04-27 10:13:16.148 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255996147&signature=5ffcbcc6d6f787136482ccbc3b12564f6f4fa4a0bb3bd0f1234a63a18323244e
+2026-04-27 10:13:16.158 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255996147&signature=5ffcbcc6d6f787136482ccbc3b12564f6f4fa4a0bb3bd0f1234a63a18323244e
+2026-04-27 10:13:16.703 +08:00 [INF] Received HTTP response headers after 537.8462ms - 200
+2026-04-27 10:13:16.711 +08:00 [INF] End processing HTTP request after 563.2243ms - 200
+2026-04-27 10:13:16.820 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:13:16.822 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 10:13:17.111 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255997110&signature=1bb7cc5618a188bd797193d9660b89f86fdb9201c6a6463d7593c433eab7ebbc
+2026-04-27 10:13:17.120 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777255997110&signature=1bb7cc5618a188bd797193d9660b89f86fdb9201c6a6463d7593c433eab7ebbc
+2026-04-27 10:13:17.659 +08:00 [INF] Received HTTP response headers after 536.1092ms - 200
+2026-04-27 10:13:17.671 +08:00 [INF] End processing HTTP request after 559.9834ms - 200
+2026-04-27 10:13:18.309 +08:00 [INF] Received HTTP response headers after 1472.4759ms - 200
+2026-04-27 10:13:18.317 +08:00 [INF] End processing HTTP request after 1497.1678ms - 200
+2026-04-27 10:14:20.185 +08:00 [INF] 📡 已向币安发送订阅: orcausdt@kline_1m
+2026-04-27 10:16:33.124 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777256193123&signature=79c9d42058aed8bc4954355f6ed2f79ceec4f8fe10a8703fc4afceed4778c890
+2026-04-27 10:16:33.143 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777256193123&signature=79c9d42058aed8bc4954355f6ed2f79ceec4f8fe10a8703fc4afceed4778c890
+2026-04-27 10:16:34.903 +08:00 [INF] Received HTTP response headers after 1742.9305ms - 200
+2026-04-27 10:16:34.909 +08:00 [INF] End processing HTTP request after 1784.8976ms - 200
+2026-04-27 10:16:34.950 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777256194949&signature=682f2e8b58122bb20c83c7863bdc2f3acb975d547e6e070f7d1d710516059c47
+2026-04-27 10:16:34.982 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/userTrades?symbol=ORCAUSDT&limit=50&timestamp=1777256194949&signature=682f2e8b58122bb20c83c7863bdc2f3acb975d547e6e070f7d1d710516059c47
+2026-04-27 10:16:35.495 +08:00 [INF] Received HTTP response headers after 499.3237ms - 200
+2026-04-27 10:16:35.502 +08:00 [INF] End processing HTTP request after 552.8877ms - 200
+2026-04-27 10:20:33.008 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 10:20:39.938 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:28:39.996 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 10:28:46.974 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:36:47.036 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 10:36:53.960 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:41:16.392 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:41:16.404 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:41:17.664 +08:00 [INF] Received HTTP response headers after 1253.6893ms - 200
+2026-04-27 10:41:17.672 +08:00 [INF] End processing HTTP request after 1280.1295ms - 200
+2026-04-27 10:42:32.789 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:42:32.802 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 10:42:34.096 +08:00 [INF] Received HTTP response headers after 1268.1347ms - 200
+2026-04-27 10:42:34.105 +08:00 [INF] End processing HTTP request after 1316.5565ms - 200
+2026-04-27 10:42:34.115 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 10:44:54.024 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 10:45:00.969 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 10:53:01.038 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 10:53:08.997 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:00:52.919 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:00:52.977 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777258852976&signature=b2053b2c45db8cea935553f76f383bfd7377bde635cc1e7fcf613b8755f3a41e
+2026-04-27 11:00:52.979 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:00:53.031 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 11:00:53.031 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777258852976&signature=b2053b2c45db8cea935553f76f383bfd7377bde635cc1e7fcf613b8755f3a41e
+2026-04-27 11:00:53.076 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 11:00:55.088 +08:00 [INF] Received HTTP response headers after 2046.5169ms - 200
+2026-04-27 11:00:55.134 +08:00 [INF] End processing HTTP request after 2215.4522ms - 200
+2026-04-27 11:00:55.252 +08:00 [INF] Received HTTP response headers after 2168.3671ms - 200
+2026-04-27 11:00:55.267 +08:00 [INF] End processing HTTP request after 2290.2903ms - 200
+2026-04-27 11:00:57.046 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:00:57.046 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777258857046&signature=d9cd9387be989e2059310987778e698be674d2106be10b6cba73c309419a855e
+2026-04-27 11:00:57.055 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:00:57.068 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777258857046&signature=d9cd9387be989e2059310987778e698be674d2106be10b6cba73c309419a855e
+2026-04-27 11:00:57.602 +08:00 [INF] Received HTTP response headers after 532.5759ms - 200
+2026-04-27 11:00:57.628 +08:00 [INF] End processing HTTP request after 581.0909ms - 200
+2026-04-27 11:00:58.088 +08:00 [INF] Received HTTP response headers after 981.4478ms - 200
+2026-04-27 11:00:58.103 +08:00 [INF] End processing HTTP request after 1056.5147ms - 200
+2026-04-27 11:00:58.957 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:00:58.966 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:00:59.730 +08:00 [INF] Received HTTP response headers after 754.9091ms - 200
+2026-04-27 11:00:59.769 +08:00 [INF] End processing HTTP request after 811.9406ms - 200
+2026-04-27 11:00:59.821 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777258859821&signature=a8334221e23516ef4ccebe08bccba058542008dedd30e153e2a3a3b1ca0472e5
+2026-04-27 11:00:59.854 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777258859821&signature=a8334221e23516ef4ccebe08bccba058542008dedd30e153e2a3a3b1ca0472e5
+2026-04-27 11:01:00.379 +08:00 [INF] Received HTTP response headers after 513.7447ms - 200
+2026-04-27 11:01:00.390 +08:00 [INF] End processing HTTP request after 569.5662ms - 200
+2026-04-27 11:01:01.111 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777258861110&signature=5d2e7c3c75db73a9afe92c3b6fe2732cc1b91eaf24e47ceabe583875be3f0064
+2026-04-27 11:01:01.122 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777258861110&signature=5d2e7c3c75db73a9afe92c3b6fe2732cc1b91eaf24e47ceabe583875be3f0064
+2026-04-27 11:01:01.699 +08:00 [INF] Received HTTP response headers after 566.7678ms - 200
+2026-04-27 11:01:01.712 +08:00 [INF] End processing HTTP request after 601.3183ms - 200
+2026-04-27 11:01:09.055 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:01:15.925 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:09:15.986 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:09:22.817 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:12:32.781 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:12:32.790 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:12:34.044 +08:00 [INF] Received HTTP response headers after 1246.7911ms - 200
+2026-04-27 11:12:34.052 +08:00 [INF] End processing HTTP request after 1270.7883ms - 200
+2026-04-27 11:12:34.065 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 11:17:22.875 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:17:29.994 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:25:30.063 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:25:41.903 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:29:00.423 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:29:00.431 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:29:01.682 +08:00 [INF] Received HTTP response headers after 1245.5458ms - 200
+2026-04-27 11:29:01.691 +08:00 [INF] End processing HTTP request after 1267.4138ms - 200
+2026-04-27 11:33:41.963 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:33:48.917 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:37:05.455 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:05.461 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:06.037 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 11:37:06.051 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 11:37:06.966 +08:00 [INF] Received HTTP response headers after 1499.9167ms - 200
+2026-04-27 11:37:06.980 +08:00 [INF] End processing HTTP request after 1524.9578ms - 200
+2026-04-27 11:37:09.348 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261029348&signature=6510239082144bc3b06bc9e222ae082c7e85196953e51be61b5cc690da8e1999
+2026-04-27 11:37:09.361 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261029348&signature=6510239082144bc3b06bc9e222ae082c7e85196953e51be61b5cc690da8e1999
+2026-04-27 11:37:11.467 +08:00 [INF] Received HTTP response headers after 2102.5283ms - 200
+2026-04-27 11:37:11.475 +08:00 [INF] End processing HTTP request after 2126.3389ms - 200
+2026-04-27 11:37:11.547 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:11.550 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:12.630 +08:00 [INF] Received HTTP response headers after 1068.1184ms - 200
+2026-04-27 11:37:12.640 +08:00 [INF] End processing HTTP request after 1092.7525ms - 200
+2026-04-27 11:37:13.001 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261033001&signature=d3fad9de540a79e32b2c30520c3eefe0560e8fa327073ba50c1ed82c89883ded
+2026-04-27 11:37:13.014 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261033001&signature=d3fad9de540a79e32b2c30520c3eefe0560e8fa327073ba50c1ed82c89883ded
+2026-04-27 11:37:14.041 +08:00 [INF] Received HTTP response headers after 1022.1845ms - 200
+2026-04-27 11:37:14.175 +08:00 [INF] End processing HTTP request after 1173.6746ms - 200
+2026-04-27 11:37:17.376 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261037376&signature=100542d16d6084fb07aacb05168cc4964fdd623d5ddde07b4f2a77905189be34
+2026-04-27 11:37:17.388 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261037376&signature=100542d16d6084fb07aacb05168cc4964fdd623d5ddde07b4f2a77905189be34
+2026-04-27 11:37:17.933 +08:00 [INF] Received HTTP response headers after 541.7022ms - 200
+2026-04-27 11:37:17.943 +08:00 [INF] End processing HTTP request after 567.1443ms - 200
+2026-04-27 11:37:18.946 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261038946&signature=f313d4658bfeab727098f908bc69f830aa51a77488ebc826b4e88518f60c0e47
+2026-04-27 11:37:18.956 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261038946&signature=f313d4658bfeab727098f908bc69f830aa51a77488ebc826b4e88518f60c0e47
+2026-04-27 11:37:20.043 +08:00 [INF] Received HTTP response headers after 1084.035ms - 200
+2026-04-27 11:37:20.056 +08:00 [INF] End processing HTTP request after 1109.4338ms - 200
+2026-04-27 11:37:26.330 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261046330&signature=a6f7716c121282bf39df9ac2f541fa1100ed662030f5f4e9aab2f06687f6f671
+2026-04-27 11:37:26.338 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261046330&signature=a6f7716c121282bf39df9ac2f541fa1100ed662030f5f4e9aab2f06687f6f671
+2026-04-27 11:37:31.575 +08:00 [INF] 🚀 交易系统后端服务正在启动...
+2026-04-27 11:37:34.537 +08:00 [INF] 🚀 [统一引擎] 币安双轨 WebSocket 服务启动...
+2026-04-27 11:37:34.537 +08:00 [INF] 🔥 守护进程已触发，准备执行 ExecuteAsync...
+2026-04-27 11:37:35.425 +08:00 [INF] 正在向币安申请 ListenKey...
+2026-04-27 11:37:35.527 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:37:35.657 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:37:37.867 +08:00 [INF] Received HTTP response headers after 2135.698ms - 200
+2026-04-27 11:37:37.880 +08:00 [INF] End processing HTTP request after 2437.5422ms - 200
+2026-04-27 11:37:37.921 +08:00 [INF] ✅ [公共行情轨] 已连接
+2026-04-27 11:37:37.923 +08:00 [INF] 🔄 自动恢复了 1 个因断网丢失的订阅流
+2026-04-27 11:37:37.924 +08:00 [INF] 🔑 已成功获取 ListenKey: I9bvJWC6nBRqYnsEMJq5t83LovSQELKebg0vhjM2fWJnwIIE2lK5sP25RYnkzhga
+2026-04-27 11:37:38.007 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:37:38.115 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 11:37:38.128 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 11:37:39.534 +08:00 [INF] 📡 已向币安发送订阅: !miniTicker@arr
+2026-04-27 11:37:39.541 +08:00 [INF] 📡 已向币安发送订阅: !markPrice@arr@1s
+2026-04-27 11:37:40.741 +08:00 [INF] 🟢 币安私有 WebSocket 连接成功！开始监听数据...
+2026-04-27 11:37:42.751 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261062472&signature=734949b237fef502ee5c61e597e1b082596ba08da34a6625dc80b0c24779532d
+2026-04-27 11:37:42.761 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261062472&signature=734949b237fef502ee5c61e597e1b082596ba08da34a6625dc80b0c24779532d
+2026-04-27 11:37:44.886 +08:00 [INF] Received HTTP response headers after 2122.1589ms - 200
+2026-04-27 11:37:44.897 +08:00 [INF] End processing HTTP request after 2146.3644ms - 200
+2026-04-27 11:37:46.041 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261066040&signature=f45c0438ace4a0735882c42da19c4b8915a42df440597a401b8d530fa158dd55
+2026-04-27 11:37:46.054 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261066040&signature=f45c0438ace4a0735882c42da19c4b8915a42df440597a401b8d530fa158dd55
+2026-04-27 11:37:46.626 +08:00 [INF] Received HTTP response headers after 569.2178ms - 200
+2026-04-27 11:37:46.641 +08:00 [INF] End processing HTTP request after 600.4992ms - 200
+2026-04-27 11:37:50.322 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261070322&signature=e06eddf17ac89f7e287691a72ee63952ac25fcaa1b67ea9ba20fe3b0f7c4bf85
+2026-04-27 11:37:50.336 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261070322&signature=e06eddf17ac89f7e287691a72ee63952ac25fcaa1b67ea9ba20fe3b0f7c4bf85
+2026-04-27 11:37:50.610 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261070610&signature=331257a36c32610b575adf7121b19a24a017e2659270d117be458d51343e8ae4
+2026-04-27 11:37:50.618 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261070610&signature=331257a36c32610b575adf7121b19a24a017e2659270d117be458d51343e8ae4
+2026-04-27 11:37:50.879 +08:00 [INF] Received HTTP response headers after 539.8243ms - 200
+2026-04-27 11:37:50.911 +08:00 [INF] End processing HTTP request after 588.7312ms - 200
+2026-04-27 11:37:51.681 +08:00 [INF] Received HTTP response headers after 1056.7364ms - 200
+2026-04-27 11:37:51.695 +08:00 [INF] End processing HTTP request after 1084.5805ms - 200
+2026-04-27 11:37:52.490 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:52.491 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777261072490&signature=9f77781c4cad164764e7a767beeb68c17c812bca56e2ce16a134047a3957b8ec
+2026-04-27 11:37:52.499 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:52.533 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777261072490&signature=9f77781c4cad164764e7a767beeb68c17c812bca56e2ce16a134047a3957b8ec
+2026-04-27 11:37:53.067 +08:00 [INF] Received HTTP response headers after 531.1092ms - 200
+2026-04-27 11:37:53.072 +08:00 [INF] End processing HTTP request after 581.327ms - 200
+2026-04-27 11:37:53.512 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:53.532 +08:00 [INF] Received HTTP response headers after 943.5462ms - 200
+2026-04-27 11:37:53.536 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-04-27 11:37:53.542 +08:00 [INF] End processing HTTP request after 1051.0708ms - 200
+2026-04-27 11:37:54.059 +08:00 [INF] Received HTTP response headers after 512.6121ms - 200
+2026-04-27 11:37:54.070 +08:00 [INF] End processing HTTP request after 558.2486ms - 200
+2026-04-27 11:37:55.214 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777261075214&signature=05fefd4dec96c4c729c8f80935f032b402261d7ba9941d63bc5f01e7c307f4a0
+2026-04-27 11:37:55.223 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777261075214&signature=05fefd4dec96c4c729c8f80935f032b402261d7ba9941d63bc5f01e7c307f4a0
+2026-04-27 11:37:55.768 +08:00 [INF] Received HTTP response headers after 540.5776ms - 200
+2026-04-27 11:37:55.779 +08:00 [INF] End processing HTTP request after 564.9064ms - 200
+2026-04-27 11:37:56.769 +08:00 [INF] Start processing HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:37:56.776 +08:00 [INF] Sending HTTP request POST https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:37:57.289 +08:00 [INF] Received HTTP response headers after 507.028ms - 200
+2026-04-27 11:37:57.297 +08:00 [INF] End processing HTTP request after 527.9885ms - 200
+2026-04-27 11:37:57.338 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261077338&signature=3e42580e594e5bca741177502c352055172039e0e70f74d8dd426d5d792958e3
+2026-04-27 11:37:57.347 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261077338&signature=3e42580e594e5bca741177502c352055172039e0e70f74d8dd426d5d792958e3
+2026-04-27 11:37:57.890 +08:00 [INF] Received HTTP response headers after 537.1496ms - 200
+2026-04-27 11:37:57.898 +08:00 [INF] End processing HTTP request after 559.1906ms - 200
+2026-04-27 11:37:58.292 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261078292&signature=dc9cd8b150ca02f304166cade54a92b0ab76bce5ca15e75f780467ffaee7ccf9
+2026-04-27 11:37:58.320 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/positionRisk?timestamp=1777261078292&signature=dc9cd8b150ca02f304166cade54a92b0ab76bce5ca15e75f780467ffaee7ccf9
+2026-04-27 11:37:58.848 +08:00 [INF] Received HTTP response headers after 523.6395ms - 200
+2026-04-27 11:37:58.860 +08:00 [INF] End processing HTTP request after 567.2034ms - 200
+2026-04-27 11:38:26.229 +08:00 [INF] 📡 已向币安发送订阅: ethusdt@kline_1m
+2026-04-27 11:45:38.089 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:45:44.572 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:53:44.640 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:53:51.600 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 11:57:00.444 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:57:00.453 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 11:57:01.763 +08:00 [INF] Received HTTP response headers after 1295.9721ms - 200
+2026-04-27 11:57:01.782 +08:00 [INF] End processing HTTP request after 1338.8579ms - 200
+2026-04-27 11:57:37.981 +08:00 [WRN] ⚠️ [公共行情轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 11:57:44.822 +08:00 [INF] ✅ [公共行情轨] 已连接
+2026-04-27 11:57:44.831 +08:00 [INF] 🔄 自动恢复了 2 个因断网丢失的订阅流
+2026-04-27 12:01:51.676 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:01:58.623 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 12:07:37.942 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:07:37.947 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:07:39.218 +08:00 [INF] Received HTTP response headers after 1254.5256ms - 200
+2026-04-27 12:07:39.227 +08:00 [INF] End processing HTTP request after 1284.4075ms - 200
+2026-04-27 12:07:39.236 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 12:09:58.698 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:10:06.927 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 12:18:06.981 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:18:14.420 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 12:25:00.402 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:25:00.412 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:25:01.720 +08:00 [INF] Received HTTP response headers after 1295.6215ms - 200
+2026-04-27 12:25:01.732 +08:00 [INF] End processing HTTP request after 1329.1164ms - 200
+2026-04-27 12:26:14.484 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:26:24.946 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 12:34:25.015 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:34:31.587 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 12:37:37.929 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:37:37.948 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:37:39.185 +08:00 [INF] Received HTTP response headers after 1231.7125ms - 200
+2026-04-27 12:37:39.194 +08:00 [INF] End processing HTTP request after 1264.7453ms - 200
+2026-04-27 12:37:39.199 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 12:42:31.644 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:42:38.672 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 12:50:38.723 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:50:45.698 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 12:53:00.388 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:53:00.391 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 12:53:02.109 +08:00 [INF] Received HTTP response headers after 1710.7057ms - 200
+2026-04-27 12:53:02.158 +08:00 [INF] End processing HTTP request after 1770.2243ms - 200
+2026-04-27 12:58:45.754 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 12:58:52.709 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 13:06:52.768 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 13:06:59.633 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 13:07:37.923 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:07:37.935 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:07:39.227 +08:00 [INF] Received HTTP response headers after 1271.9223ms - 200
+2026-04-27 13:07:39.236 +08:00 [INF] End processing HTTP request after 1313.0342ms - 200
+2026-04-27 13:07:39.245 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 13:14:59.693 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 13:15:07.188 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 13:21:00.387 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:21:00.393 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:21:01.645 +08:00 [INF] Received HTTP response headers after 1245.6679ms - 200
+2026-04-27 13:21:01.656 +08:00 [INF] End processing HTTP request after 1269.5128ms - 200
+2026-04-27 13:23:07.255 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 13:23:14.714 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 13:31:14.783 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 13:31:21.746 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 13:37:37.921 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:37:37.935 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:37:40.163 +08:00 [INF] Received HTTP response headers after 2215.8235ms - 200
+2026-04-27 13:37:40.170 +08:00 [INF] End processing HTTP request after 2248.5815ms - 200
+2026-04-27 13:37:40.184 +08:00 [INF] ⏳ ListenKey 已成功续命
+2026-04-27 13:39:21.827 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 13:39:29.468 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 13:47:29.557 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 13:47:36.073 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 13:49:00.392 +08:00 [INF] Start processing HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:49:00.398 +08:00 [INF] Sending HTTP request PUT https://fapi.binance.com/fapi/v1/listenKey
+2026-04-27 13:49:01.653 +08:00 [INF] Received HTTP response headers after 1247.1002ms - 200
+2026-04-27 13:49:01.662 +08:00 [INF] End processing HTTP request after 1269.8512ms - 200
+2026-04-27 13:55:36.138 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 13:55:43.100 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接

@@ -1,171 +1,155 @@
-// src/worker/market.worker.ts
+import * as signalR from '@microsoft/signalr';
 
-// 记录所有连接到此 SharedWorker 的浏览器标签页 (UI主线程)
 const connectedPorts = new Set<MessagePort>();
 
-// ==========================================
-// 状态管理
-// ==========================================
 let publicWs: WebSocket | null = null;
+let signalRConnection: signalR.HubConnection | null = null;
 let userDataWs: WebSocket | null = null;
 let currentListenKey: string | null = null;
 
-// 记录所有活跃的公共订阅流 (如 ethusdt@kline_1m)
-const activeSubscriptions = new Set<string>();
+let currentDataSource: 'binance' | 'backend' = 'backend';
 
-// 默认必须订阅的全局流 (24h滚动行情 和 标记价格)
+// 🌟 这里记录所有存活的流
+const activeSubscriptions = new Set<string>();
 const defaultStreams = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
-// ==========================================
-// 广播工具：向所有活跃的 UI 页面推送数据
-// ==========================================
 function broadcastToPorts(type: string, payload: any) {
-  connectedPorts.forEach((port) => {
-    port.postMessage({ type, payload });
-  });
+  connectedPorts.forEach((port) => port.postMessage({ type, payload }));
 }
 
-// ==========================================
-// 1. 公共数据流 (K线、盘口、全局行情)
-// ==========================================
-function connectPublicWs() {
-  if (publicWs && (publicWs.readyState === WebSocket.CONNECTING || publicWs.readyState === WebSocket.OPEN)) {
-    return;
+function processMarketData(payload: any) {
+  if (payload.stream && payload.data) {
+    const stream = payload.stream;
+    if (stream.includes('miniTicker') || stream.includes('markPrice')) {
+      broadcastToPorts('TICKERS_DATA', payload);
+    } else if (stream.includes('@kline_')) {
+      broadcastToPorts('KLINE_DATA', payload);
+    }
+  } else {
+    if (Array.isArray(payload)) {
+      if (payload[0]?.e === '24hrMiniTicker') broadcastToPorts('TICKERS_DATA', { stream: '!miniTicker@arr', data: payload });
+      else if (payload[0]?.e === 'markPriceUpdate') broadcastToPorts('TICKERS_DATA', { stream: '!markPrice@arr', data: payload });
+    } else if (payload.e === 'kline') {
+      broadcastToPorts('KLINE_DATA', { stream: `${payload.s.toLowerCase()}@kline_${payload.k.i}`, data: payload });
+    }
   }
-
-  publicWs = new WebSocket('wss://fstream.binance.com/ws');
-
-  publicWs.onopen = () => {
-    console.log('✅ Worker: 公共数据流连接成功');
-    
-    // 连接成功后，把所有需要的流一次性订阅上
-    const streamsToSubscribe = [...defaultStreams, ...Array.from(activeSubscriptions)];
-    if (streamsToSubscribe.length > 0) {
-      publicWs?.send(JSON.stringify({
-        method: 'SUBSCRIBE',
-        params: streamsToSubscribe,
-        id: Date.now()
-      }));
-    }
-  };
-
-  publicWs.onmessage = (event) => {
-    try {
-      const payload = JSON.parse(event.data);
-      
-      // 路由分发逻辑：由于币安返回的格式不一，这里做统一梳理
-      if (Array.isArray(payload)) {
-        // Tickers 数组 (!miniTicker@arr)
-        if (payload[0]?.e === '24hrMiniTicker') {
-          broadcastToPorts('TICKERS_DATA', { stream: '!miniTicker@arr', data: payload });
-        } 
-        // Mark Price 数组 (!markPrice@arr)
-        else if (payload[0]?.e === 'markPriceUpdate') {
-          broadcastToPorts('TICKERS_DATA', { stream: '!markPrice@arr', data: payload });
-        }
-      } 
-      // K线数据
-      else if (payload.e === 'kline') {
-        broadcastToPorts('KLINE_DATA', payload);
-      }
-    } catch (e) {
-      console.error('解析公共流数据失败:', e);
-    }
-  };
-
-  publicWs.onclose = () => {
-    console.warn('⚠️ Worker: 公共数据流已断开，3秒后重连...');
-    setTimeout(connectPublicWs, 3000);
-  };
-
-  publicWs.onerror = (error) => {
-    console.error('❌ Worker: 公共数据流错误', error);
-  };
 }
 
-// ==========================================
-// 2. 私有数据流 (账户、持仓、订单)
-// ==========================================
+async function connectPublicStream() {
+  if (publicWs) { publicWs.onclose = null; publicWs.close(); publicWs = null; }
+  if (signalRConnection) { await signalRConnection.stop(); signalRConnection = null; }
+
+  if (currentDataSource === 'backend') {
+    signalRConnection = new signalR.HubConnectionBuilder()
+      .withUrl(`${import.meta.env.VITE_API_BASE_URL}/hubs/market`)
+      .withAutomaticReconnect([0, 2000, 5000, 10000])
+      .build();
+
+    signalRConnection.on("ReceiveMarketData", (rawJson: string) => {
+      try { processMarketData(JSON.parse(rawJson)); } catch (e) { }
+    });
+
+    // 🌟 新增：接收后端到币安的真实延迟并向所有窗口广播
+    signalRConnection.on("ReceiveBackendLatency", (ms: number) => {
+      broadcastToPorts('BACKEND_LATENCY', ms);
+    });
+
+    signalRConnection.onreconnected(() => {
+      // 🌟 修复断层：重连后，动态获取当前最新的订阅列表发送给 C#
+      console.log('🔄 Worker: SignalR 重连成功，延迟2秒后恢复订阅...');
+      // 🌟 延迟 2 秒，等 C# 底层彻底连上币安后再发，防止丢包
+      setTimeout(() => {
+        const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
+        currentStreams.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
+      }, 1000);
+    });
+
+    try {
+      await signalRConnection.start();
+      console.log('🚀 Worker: C# 后端 SignalR 连接成功');
+      // 🌟 修复并发丢失：必须在 start 成功后，去获取实时的 activeSubscriptions
+      const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
+      currentStreams.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
+    } catch (err) {
+      setTimeout(connectPublicStream, 5000);
+    }
+  }
+  else {
+    // 🌟 币安新规前缀 /market
+    publicWs = new WebSocket('wss://fstream.binance.com/market/stream');
+
+    publicWs.onopen = () => {
+      console.log('🌐 Worker: 币安直连 /market 成功');
+      // 🌟 动态获取，确保不会错过 Vue 发来的早期订阅
+      const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
+      if (currentStreams.length > 0) {
+        publicWs?.send(JSON.stringify({ method: 'SUBSCRIBE', params: currentStreams, id: Date.now() }));
+      }
+    };
+
+    publicWs.onmessage = (event) => {
+      try { processMarketData(JSON.parse(event.data)); } catch (e) { }
+    };
+
+    publicWs.onclose = () => setTimeout(connectPublicStream, 3000);
+  }
+}
+
 function connectUserDataStream() {
   if (!currentListenKey) return;
-  
-  if (userDataWs) {
-    userDataWs.onclose = null; // 关闭旧连接，防止触发自动重连逻辑
-    userDataWs.close();
-  }
+  if (userDataWs) { userDataWs.onclose = null; userDataWs.close(); }
 
-  // 使用主线程传进来的 ListenKey 建立私有连接
-  userDataWs = new WebSocket(`wss://fstream.binance.com/ws/${currentListenKey}`);
+  // 🌟 币安新规前缀 /private
+  userDataWs = new WebSocket(`wss://fstream.binance.com/private/ws/${currentListenKey}`);
 
-  userDataWs.onopen = () => {
-    console.log('✅ Worker: 账户私有流连接成功');
-  };
-
+  userDataWs.onopen = () => console.log('🔐 Worker: 账户私有流直连成功');
   userDataWs.onmessage = (event) => {
-    try {
-      console.log('private channel onmessage');
-      const data = JSON.parse(event.data);
-      // 将账户更新(余额/持仓)、订单更新等统一下发给所有 UI 页面
-      broadcastToPorts('ACCOUNT_DATA', data);
-    } catch (err) {
-      console.error('解析私有流数据失败:', err);
-    }
+    try { broadcastToPorts('ACCOUNT_DATA', JSON.parse(event.data)); } catch (err) { }
   };
-
-  userDataWs.onclose = () => {
-    console.warn('⚠️ Worker: 账户私有流已断开，5秒后尝试重连...');
-    setTimeout(connectUserDataStream, 5000);
-  };
-
-  userDataWs.onerror = (error) => {
-    console.error('❌ Worker: 账户私有流发生错误', error);
-  };
+  userDataWs.onclose = () => setTimeout(connectUserDataStream, 5000);
 }
 
-// ==========================================
-// 3. UI 页面 (主线程) 通讯监听入口
-// ==========================================
-onconnect = (e: MessageEvent) => {
+(self as any).onconnect = (e: MessageEvent) => {
   const port = e.ports[0];
   connectedPorts.add(port);
   port.start();
 
-  // 当有任何一个页面连接时，确保公共 WS 是连着的
-  connectPublicWs();
+  if (!signalRConnection && !publicWs) connectPublicStream();
 
   port.onmessage = (event) => {
-    const { type, stream, listenKey } = event.data;
+    const { type, stream, listenKey, source } = event.data;
 
     switch (type) {
-      // 处理订阅新 K 线或盘口
+      case 'SWITCH_SOURCE':
+        if (source && source !== currentDataSource) {
+          currentDataSource = source;
+          connectPublicStream();
+        }
+        break;
+
       case 'SUBSCRIBE':
         if (stream && !activeSubscriptions.has(stream)) {
           activeSubscriptions.add(stream);
-          if (publicWs && publicWs.readyState === WebSocket.OPEN) {
-            publicWs.send(JSON.stringify({
-              method: 'SUBSCRIBE',
-              params: [stream],
-              id: Date.now()
-            }));
+          // 如果网络已经通了，直接发；如果没通，刚才写在 onopen 的动态获取逻辑会兜底把它发出去！
+          if (currentDataSource === 'backend' && signalRConnection?.state === signalR.HubConnectionState.Connected) {
+            signalRConnection.invoke("Subscribe", stream).catch(console.error);
+          } else if (currentDataSource === 'binance' && publicWs?.readyState === WebSocket.OPEN) {
+            publicWs.send(JSON.stringify({ method: 'SUBSCRIBE', params: [stream], id: Date.now() }));
           }
         }
         break;
 
-      // 处理取消订阅
       case 'UNSUBSCRIBE':
         if (stream && activeSubscriptions.has(stream)) {
           activeSubscriptions.delete(stream);
-          if (publicWs && publicWs.readyState === WebSocket.OPEN) {
-            publicWs.send(JSON.stringify({
-              method: 'UNSUBSCRIBE',
-              params: [stream],
-              id: Date.now()
-            }));
+          if (currentDataSource === 'backend' && signalRConnection?.state === signalR.HubConnectionState.Connected) {
+            signalRConnection.invoke("Unsubscribe", stream).catch(console.error);
+          } else if (currentDataSource === 'binance' && publicWs?.readyState === WebSocket.OPEN) {
+            publicWs.send(JSON.stringify({ method: 'UNSUBSCRIBE', params: [stream], id: Date.now() }));
           }
         }
         break;
 
-      // 接收主线程传来的鉴权 Key，开启私有流
       case 'CONNECT_USER_DATA':
         if (listenKey) {
           currentListenKey = listenKey;
@@ -173,21 +157,12 @@ onconnect = (e: MessageEvent) => {
         }
         break;
 
-      // 当一个页面被关闭时
       case 'DISCONNECT':
         connectedPorts.delete(port);
-        // 🌟 极限优化策略：如果用户把所有交易页签都关了，我们彻底关闭底层 WS 节省内存
         if (connectedPorts.size === 0) {
-          if (publicWs) {
-            publicWs.onclose = null; // 屏蔽自动重连
-            publicWs.close();
-            publicWs = null;
-          }
-          if (userDataWs) {
-            userDataWs.onclose = null;
-            userDataWs.close();
-            userDataWs = null;
-          }
+          if (publicWs) { publicWs.onclose = null; publicWs.close(); publicWs = null; }
+          if (signalRConnection) { signalRConnection.stop(); signalRConnection = null; }
+          if (userDataWs) { userDataWs.onclose = null; userDataWs.close(); userDataWs = null; }
           activeSubscriptions.clear();
         }
         break;

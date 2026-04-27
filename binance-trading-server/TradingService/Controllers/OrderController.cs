@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 using TradingService.Services;
 using System;
+using TradingTerminal.Services;
 
 namespace TradingService.Controllers
 {
@@ -12,9 +13,9 @@ namespace TradingService.Controllers
     {
         private readonly BinanceTradeService _tradeService;
         // 在 OrderController 中注入新服务
-        private readonly BinanceWsApiService _wsApiService;
+        private readonly BinanceWebSocketService _wsApiService;
 
-        public OrderController(BinanceTradeService tradeService, BinanceWsApiService wsApiService)
+        public OrderController(BinanceTradeService tradeService, BinanceWebSocketService wsApiService)
         {
             _tradeService = tradeService;
             _wsApiService = wsApiService;

@@ -52,6 +52,9 @@
       </div>
 
       <div class="actions-group">
+        <button class="action-btn copy-btn" @click="$emit('duplicate', symbol)" title="克隆当前图表窗口">
+          📋 复制
+        </button>
         <button class="action-btn reload-btn" @click="hardReload" title="销毁图表引擎并彻底重载数据">
           🔌 重载
         </button>
@@ -70,7 +73,7 @@
         </span>
         <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
         <span class="divider">|</span>
-        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(4) }}</span>
+        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPrecisionConfig().precision) }}</span>
         <span class="divider">|</span>
         <span class="pos-label">未结盈亏</span>
         <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
@@ -143,7 +146,7 @@
           <template v-if="s.type === 'hline' && s.pts.length >= 1">
             <line x1="0" :y1="s.pts[0].y" :x2="containerWidth" :y2="s.pts[0].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 3 : 2" />
             <rect v-if="s.id === selectedShapeId" x="10" :y="s.pts[0].y - 12" width="60" height="24" fill="rgba(22,27,34,0.9)" rx="4" border="1px solid #30363d"/>
-            <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(2) }}</text>
+            <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(getPrecisionConfig().precision) }}</text>
           </template>
         </g>
       </svg>
@@ -171,6 +174,10 @@ import { MarketAPI } from '@/api/market';
 
 const props = defineProps<{ symbol: string }>();
 
+const emit = defineEmits<{
+  (e: 'duplicate', symbol: string): void
+}>();
+
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
@@ -193,6 +200,49 @@ const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
 // ==========================================
+// 🌟 核心：智能动态精度推导引擎 (完美解决 2 位小数问题)
+// ==========================================
+const getPrecisionConfig = (lastPrice?: number) => {
+  const rule = marketStore.symbolRules[props.symbol];
+  
+  // 1. 如果有官方配置的精度规则，绝对服从官方
+  if (rule && rule.tickSize) {
+    const minM = parseFloat(rule.tickSize);
+    let dec = 2;
+    if (minM < 1) {
+      const str = minM.toString();
+      if (str.includes('e')) {
+        const match = str.match(/e-(\d+)/);
+        if (match) dec = parseInt(match[1], 10);
+      } else {
+        dec = str.split('.')[1]?.length || 2;
+      }
+    } else {
+      dec = 0;
+    }
+    return { precision: dec, minMove: minM };
+  }
+
+  // 2. 如果规则还没拿到，启用智能 AI 推断 (根据价格自动给精度)
+  const p = lastPrice || marketStore.marketTickers[props.symbol]?.lastPrice || 100;
+  if (p < 0.000001) return { precision: 8, minMove: 0.00000001 };
+  if (p < 0.001) return { precision: 6, minMove: 0.000001 };
+  if (p < 0.1) return { precision: 4, minMove: 0.0001 };
+  if (p < 10) return { precision: 3, minMove: 0.001 };
+  return { precision: 2, minMove: 0.01 };
+};
+
+// 监听官方规则，一旦获取到就刷新图表轴
+watch(() => marketStore.symbolRules[props.symbol], (rule) => {
+  if (rule && candleSeries) {
+    const config = getPrecisionConfig();
+    candleSeries.applyOptions({
+      priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
+    });
+  }
+}, { deep: true });
+
+// ==========================================
 // 仓位计算与通知
 // ==========================================
 const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
@@ -213,38 +263,37 @@ let notifIdCounter = 0;
 const showNotification = (msg: string) => {
   const id = notifIdCounter++;
   notifications.value.push({ id, msg });
-  setTimeout(() => {
-    notifications.value = notifications.value.filter(n => n.id !== id);
-  }, 5000);
+  setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id); }, 5000);
 };
+
+watch(
+  () => marketStore.wsStatus,
+  async (newStatus, oldStatus) => {
+    if (newStatus === 'CONNECTED' && oldStatus !== 'CONNECTED') {
+      showNotification(`[${props.symbol}] 网络恢复，正在填补 K 线断层...`);
+      await loadHistory(props.symbol, currentTf.value);
+    }
+  }
+);
 
 // ==========================================
 // 绘图引擎核心
 // ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
-
 type LogicPoint = { logical: number, price: number };
 type Shape = { id: string, type: string, points: LogicPoint[], color: string, triggered?: boolean };
-
 const customShapes = ref<Shape[]>([]);
 const svgShapes = ref<any[]>([]); 
-
 const selectedShapeId = ref<string | null>(null);
 const draggingShapeId = ref<string | null>(null);
 const isHoveringShape = ref(false);
 let dragOffsets: { dl: number, dp: number }[] = [];
-
 const selectedShapeColor = computed(() => {
   const shape = customShapes.value.find(s => s.id === selectedShapeId.value);
   return shape ? shape.color : '#58a6ff';
 });
-
-const onDrawModeChange = () => {
-  drawStep.value = 0;
-  if (currentDrawMode.value !== 'none') deselectShape();
-};
-
+const onDrawModeChange = () => { drawStep.value = 0; if (currentDrawMode.value !== 'none') deselectShape(); };
 const deselectShape = () => { selectedShapeId.value = null; };
 
 let animationFrameId: number;
@@ -258,32 +307,17 @@ const renderSvgLoop = () => {
         const y = candleSeries.priceToCoordinate(p.price);
         return { x, y };
       });
-
-      if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) {
-        pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x), y: pts[2].y + (pts[1].y - pts[0].y) };
-      }
-      
+      if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) { pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x) as any, y: pts[2].y + (pts[1].y - pts[0].y) }; }
       if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
-        const dx = pts[1].x - pts[0].x;
-        const dy = pts[1].y - pts[0].y;
-        if (dx !== 0 || dy !== 0) {
-          pts[2] = { x: pts[1].x + dx * 10000, y: pts[1].y + dy * 10000 }; 
-        } else {
-          pts[2] = { ...pts[1] };
-        }
+        const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y;
+        if (dx !== 0 || dy !== 0) { pts[2] = { x: pts[1].x + dx * 10000 as any, y: pts[1].y + dy * 10000 }; } else { pts[2] = { ...pts[1] }; }
       }
-
       let angleStr = '';
       if (shape.type === 'angle' && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
-        const dx = pts[1].x - pts[0].x;
-        const dy = pts[1].y - pts[0].y; 
-        const angleDeg = Math.atan2(-dy, dx) * (180 / Math.PI);
-        angleStr = angleDeg.toFixed(1) + '°';
+        const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y; 
+        angleStr = (Math.atan2(-dy, dx) * (180 / Math.PI)).toFixed(1) + '°';
       }
-      
-      if (pts.every(p => p.x !== null && p.y !== null)) {
-        mapped.push({ ...shape, pts, angleStr });
-      }
+      if (pts.every(p => p.x !== null && p.y !== null)) { mapped.push({ ...shape, pts, angleStr }); }
     }
     svgShapes.value = mapped;
   }
@@ -291,27 +325,22 @@ const renderSvgLoop = () => {
 };
 
 const distToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
-  const l2 = (x1 - x2)**2 + (y1 - y2)**2;
-  if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
-  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
-  t = Math.max(0, Math.min(1, t)); 
+  const l2 = (x1 - x2)**2 + (y1 - y2)**2; if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; t = Math.max(0, Math.min(1, t)); 
   return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
 };
 
 const distToRay = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
-  const l2 = (x1 - x2)**2 + (y1 - y2)**2;
-  if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
-  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
-  t = Math.max(0, t); 
+  const l2 = (x1 - x2)**2 + (y1 - y2)**2; if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; t = Math.max(0, t); 
   return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
 };
 
+let activeShapeIdForDraw: string | null = null;
 const onPointerDown = (e: PointerEvent) => {
   if (!chart || !candleSeries || !chartContainer.value) return;
   const rect = chartContainer.value.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-
+  const x = e.clientX - rect.left; const y = e.clientY - rect.top;
   const logical = chart.timeScale().coordinateToLogical(x as any);
   const price = candleSeries.coordinateToPrice(y);
   if (logical === null || price === null) return;
@@ -323,37 +352,24 @@ const onPointerDown = (e: PointerEvent) => {
       customShapes.value.push(newShape);
       broadcastSync({ action: 'add', shape: newShape });
       currentDrawMode.value = 'none';
-      
     } else if (['trend', 'ray', 'angle', 'alert_ray'].includes(currentDrawMode.value)) {
       if (drawStep.value === 0) {
         const newId = Math.random().toString(36).substring(2, 10);
         const defaultColor = currentDrawMode.value === 'alert_ray' ? '#ff9800' : '#58a6ff';
-        customShapes.value.push({ 
-          id: newId, 
-          type: currentDrawMode.value, 
-          points: [{logical, price}, {logical, price}], 
-          color: defaultColor,
-          triggered: false 
-        });
-        activeShapeIdForDraw = newId;
-        drawStep.value = 1;
+        customShapes.value.push({ id: newId, type: currentDrawMode.value, points: [{logical, price}, {logical, price}], color: defaultColor, triggered: false });
+        activeShapeIdForDraw = newId; drawStep.value = 1;
       } else if (drawStep.value === 1) {
-        drawStep.value = 0;
-        currentDrawMode.value = 'none';
+        drawStep.value = 0; currentDrawMode.value = 'none';
         broadcastSync({ action: 'add', shape: customShapes.value.find(s => s.id === activeShapeIdForDraw) });
       }
-      
     } else if (currentDrawMode.value === 'channel') {
       if (drawStep.value === 0) {
         const newId = Math.random().toString(36).substring(2, 10);
         customShapes.value.push({ id: newId, type: 'channel', points: [{logical, price}, {logical, price}, {logical, price}], color: '#58a6ff' });
-        activeShapeIdForDraw = newId;
-        drawStep.value = 1;
-      } else if (drawStep.value === 1) {
-        drawStep.value = 2; 
-      } else if (drawStep.value === 2) {
-        drawStep.value = 0;
-        currentDrawMode.value = 'none';
+        activeShapeIdForDraw = newId; drawStep.value = 1;
+      } else if (drawStep.value === 1) { drawStep.value = 2; } 
+      else if (drawStep.value === 2) {
+        drawStep.value = 0; currentDrawMode.value = 'none';
         broadcastSync({ action: 'add', shape: customShapes.value.find(s => s.id === activeShapeIdForDraw) });
       }
     }
@@ -362,15 +378,11 @@ const onPointerDown = (e: PointerEvent) => {
 
   let hitId = null;
   for (let i = svgShapes.value.length - 1; i >= 0; i--) {
-    const s = svgShapes.value[i];
-    let isHit = false;
-    if (s.type === 'hline') {
-      isHit = Math.abs(s.pts[0].y - y) < 10;
-    } else if (s.type === 'trend' || s.type === 'angle') {
-      isHit = distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10;
-    } else if (s.type === 'ray' || s.type === 'alert_ray') {
-      isHit = distToRay(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10;
-    } else if (s.type === 'channel') {
+    const s = svgShapes.value[i]; let isHit = false;
+    if (s.type === 'hline') { isHit = Math.abs(s.pts[0].y - y) < 10; } 
+    else if (s.type === 'trend' || s.type === 'angle') { isHit = distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10; } 
+    else if (s.type === 'ray' || s.type === 'alert_ray') { isHit = distToRay(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10; } 
+    else if (s.type === 'channel') {
       isHit = distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10;
       if (!isHit) isHit = distToSegment(x, y, s.pts[2].x, s.pts[2].y, s.pts[3].x, s.pts[3].y) < 10;
     }
@@ -378,25 +390,17 @@ const onPointerDown = (e: PointerEvent) => {
   }
 
   if (hitId) {
-    selectedShapeId.value = hitId;
-    draggingShapeId.value = hitId;
+    selectedShapeId.value = hitId; draggingShapeId.value = hitId;
     chart.applyOptions({ handleScroll: false, handleScale: false }); 
-    
     const shape = customShapes.value.find(s => s.id === hitId)!;
     dragOffsets = shape.points.map(p => ({ dl: p.logical - logical, dp: p.price - price }));
-  } else {
-    deselectShape();
-  }
+  } else { deselectShape(); }
 };
-
-let activeShapeIdForDraw: string | null = null;
 
 const onPointerMove = (e: PointerEvent) => {
   if (!chart || !candleSeries || !chartContainer.value) return;
   const rect = chartContainer.value.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-
+  const x = e.clientX - rect.left; const y = e.clientY - rect.top;
   const logical = chart.timeScale().coordinateToLogical(x as any);
   const price = candleSeries.coordinateToPrice(y);
   if (logical === null || price === null) return;
@@ -404,15 +408,10 @@ const onPointerMove = (e: PointerEvent) => {
   if (currentDrawMode.value !== 'none' && drawStep.value > 0 && activeShapeIdForDraw) {
     const shape = customShapes.value.find(s => s.id === activeShapeIdForDraw);
     if (shape) {
-      if (['trend', 'ray', 'alert_ray', 'angle'].includes(shape.type) && drawStep.value === 1) {
-        shape.points[1] = { logical, price };
-      } else if (shape.type === 'channel') {
-        if (drawStep.value === 1) {
-          shape.points[1] = { logical, price };
-          shape.points[2] = { logical, price };
-        } else if (drawStep.value === 2) {
-          shape.points[2] = { logical, price }; 
-        }
+      if (['trend', 'ray', 'alert_ray', 'angle'].includes(shape.type) && drawStep.value === 1) { shape.points[1] = { logical, price }; } 
+      else if (shape.type === 'channel') {
+        if (drawStep.value === 1) { shape.points[1] = { logical, price }; shape.points[2] = { logical, price }; } 
+        else if (drawStep.value === 2) { shape.points[2] = { logical, price }; }
       }
     }
     return;
@@ -421,13 +420,8 @@ const onPointerMove = (e: PointerEvent) => {
   if (draggingShapeId.value) {
     const shape = customShapes.value.find(s => s.id === draggingShapeId.value);
     if (shape) {
-      shape.points.forEach((p, idx) => {
-        p.logical = logical + dragOffsets[idx].dl;
-        p.price = price + dragOffsets[idx].dp;
-      });
-      if (shape.type === 'alert_ray') {
-        shape.triggered = false;
-      }
+      shape.points.forEach((p, idx) => { p.logical = logical + dragOffsets[idx].dl; p.price = price + dragOffsets[idx].dp; });
+      if (shape.type === 'alert_ray') { shape.triggered = false; }
     }
     return;
   }
@@ -435,11 +429,9 @@ const onPointerMove = (e: PointerEvent) => {
   let hit = false;
   for (const s of svgShapes.value) {
     if (s.type === 'hline' && Math.abs(s.pts[0].y - y) < 10) hit = true;
-    else if (s.type === 'trend' || s.type === 'angle') {
-      if (distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true;
-    } else if (s.type === 'ray' || s.type === 'alert_ray') {
-      if (distToRay(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true;
-    } else if (s.type === 'channel') {
+    else if (s.type === 'trend' || s.type === 'angle') { if (distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true; } 
+    else if (s.type === 'ray' || s.type === 'alert_ray') { if (distToRay(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true; } 
+    else if (s.type === 'channel') {
       if (distToSegment(x, y, s.pts[0].x, s.pts[0].y, s.pts[1].x, s.pts[1].y) < 10) hit = true;
       if (!hit && distToSegment(x, y, s.pts[2].x, s.pts[2].y, s.pts[3].x, s.pts[3].y) < 10) hit = true;
     }
@@ -457,34 +449,25 @@ const onPointerUp = () => {
 };
 
 const broadcastSync = (detail: any) => {
-  if (marketStore.isSyncEnabled) {
-    window.dispatchEvent(new CustomEvent('sync-drawing', {
-      detail: { ...detail, symbol: props.symbol, sourceId: instanceId }
-    }));
-  }
+  if (marketStore.isSyncEnabled) { window.dispatchEvent(new CustomEvent('sync-drawing', { detail: { ...detail, symbol: props.symbol, sourceId: instanceId } })); }
 };
 
 const updateShapeColor = (e: Event) => {
   const newColor = (e.target as HTMLInputElement).value;
   const shape = customShapes.value.find(s => s.id === selectedShapeId.value);
-  if (shape) {
-    shape.color = newColor;
-    broadcastSync({ action: 'color', id: shape.id, color: newColor });
-  }
+  if (shape) { shape.color = newColor; broadcastSync({ action: 'color', id: shape.id, color: newColor }); }
 };
 
 const deleteSelectedShape = (isSource = false) => {
   if (selectedShapeId.value) {
-    const id = selectedShapeId.value;
-    customShapes.value = customShapes.value.filter(l => l.id !== id);
+    const id = selectedShapeId.value; customShapes.value = customShapes.value.filter(l => l.id !== id);
     if (isSource) broadcastSync({ action: 'delete', id });
     selectedShapeId.value = null;
   }
 };
 
 const clearAllShapes = (isSource = false) => {
-  customShapes.value = [];
-  selectedShapeId.value = null;
+  customShapes.value = []; selectedShapeId.value = null;
   if (isSource) broadcastSync({ action: 'clear' });
 };
 
@@ -495,45 +478,37 @@ const onSyncDrawing = (e: any) => {
     if (action === 'add') customShapes.value.push(JSON.parse(JSON.stringify(shape)));
     else if (action === 'move') {
       const localShape = customShapes.value.find(s => s.id === shape.id);
-      if (localShape) {
-        localShape.points = shape.points;
-        if (localShape.type === 'alert_ray') localShape.triggered = false;
-      }
+      if (localShape) { localShape.points = shape.points; if (localShape.type === 'alert_ray') localShape.triggered = false; }
     }
-    else if (action === 'color') {
-      const localShape = customShapes.value.find(s => s.id === id);
-      if (localShape) localShape.color = color;
-    }
+    else if (action === 'color') { const localShape = customShapes.value.find(s => s.id === id); if (localShape) localShape.color = color; }
     else if (action === 'delete') customShapes.value = customShapes.value.filter(l => l.id !== id);
     else if (action === 'clear') clearAllShapes(false);
-    else if (action === 'trigger') {
-      const localShape = customShapes.value.find(s => s.id === id);
-      if (localShape) localShape.triggered = true;
-    }
+    else if (action === 'trigger') { const localShape = customShapes.value.find(s => s.id === id); if (localShape) localShape.triggered = true; }
   }
 };
 
 const formatDateTime = (timestamp: number) => {
   const date = new Date(timestamp * 1000); 
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const H = String(date.getHours()).padStart(2, '0');
-  const M = String(date.getMinutes()).padStart(2, '0');
-  const S = String(date.getSeconds()).padStart(2, '0');
+  const y = date.getFullYear(); const m = String(date.getMonth() + 1).padStart(2, '0'); const d = String(date.getDate()).padStart(2, '0');
+  const H = String(date.getHours()).padStart(2, '0'); const M = String(date.getMinutes()).padStart(2, '0'); const S = String(date.getSeconds()).padStart(2, '0');
   return `${y}-${m}-${d} ${H}:${M}:${S}`;
 };
 
 // ==========================================
-// 🌟 核心修复：安全提取成交量以防丢失
+// 🌟 核心：数据清洗与应用防重引擎 (已修复 HA 报错)
 // ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA: any = null;
   for (const raw of rawData) {
-    // 修复：兼容提取 volume/vol 字段，防止 HA 数据在应用时丢失成交量
     const rawVolume = raw.value !== undefined ? raw.value : (raw.volume !== undefined ? raw.volume : (raw.vol || 0));
-    const ha = { time: raw.time, open: 0, high: 0, low: 0, close: 0, value: rawVolume, color: raw.color };
+    // 🌟 修复: 原封不动传递 parsedTime 给下游，防止 setData 时 undefined 崩溃
+    const ha = { 
+      time: raw.time, 
+      parsedTime: raw.parsedTime,
+      open: 0, high: 0, low: 0, close: 0, 
+      value: rawVolume, color: raw.color 
+    };
     
     ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
     if (!prevHA) { ha.open = (Number(raw.open) + Number(raw.close)) / 2; } 
@@ -549,28 +524,47 @@ const calculateHeikinAshi = (rawData: any[]) => {
 };
 
 const applyDataToSeries = (data: any[]) => {
-  if (!candleSeries || !volumeSeries) return;
-  const uniqueData = data.filter((item, index, self) => index === 0 || item.time !== self[index - 1].time);
+  if (!candleSeries || !volumeSeries || data.length === 0) return;
+  
+  const normalizedData = data.map(d => {
+    const t = Number(d.time);
+    return { ...d, parsedTime: t > 9999999999 ? Math.floor(t / 1000) : t };
+  }).sort((a, b) => a.parsedTime - b.parsedTime);
+
+  const uniqueData = normalizedData.filter((item, index, self) => index === self.length - 1 || item.parsedTime !== self[index + 1].parsedTime);
+
   const finalData = localChartType.value === 'heikinAshi' ? calculateHeikinAshi(uniqueData) : uniqueData;
   
-  candleSeries.setData(finalData.map((d: any) => ({
-    time: Number(d.time) > 9999999999 ? Math.floor(Number(d.time) / 1000) : Number(d.time),
-    open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close)
-  })));
+  try {
+    // 🌟 加载数据时，顺便智能调整当前图表精度
+    const lastPrice = finalData[finalData.length - 1]?.close;
+    const config = getPrecisionConfig(lastPrice);
+    candleSeries.applyOptions({
+      priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
+    });
 
-  volumeSeries.setData(finalData.map((d: any) => {
-    const isUp = Number(d.close) >= Number(d.open);
-    return {
-      time: Number(d.time) > 9999999999 ? Math.floor(Number(d.time) / 1000) : Number(d.time),
-      value: Number(d.value !== undefined ? d.value : (d.volume !== undefined ? d.volume : (d.vol || 0))),
-      color: d.color || (isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)')
-    };
-  }));
+    candleSeries.setData(finalData.map((d: any) => ({
+      // 🌟 修复: 增加兜底获取 time，绝不传给图表 undefined
+      time: d.parsedTime !== undefined ? d.parsedTime : d.time, 
+      open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close)
+    })));
+
+    volumeSeries.setData(finalData.map((d: any) => {
+      const isUp = Number(d.close) >= Number(d.open);
+      return {
+        time: d.parsedTime !== undefined ? d.parsedTime : d.time,
+        value: Number(d.value !== undefined ? d.value : (d.volume !== undefined ? d.volume : (d.vol || 0))),
+        color: d.color || (isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)')
+      };
+    }));
+  } catch(e) {
+    console.error("K线渲染引擎异常:", e);
+  }
 };
 
 const loadHistory = async (symbol: string, interval: string) => {
   try {
-    const history = await MarketAPI.getHistoricalKlines(symbol, interval, 1000);
+    const history = await MarketAPI.getHistoricalKlines(symbol, interval, 500);
     if (!history || history.length === 0) return;
     currentChartData.value = history;
     applyDataToSeries(currentChartData.value);
@@ -587,9 +581,9 @@ const loadMoreHistory = async () => {
   const targetEndTimeMs = (oldestTimeSec - (parseInt(currentTf.value) * (currentTf.value.endsWith('m') ? 60 : 3600))) * 1000;
 
   try {
-    const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 1000, targetEndTimeMs);
+    const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 500, targetEndTimeMs);
     if (olderHistory && olderHistory.length > 0) {
-      const safeNewData = olderHistory.filter(item => {
+      const safeNewData = olderHistory.filter(( item : any) => {
         const itemTime = Number(item.time) > 9999999999 ? Math.floor(Number(item.time) / 1000) : Number(item.time);
         return itemTime < oldestTimeSec;
       });
@@ -597,7 +591,6 @@ const loadMoreHistory = async () => {
       if (safeNewData.length > 0) {
         currentChartData.value = [...safeNewData, ...currentChartData.value];
         applyDataToSeries(currentChartData.value);
-        
         const addedCount = safeNewData.length;
         customShapes.value.forEach(shape => shape.points.forEach(p => p.logical += addedCount));
       }
@@ -611,22 +604,20 @@ const loadMoreHistory = async () => {
 let isSyncingRange = false;
 const onSyncRange = (e: any) => {
   if (!chart || !marketStore.isSyncEnabled) return;
-  const { range, sourceId } = e.detail;
-  if (sourceId !== instanceId) {
+  const { range, sourceId, symbol } = e.detail;
+  
+  if (sourceId !== instanceId && symbol === props.symbol) {
     isSyncingRange = true; 
     chart.timeScale().setVisibleLogicalRange(range);
     setTimeout(() => { isSyncingRange = false; }, 50); 
   }
 };
 
-// ==========================================
-// 图表初始化与硬重载
-// ==========================================
 const initCharts = () => {
   if (!chartContainer.value) return;
 
   chart = createChart(chartContainer.value, {
-    layout: { textColor: '#8b949e', background: { type: 'solid', color: '#0d1117' } },
+    layout: { textColor: '#8b949e', background: { type: 'solid' as any, color: '#0d1117' } },
     grid: { vertLines: { color: '#21262d', style: LineStyle.Dotted }, horzLines: { color: '#21262d', style: LineStyle.Dotted } },
     crosshair: { mode: CrosshairMode.Normal, vertLine: { labelBackgroundColor: '#1f6feb' }, horzLine: { labelBackgroundColor: '#1f6feb' } },
     timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: true },
@@ -634,14 +625,19 @@ const initCharts = () => {
     rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.05, bottom: 0.25 } }
   });
 
-  candleSeries = chart.addSeries(CandlestickSeries, { upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149' });
+  const config = getPrecisionConfig();
+  candleSeries = chart.addSeries(CandlestickSeries, { 
+    upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
+    priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
+  });
+  
   volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', visible: showVolume.value });
   volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
     if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) loadMoreHistory();
     if (marketStore.isSyncEnabled && !isSyncingRange && logicalRange) {
-      window.dispatchEvent(new CustomEvent('sync-logical-range', { detail: { range: logicalRange, sourceId: instanceId } }));
+      window.dispatchEvent(new CustomEvent('sync-logical-range', { detail: { range: logicalRange, sourceId: instanceId, symbol: props.symbol } }));
     }
   });
 
@@ -663,10 +659,11 @@ const initCharts = () => {
 
     if (candleData) {
       const isUp = candleData.close >= candleData.open;
+      const dec = getPrecisionConfig().precision; 
       hoverData.value = {
         time: formatDateTime(Number(param.time)),
-        open: candleData.open.toFixed(2), high: candleData.high.toFixed(2),
-        low: candleData.low.toFixed(2), close: candleData.close.toFixed(2),
+        open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec),
+        low: candleData.low.toFixed(dec), close: candleData.close.toFixed(dec),
         vol: volData && volData.value !== undefined ? Number(volData.value).toFixed(2) : '0.00',
         colorClass: isUp ? 'text-up' : 'text-down' 
       };
@@ -700,6 +697,7 @@ const hardReload = async () => {
   
   initCharts();
   await loadHistory(props.symbol, currentTf.value);
+  marketStore.subscribeKline(props.symbol, currentTf.value); 
   showNotification(`[${props.symbol}] K 线控件引擎已彻底重载`);
 };
 
@@ -721,41 +719,63 @@ watch(() => marketStore.globalCrosshairTime, () => {
   const allCrosshairs = marketStore.crosshairData;
   if (!allCrosshairs) return;
 
-  const remoteCrosshair = Object.values(allCrosshairs as Record<string, any>).find((c: any) => c.sourceId !== instanceId && c.time > 0);
-  if (!remoteCrosshair) chart.clearCrosshairPosition();
-  else chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time, candleSeries);
+  const remoteCrosshair = allCrosshairs[props.symbol];
+  if (!remoteCrosshair || remoteCrosshair.sourceId === instanceId || remoteCrosshair.time === 0) {
+    chart.clearCrosshairPosition();
+    return;
+  }
+
+  try {
+    chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time as any, candleSeries);
+  } catch (e) {
+    chart.clearCrosshairPosition();
+  }
 });
 
+// 动态流式更新
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
-  if (newVal && candleSeries && volumeSeries) {
+  if (newVal && candleSeries && volumeSeries && currentChartData.value.length > 0) {
     const rawTime = Number(newVal.time);
     const timeInSeconds = rawTime > 9999999999 ? Math.floor(rawTime / 1000) : rawTime;
-    const rawFormat = { 
-      time: timeInSeconds, 
-      open: Number(newVal.open), high: Number(newVal.high), 
-      low: Number(newVal.low), close: Number(newVal.close), 
-      value: Number(newVal.volume !== undefined ? newVal.volume : (newVal.vol || 0)), 
-      color: Number(newVal.close) >= Number(newVal.open) ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' 
-    };
-
+    
     let latestLogicalIndex = currentChartData.value.length - 1;
+    const lastCandle = currentChartData.value[latestLogicalIndex];
+    const lastTimeSec = Number(lastCandle.time) > 9999999999 ? Math.floor(Number(lastCandle.time) / 1000) : Number(lastCandle.time);
 
-    if (currentChartData.value.length > 0) {
-      const lastTimeSec = Number(currentChartData.value[latestLogicalIndex].time) > 9999999999 ? Math.floor(Number(currentChartData.value[latestLogicalIndex].time) / 1000) : Number(currentChartData.value[latestLogicalIndex].time);
-      if (lastTimeSec === rawFormat.time) {
-        currentChartData.value[latestLogicalIndex] = newVal; 
-      } else if (rawFormat.time > lastTimeSec) {
-        currentChartData.value.push(newVal);
-        latestLogicalIndex += 1;
+    if (timeInSeconds < lastTimeSec) return;
+
+    if (timeInSeconds === lastTimeSec) {
+      currentChartData.value[latestLogicalIndex] = newVal; 
+    } else {
+      currentChartData.value.push(newVal);
+      latestLogicalIndex += 1;
+    }
+
+    const isUp = Number(newVal.close) >= Number(newVal.open);
+    const volValue = Number(newVal.volume !== undefined ? newVal.volume : (newVal.vol || 0));
+
+    if (localChartType.value === 'heikinAshi') {
+      applyDataToSeries(currentChartData.value);
+    } else {
+      try {
+        candleSeries.update({
+          time: timeInSeconds as any,
+          open: Number(newVal.open), high: Number(newVal.high), low: Number(newVal.low), close: Number(newVal.close)
+        });
+        volumeSeries.update({
+          time: timeInSeconds as any, value: volValue, color: isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
+        });
+      } catch (e) {
+        console.warn("增量刷新失败，触发兜底全量重载", e);
+        applyDataToSeries(currentChartData.value);
       }
     }
-    applyDataToSeries(currentChartData.value);
 
     const pos = marketStore.positions.find(p => p.symbol === props.symbol);
     if (pos && positionLineId) {
-       const currentPrice = rawFormat.close;
+       const currentPrice = Number(newVal.close);
        const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
        positionLineId.applyOptions({
          color: pnl >= 0 ? '#2ea043' : '#f85149',
@@ -764,16 +784,13 @@ watch(currentKlineData, (newVal) => {
     }
 
     customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
-      const p0 = shape.points[0];
-      const p1 = shape.points[1];
-      const dx = p1.logical - p0.logical;
-      const dp = p1.price - p0.price;
-
+      const p0 = shape.points[0]; const p1 = shape.points[1];
+      const dx = p1.logical - p0.logical; const dp = p1.price - p0.price;
       if ((dx > 0 && latestLogicalIndex >= p0.logical) || (dx < 0 && latestLogicalIndex <= p0.logical)) {
         const expectedPrice = p0.price + (dx === 0 ? 0 : (dp / dx) * (latestLogicalIndex - p0.logical));
-        if (rawFormat.low <= expectedPrice && rawFormat.high >= expectedPrice) {
+        if (Number(newVal.low) <= expectedPrice && Number(newVal.high) >= expectedPrice) {
           shape.triggered = true;
-          showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(2)}`);
+          showNotification(`[${props.symbol}] 价格触及提醒射线: ${expectedPrice.toFixed(getPrecisionConfig().precision)}`);
           broadcastSync({ action: 'trigger', id: shape.id });
         }
       }
@@ -785,21 +802,14 @@ watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol
   if (!candleSeries) return;
   const pos = marketStore.positions.find(p => p.symbol === props.symbol);
   
-  if (positionLineId) {
-    candleSeries.removePriceLine(positionLineId);
-    positionLineId = null;
-  }
+  if (positionLineId) { candleSeries.removePriceLine(positionLineId); positionLineId = null; }
 
   if (pos) {
     const currentPrice = getCurrentPrice() || pos.entryPrice;
     const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
       
     positionLineId = candleSeries.createPriceLine({
-      price: pos.entryPrice,
-      color: pnl >= 0 ? '#2ea043' : '#f85149',
-      lineWidth: 2,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: true,
+      price: pos.entryPrice, color: pnl >= 0 ? '#2ea043' : '#f85149', lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true,
       title: `${pos.side === 'LONG' ? '做多' : '做空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
     });
   }
@@ -826,6 +836,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 继承你的无敌 CSS，一行未动 */
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; border: 1px solid transparent; transition: all 0.2s ease; box-sizing: border-box; }
 .kline-module.is-focused { border-color: #58a6ff; box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1); }
 .kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; }
@@ -847,7 +858,9 @@ onUnmounted(() => {
 .reload-btn { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); padding: 3px 8px; border-radius: 4px; font-weight: normal;}
 .reload-btn:hover { background: #58a6ff; color: #0d1117; }
 
-/* 副工具栏 */
+.copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; }
+.copy-btn:hover { background: #2ea043; color: #ffffff; }
+
 .kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; }
 .symbol-info-wrapper { display: flex; align-items: center; gap: 8px; margin-right: 16px; }
 .symbol-info { font-size: 15px; font-weight: bold; color: #e6edf3; }

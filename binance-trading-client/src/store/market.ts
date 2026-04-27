@@ -1,14 +1,11 @@
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
+import { ref, reactive ,computed} from 'vue'
 
 export const useMarketStore = defineStore('market', () => {
-  // ==========================================
-  // 1. 核心数据源与基础状态
-  // ==========================================
   const marketTickers = reactive<Record<string, any>>({});
   const latestKlines = reactive<Record<string, any>>({});
-  // 在 market.ts 中新增：
   const symbolConfigs = ref<Record<string, { leverage: number, marginType: string }>>({});
+  const backendLatency = ref(0); // 🌟 新增：后端到币安的延迟
 
   const currentSymbol = ref('BTCUSDT');
   const setCurrentSymbol = (symbol: string) => {
@@ -17,15 +14,14 @@ export const useMarketStore = defineStore('market', () => {
   };
 
   const usdtBalance = ref(0.00);
+  const dataSource = ref<'binance' | 'backend'>('backend');
+  const positions = ref<any[]>([]); // 持仓列
 
-  // ==========================================
-  // 2. 精度规则与 Click-to-Fill
-  // ==========================================
   const symbolRules = ref<Record<string, { tickSize: string, stepSize: string }>>({});
   const fetchExchangeInfo = async () => {
     if (Object.keys(symbolRules.value).length > 0) return;
     try {
-      const res = await fetch('http://localhost:5000/api/market/exchangeInfo');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/market/exchangeInfo`);
       const data = await res.json();
       const rules: Record<string, { tickSize: string, stepSize: string }> = {};
       data.symbols.forEach((s: any) => {
@@ -46,7 +42,7 @@ export const useMarketStore = defineStore('market', () => {
   const fetchInitialPositions = async () => {
     try {
       // 调用后端我们之前补全的 positionRisk 接口
-      const res = await fetch('http://localhost:5000/api/account/positionRisk');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/positionRisk`);
       if (!res.ok) return;
 
       const riskData = await res.json();
@@ -78,7 +74,7 @@ export const useMarketStore = defineStore('market', () => {
   // 在 market.ts 中：
   const fetchInitialRiskConfig = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/account/positionRisk');
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/positionRisk`);
       const riskData = await res.json();
 
       // 把拉取到的所有币种杠杆存进字典
@@ -96,53 +92,31 @@ export const useMarketStore = defineStore('market', () => {
       console.error('获取初始风控参数失败', e);
     }
   };
-
   const clickedPrice = ref(0);
   const setClickedPrice = (price: number) => { clickedPrice.value = price; };
 
-  // ==========================================
-  // 3. 多窗口同步状态 (光标与画线)
-  // ==========================================
   const isSyncEnabled = ref(false);
   const toggleSync = () => { isSyncEnabled.value = !isSyncEnabled.value; };
-
-  // 🌟 全局时间戳，用于跨币种对齐 X 轴
   const globalCrosshairTime = ref(0);
   const crosshairData = reactive<Record<string, { price: number, time: number, sourceId: string }>>({});
-
-  const updateGlobalCrosshair = (time: number, price: number, symbol: string, sourceId: string) => {
-    globalCrosshairTime.value = time;
-    crosshairData[symbol] = { price, time, sourceId };
-  };
+  const updateGlobalCrosshair = (time: number, price: number, symbol: string, sourceId: string) => { globalCrosshairTime.value = time; crosshairData[symbol] = { price, time, sourceId }; };
   const setCrosshair = (symbol: string, price: number, time: number, sourceId: string) => { crosshairData[symbol] = { price, time, sourceId }; };
   const clearCrosshair = (symbol: string, sourceId: string) => { crosshairData[symbol] = { price: 0, time: 0, sourceId }; };
-
-  // 🌟 复杂画线(Overlay)同步总线
-  const lastOverlayEvent = ref<{
-    action: 'add' | 'clear';
-    symbol: string;
-    sourceId: string;
-    data?: any;
-  } | null>(null);
-
-  const broadcastOverlay = (payload: any) => {
-    lastOverlayEvent.value = payload;
-  };
-
+  const lastOverlayEvent = ref<any>(null);
+  const broadcastOverlay = (payload: any) => { lastOverlayEvent.value = payload; };
   const globalLines = reactive<Record<string, number[]>>({});
   const addGlobalLine = (symbol: string, price: number) => { if (!globalLines[symbol]) globalLines[symbol] = []; globalLines[symbol].push(price); };
   const clearGlobalLines = (symbol: string) => { globalLines[symbol] = []; };
-
   const globalChartType = reactive<Record<string, { type: string, sourceId: string }>>({});
   const setGlobalChartType = (symbol: string, type: string, sourceId: string) => { globalChartType[symbol] = { type, sourceId }; };
 
   // ==========================================
-  // 4. SharedWorker 与 WS 状态心跳
+  // 🌟 核心升级：Worker 调度与引用计数
   // ==========================================
   let worker: SharedWorker | null = null;
-  const mySubscriptions = new Set<string>();
 
-  // 🌟 WS 状态灯与心跳
+  // 使用 Map 记录流的订阅次数
+  const mySubscriptions = new Map<string, number>();
   const wsStatus = ref<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
   let lastDataTimestamp = 0;
 
@@ -160,11 +134,12 @@ export const useMarketStore = defineStore('market', () => {
       if (type === 'TICKERS_DATA') handleTickersData(payload);
       if (type === 'KLINE_DATA') handleKlineData(payload);
       if (type === 'ACCOUNT_DATA') handleAccountData(payload);
+      if (type === 'BACKEND_LATENCY') backendLatency.value = payload;
     };
 
     worker.port.start();
+    worker.port.postMessage({ type: 'SWITCH_SOURCE', source: dataSource.value });
 
-    // 🌟 每 2 秒检查一次心跳，超过 5 秒无数据视为断开
     setInterval(() => {
       const now = Date.now();
       if (lastDataTimestamp !== 0 && now - lastDataTimestamp > 5000) {
@@ -173,83 +148,133 @@ export const useMarketStore = defineStore('market', () => {
     }, 2000);
 
     window.addEventListener('beforeunload', () => {
-      mySubscriptions.forEach(stream => worker?.port.postMessage({ type: 'UNSUBSCRIBE', stream }));
+      // 页面关闭时，只清理有计数的订阅
+      mySubscriptions.forEach((count, stream) => {
+        if (count > 0) worker?.port.postMessage({ type: 'UNSUBSCRIBE', stream });
+      });
       worker?.port.postMessage({ type: 'DISCONNECT' });
     });
   };
 
-  // 1. 新增持仓列表状态
-  // ==========================================
-  // 🌟 5. 私有数据流 (User Data) - HTTP 鉴权与下发
-  // ==========================================
-  const positions = ref<any[]>([]); // 持仓列表
+  const switchDataSource = (source: 'binance' | 'backend') => {
+    if (dataSource.value === source) return;
+    dataSource.value = source;
+    worker?.port.postMessage({ type: 'SWITCH_SOURCE', source });
+  };
+
   let listenKeyTimer: ReturnType<typeof setInterval> | null = null;
 
-  // 获取 ListenKey 并通知 Worker 连接
   const connectUserDataStream = async () => {
     try {
-      // 🌟 1. 核心修复：先通过 REST API 拿到初始余额
-      // 这样下单控件和仓位控件在加载瞬间就有数据了
-      const infoRes = await fetch('http://localhost:5000/api/account/info');
+      await refreshAccountBalance();
+      const infoRes = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/info`);
       if (infoRes.ok) {
         const accountData = await infoRes.json();
-        // 找到 USDT 资产的可用余额
         const usdtAsset = accountData.assets?.find((a: any) => a.asset === 'USDT');
-        if (usdtAsset) {
-          // 使用 walletBalance (钱包余额) 或 availableBalance (可用余额)
-          usdtBalance.value = parseFloat(usdtAsset.availableBalance || '0');
-        }
+        if (usdtAsset) usdtBalance.value = parseFloat(usdtAsset.availableBalance || '0');
       }
-      // 1. 从 C# 后端获取 listenKey
-      const res = await fetch('http://localhost:5000/api/account/listenKey', { method: 'POST' });
+
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/listenKey`, { method: 'POST' });
       const data = await res.json();
       const listenKey = data.listenKey;
 
       if (!listenKey) throw new Error('无法获取 ListenKey');
 
-      // 2. 确保 Worker 已经初始化
       initWorker();
+      worker?.port.postMessage({ type: 'CONNECT_USER_DATA', listenKey: listenKey });
 
-      // 3. 将 ListenKey 发送给 Worker，让 Worker 去建立 WS 连接
-      worker?.port.postMessage({
-        type: 'CONNECT_USER_DATA',
-        listenKey: listenKey
-      });
-
-      // 4. 启动 HTTP 保活定时器 (每 30 分钟一次)
-      startListenKeyKeepAlive();
-
+      if (listenKeyTimer) clearInterval(listenKeyTimer);
+      listenKeyTimer = setInterval(async () => {
+        try { fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/listenKey`, { method: 'PUT' });}
+        catch (e) { console.error('ListenKey 保活失败'); }
+      }, 28 * 60 * 1000);
     } catch (e) {
-      console.error('❌ 初始化私有流失败:', e);
-      // 失败则 5 秒后重试
       setTimeout(connectUserDataStream, 5000);
     }
-    // WS 连上后，拉取一次静态底座数据
     await fetchInitialRiskConfig();
     await fetchInitialPositions();
   };
 
-  // 维持 ListenKey 寿命
-  const startListenKeyKeepAlive = () => {
-    if (listenKeyTimer) clearInterval(listenKeyTimer);
-    listenKeyTimer = setInterval(async () => {
-      try {
-        await fetch('http://localhost:5000/api/account/listenKey', { method: 'PUT' });
-        console.log('💓 主线程: ListenKey 保活请求已发送');
-      } catch (e) {
-        console.error('💔 主线程: ListenKey 保活失败:', e);
+  const handleTickersData = (payload: any) => {
+    lastDataTimestamp = Date.now();
+    if (wsStatus.value !== 'CONNECTED') wsStatus.value = 'CONNECTED';
+
+    const stream = payload.stream;
+    const data = payload.data;
+
+    if (stream === '!miniTicker@arr') {
+      for (const item of data) {
+        const symbol = item.s;
+        if (!symbol.endsWith('USDT')) continue;
+        if (!marketTickers[symbol]) marketTickers[symbol] = { fundingRate: 0 };
+        marketTickers[symbol].lastPrice = parseFloat(item.c);
+        const openPrice = parseFloat(item.o);
+        marketTickers[symbol].volume = parseFloat(item.q);
+        marketTickers[symbol].priceChangePercent = item.P !== undefined ? parseFloat(item.P) : ((marketTickers[symbol].lastPrice - openPrice) / openPrice) * 100;
       }
-    }, 28 * 60 * 1000);
+    } else if (stream.startsWith('!markPrice@arr')) {
+      for (const item of data) {
+        const symbol = item.s;
+        if (!symbol.endsWith('USDT')) continue;
+        if (!marketTickers[symbol]) marketTickers[symbol] = { lastPrice: 0, priceChangePercent: 0, volume: 0 };
+        marketTickers[symbol].fundingRate = parseFloat(item.r) * 100;
+      }
+    }
   };
 
+  const handleKlineData = (payload: any) => {
+    lastDataTimestamp = Date.now();
+    if (wsStatus.value !== 'CONNECTED') wsStatus.value = 'CONNECTED';
 
-  // ==========================================
-  // 🌟 6. 历史仓位/成交记录管理 (已适配币安 API 限制)
-  // ==========================================
+    const realData = payload.data ? payload.data : payload;
+    if (realData && realData.e === 'kline') {
+      const key = `${realData.s}_${realData.k.i}`;
+      latestKlines[key] = {
+        time: realData.k.t, open: parseFloat(realData.k.o), high: parseFloat(realData.k.h),
+        low: parseFloat(realData.k.l), close: parseFloat(realData.k.c), volume: parseFloat(realData.k.q),
+        isFinal: realData.k.x
+      };
+    }
+  };
+
+  const handleAccountData = (payload: any) => {
+    if (payload.e === 'ACCOUNT_CONFIG_UPDATE') {
+      const ac = payload.ac;
+      if (ac && ac.s) {
+        if (!symbolConfigs.value[ac.s]) symbolConfigs.value[ac.s] = { leverage: 1, marginType: 'cross' };
+        if (ac.l) symbolConfigs.value[ac.s].leverage = parseInt(ac.l);
+        const pos = positions.value.find(p => p.symbol === ac.s);
+        if (pos) pos.leverage = parseInt(ac.l);
+      }
+      return;
+    }
+    if (payload.e === 'ACCOUNT_UPDATE') {
+      const balances = payload.a?.B;
+      if (balances) {
+        const usdtAsset = balances.find((b: any) => b.a === 'USDT');
+        if (usdtAsset) usdtBalance.value = parseFloat(usdtAsset.cw || usdtAsset.wb || '0');
+      }
+      refreshAccountBalance();
+      const posData = payload.a?.P;
+      if (posData) {
+        posData.forEach((p: any) => {
+          const amount = parseFloat(p.pa);
+          const existingIdx = positions.value.findIndex(pos => pos.symbol === p.s);
+          if (amount !== 0) {
+            const currentLeverage = symbolConfigs.value[p.s]?.leverage || 1;
+            const newPos = { symbol: p.s, amount, entryPrice: parseFloat(p.ep), unrealizedPnL: parseFloat(p.up), leverage: currentLeverage, marginType: p.mt, side: amount > 0 ? 'LONG' : 'SHORT', updateTime: payload.E || Date.now() };
+            if (existingIdx > -1) positions.value[existingIdx] = newPos;
+            else positions.value.push(newPos);
+          } else if (existingIdx > -1) {
+            positions.value.splice(existingIdx, 1);
+          }
+        });
+      }
+    }
+  };
+
   const positionHistory = ref<any[]>([]);
   const isLoadingHistory = ref(false);
-
-  // 从 C# 后端拉取历史记录
   const fetchPositionHistory = async (symbol?: string, limit: number = 50) => {
     // 🚨 应对币安限制：如果没有明确指定币种，强制使用全局当前币种
     const targetSymbol = symbol || currentSymbol.value;
@@ -259,7 +284,7 @@ export const useMarketStore = defineStore('market', () => {
     isLoadingHistory.value = true;
     try {
       // 必须带上 symbol 才能成功请求后端
-      const url = `http://localhost:5000/api/account/trades?limit=${limit}&symbol=${targetSymbol}`;
+      const url = `${import.meta.env.VITE_API_BASE_URL}/api/account/trades?limit=${limit}&symbol=${targetSymbol}`;
 
       const res = await fetch(url, { method: 'GET' });
       if (res.ok) {
@@ -276,126 +301,78 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
-  const handleTickersData = (payload: any) => {
-    lastDataTimestamp = Date.now();
-    if (wsStatus.value !== 'CONNECTED') wsStatus.value = 'CONNECTED';
-
-    const stream = payload.stream;
-    const data = payload.data;
-
-    if (stream === '!miniTicker@arr') {
-      for (const item of data) {
-        const symbol = item.s;
-        if (!symbol.endsWith('USDT')) continue;
-        if (!marketTickers[symbol]) marketTickers[symbol] = { fundingRate: 0 };
-
-        marketTickers[symbol].lastPrice = parseFloat(item.c);
-        const openPrice = parseFloat(item.o);
-        marketTickers[symbol].volume = parseFloat(item.q);
-        marketTickers[symbol].priceChangePercent = ((marketTickers[symbol].lastPrice - openPrice) / openPrice) * 100;
-      }
-    } else if (stream.startsWith('!markPrice@arr')) {
-      for (const item of data) {
-        const symbol = item.s;
-        if (!symbol.endsWith('USDT')) continue;
-        if (!marketTickers[symbol]) marketTickers[symbol] = { lastPrice: 0, priceChangePercent: 0, volume: 0 };
-        marketTickers[symbol].fundingRate = parseFloat(item.r) * 100;
-      }
-    }
-  };
-
-  // 在你原有的 handleAccountData 逻辑下方，补充之前讨论的逻辑：
-  const handleAccountData = (payload: any) => {
-    // 🌟 1. 拦截账户配置更新 (杠杆变化)
-    if (payload.e === 'ACCOUNT_CONFIG_UPDATE') {
-      const ac = payload.ac; // ac = account config
-      if (ac && ac.s) {
-        // ac.s: 币种, ac.l: 杠杆倍数
-        if (!symbolConfigs.value[ac.s]) {
-          symbolConfigs.value[ac.s] = { leverage: 1, marginType: 'cross' };
-        }
-
-        // 更新内存中的杠杆
-        if (ac.l) symbolConfigs.value[ac.s].leverage = parseInt(ac.l);
-
-        // 同步更新现有持仓列表里的杠杆显示，做到无缝渲染
-        const pos = positions.value.find(p => p.symbol === ac.s);
-        if (pos) pos.leverage = parseInt(ac.l);
-
-        console.log(`🔧 ${ac.s} 杠杆已通过 WS 自动更新为: ${ac.l}x`);
-      }
-      return;
-    }
-    if (payload.e === 'ACCOUNT_UPDATE') {
-      const balances = payload.a?.B;
-      if (balances && Array.isArray(balances)) {
-        const usdtAsset = balances.find((b: any) => b.a === 'USDT');
-        if (usdtAsset) usdtBalance.value = parseFloat(usdtAsset.cw || usdtAsset.wb || '0');
-      }
-
-      const posData = payload.a?.P;
-      if (posData && Array.isArray(posData)) {
-        posData.forEach((p: any) => {
-          const amount = parseFloat(p.pa);
-          const existingIdx = positions.value.findIndex(pos => pos.symbol === p.s);
-
-          if (amount !== 0) {
-            const currentLeverage = symbolConfigs.value[p.s]?.leverage || 1;
-            const newPos = {
-              symbol: p.s,
-              amount: amount,
-              entryPrice: parseFloat(p.ep),
-              unrealizedPnL: parseFloat(p.up),
-              leverage: currentLeverage, // 把杠杆缝合进去
-              marginType: p.mt,
-              side: amount > 0 ? 'LONG' : 'SHORT',
-              updateTime: payload.E || Date.now()
-            };
-            if (existingIdx > -1) positions.value[existingIdx] = newPos;
-            else positions.value.push(newPos);
-          } else if (existingIdx > -1) {
-            positions.value.splice(existingIdx, 1);
-          }
-        });
-      }
-    }
-  };
-
-  const handleKlineData = (payload: any) => {
-    lastDataTimestamp = Date.now();
-    if (wsStatus.value !== 'CONNECTED') wsStatus.value = 'CONNECTED';
-
-    const realData = payload.data ? payload.data : payload;
-    if (realData && realData.e === 'kline') {
-      const key = `${realData.s}_${realData.k.i}`;
-      latestKlines[key] = {
-        time: realData.k.t,
-        open: parseFloat(realData.k.o),
-        high: parseFloat(realData.k.h),
-        low: parseFloat(realData.k.l),
-        close: parseFloat(realData.k.c),
-        volume: parseFloat(realData.k.q),
-        isFinal: realData.k.x
-      };
-    }
-  };
-
   const connectAllTickers = () => initWorker();
   const connectWs = () => initWorker();
 
+  // 🌟 核心升级：基于 Map 的订阅逻辑
   const subscribeKline = (symbol: string, interval: string) => {
     initWorker();
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
-    mySubscriptions.add(streamName);
-    worker?.port.postMessage({ type: 'SUBSCRIBE', stream: streamName });
-  }
+    const currentCount = mySubscriptions.get(streamName) || 0;
 
+    mySubscriptions.set(streamName, currentCount + 1);
+
+    // 只有第一个窗口订阅时，才真正发送网络请求
+    if (currentCount === 0) {
+      worker?.port.postMessage({ type: 'SUBSCRIBE', stream: streamName });
+    }
+  };
+
+  // 🌟 核心升级：基于 Map 的退订逻辑
   const unsubscribeKline = (symbol: string, interval: string) => {
     if (!worker) return;
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
-    mySubscriptions.delete(streamName);
-    worker.port.postMessage({ type: 'UNSUBSCRIBE', stream: streamName });
-  }
+    const currentCount = mySubscriptions.get(streamName) || 0;
+
+    if (currentCount > 0) {
+      const newCount = currentCount - 1;
+      if (newCount === 0) {
+        // 最后一个窗口关闭时，才真正发起退订
+        mySubscriptions.delete(streamName);
+        worker.port.postMessage({ type: 'UNSUBSCRIBE', stream: streamName });
+      } else {
+        mySubscriptions.set(streamName, newCount);
+      }
+    }
+  };
+
+  // 1. 记录从 REST API 获取时的基础状态
+  const baseAvailableBalance = ref(0); // 接口拉取那一刻的“静态可用余额”
+  const baseTotalUnrealizedPnl = ref(0); // 接口拉取那一刻的“全仓总未实现盈亏”
+
+  // 2. 获取接口数据的逻辑 (refreshAccountBalance)
+  const refreshAccountBalance = async () => {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/info`);
+    const accountData = await res.json();
+    const usdtAsset = accountData.assets?.find((a: any) => a.asset === 'USDT');
+
+    if (usdtAsset) {
+      baseAvailableBalance.value = parseFloat(usdtAsset.availableBalance || '0');
+      baseTotalUnrealizedPnl.value = parseFloat(usdtAsset.crossUnPnl || '0');
+    }
+  };
+
+  // 3. 🌟 创造一个动态计算的可用余额 (暴露给 OrderModule.vue 使用)
+  const dynamicUsdtBalance = computed(() => {
+    // 算出当前的实时全仓总盈亏
+    let currentTotalCrossPnl = 0;
+    positions.value.forEach(pos => {
+      if (pos.marginType === 'cross') {
+        const currentPrice = marketTickers[pos.symbol]?.lastPrice || pos.entryPrice;
+        const amount = Math.abs(pos.amount);
+        const pnl = pos.side === 'LONG'
+          ? (currentPrice - pos.entryPrice) * amount
+          : (pos.entryPrice - currentPrice) * amount;
+        currentTotalCrossPnl += pnl;
+      }
+    });
+
+    // 实时可用余额 = 基础可用余额 + (当前实时盈亏 - 基础盈亏)
+    const realTimeBalance = baseAvailableBalance.value + (currentTotalCrossPnl - baseTotalUnrealizedPnl.value);
+
+    // 余额不能小于 0
+    return Math.max(0, realTimeBalance);
+  });
 
   return {
     marketTickers, latestKlines, connectAllTickers, connectWs, subscribeKline, unsubscribeKline,
@@ -404,6 +381,7 @@ export const useMarketStore = defineStore('market', () => {
     usdtBalance, currentSymbol, setCurrentSymbol,
     symbolRules, fetchExchangeInfo, clickedPrice, setClickedPrice,
     lastOverlayEvent, broadcastOverlay, wsStatus, globalCrosshairTime, updateGlobalCrosshair,
-    positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory
+    positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory,
+    dataSource, switchDataSource, symbolConfigs,dynamicUsdtBalance,backendLatency
   }
 })

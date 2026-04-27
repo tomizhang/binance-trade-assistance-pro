@@ -25,9 +25,7 @@
           :is-resizable="true"
           :vertical-compact="true"
           :use-css-transforms="true"
-            
-          drag-allow-from=".drag-handle"
-            
+          drag-allow-from=".drag-handle, .panel-header"
           drag-ignore-from=".no-drag, .custom-slider, button, input, select, textarea, .chart-wrapper"
         >
         <GridItem
@@ -36,11 +34,12 @@
           :x="item.x" :y="item.y" :w="item.w" :h="item.h" :i="item.i"
         >
         <div class="panel-container">
-          <div class="panel-header">
+          <div class="panel-header drag-handle">
             <span class="panel-title">{{ item.title }}</span>
             <div class="panel-actions">
-              <button class="size-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
-              <button class="size-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
+              <button class="action-icon-btn" @click="duplicatePanel(item.i)" title="复制面板">📋</button>
+              <button class="action-icon-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
+              <button class="action-icon-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
               <span class="action-divider">|</span>
               <button class="close-btn" @click="removePanel(item.i)" title="关闭面板">✕</button>
             </div>
@@ -52,7 +51,11 @@
             @touchstart.stop
             @pointerdown.stop
           >
-            <component :is="getComponentByType(item.type)" :symbol="item.symbol" />
+            <component 
+              :is="getComponentByType(item.type)" 
+              :symbol="item.symbol" 
+              @duplicate="addKlinePanel" 
+            />
           </div>
         </div>
        </GridItem>
@@ -101,9 +104,19 @@ const getComponentByType = (type: string) => {
   }
 }
 
-const layout = ref([
-  // { x: 0, y: 0, w: 16, h: 14, i: 'kline-btc', type: 'kline', symbol: 'BTCUSDT', title: 'BTC/USDT 永续' },
-  // { i: 'fourier-main', x: 0, y: 12, w: 16, h: 12, type: 'fourier', title: '频域分析' },
+interface LayoutItem {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  i: string;
+  type: string;
+  title: string;
+  symbol?: string;
+}
+
+// 🌟 核心修复：这里必须是 LayoutItem[] 数组类型，少个 [] 会导致 TS 疯狂报错！
+const layout = ref<LayoutItem[]>([
   { x: 16, y: 0, w: 8, h: 14, i: 'order-panel', type: 'order', title: '下单面板' },
   { x: 0, y: 14, w: 24, h: 8, i: 'position-panel', type: 'position', title: '仓位与挂单' }
 ])
@@ -126,20 +139,17 @@ const updateGridWidth = (id: string, newWidth: number) => {
   }
 }
 
-// 🌟 新增：面板克隆逻辑
+// 面板克隆逻辑 (点击面板头部复制时触发)
 const duplicatePanel = (id: string) => {
   const targetItem = layout.value.find(item => item.i === id);
   if (targetItem) {
-    // 拷贝属性，生成新 ID，并利用 y: 999 让网格自动将其放置在最底部
     const clonedItem = {
       ...targetItem,
       i: `${targetItem.type}-clone-${Date.now()}`,
-      y: 999, 
+      y: 999, // 让网格自动将其放置在最底部
     };
     
     layout.value.push(clonedItem);
-    
-    // 触发图表重新适配
     triggerGridResize();
   }
 }
