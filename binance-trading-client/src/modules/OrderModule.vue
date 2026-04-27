@@ -213,7 +213,7 @@ watch(orderType, calculateAmountFromPercent);
 // 修改杠杆
 const handleLeverageChange = async () => {
   try {
-    const res = await fetch(`http://localhost:5000/api/account/leverage`, { 
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/leverage`, { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
       body: JSON.stringify({ symbol: currentSymbol.value, leverage: leverage.value }) 
@@ -247,7 +247,7 @@ const orderLock = createAsyncLock();
 const placeOrder = async (side: string) => {
   const rule = marketStore.symbolRules[currentSymbol.value] || { tickSize: '0.1', stepSize: '0.001' };
   try {
-    const res = await fetch('http://localhost:5000/api/order/place-ws', {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         symbol: currentSymbol.value, 

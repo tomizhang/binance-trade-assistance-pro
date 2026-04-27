@@ -75,7 +75,7 @@ try
     // builder.Services.AddHttpClient<BinanceTradeService>();
 
     var app = builder.Build();
-
+    app.MapGet("/ping", () => "pong");
     // ==========================================
     // 3. 配置 HTTP 请求管道 (Middleware)
     // ==========================================

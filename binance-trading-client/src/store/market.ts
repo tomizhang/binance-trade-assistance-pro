@@ -167,14 +167,14 @@ export const useMarketStore = defineStore('market', () => {
   const connectUserDataStream = async () => {
     try {
       await refreshAccountBalance();
-      const infoRes = await fetch('http://localhost:5000/api/account/info');
+      const infoRes = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/info`);
       if (infoRes.ok) {
         const accountData = await infoRes.json();
         const usdtAsset = accountData.assets?.find((a: any) => a.asset === 'USDT');
         if (usdtAsset) usdtBalance.value = parseFloat(usdtAsset.availableBalance || '0');
       }
 
-      const res = await fetch('http://localhost:5000/api/account/listenKey', { method: 'POST' });
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/listenKey`, { method: 'POST' });
       const data = await res.json();
       const listenKey = data.listenKey;
 
@@ -185,7 +185,7 @@ export const useMarketStore = defineStore('market', () => {
 
       if (listenKeyTimer) clearInterval(listenKeyTimer);
       listenKeyTimer = setInterval(async () => {
-        try { await fetch('http://localhost:5000/api/account/listenKey', { method: 'PUT' }); }
+        try { fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/listenKey`, { method: 'PUT' });}
         catch (e) { console.error('ListenKey 保活失败'); }
       }, 28 * 60 * 1000);
     } catch (e) {
@@ -342,7 +342,7 @@ export const useMarketStore = defineStore('market', () => {
 
   // 2. 获取接口数据的逻辑 (refreshAccountBalance)
   const refreshAccountBalance = async () => {
-    const res = await fetch('http://localhost:5000/api/account/info');
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/info`);
     const accountData = await res.json();
     const usdtAsset = accountData.assets?.find((a: any) => a.asset === 'USDT');
 

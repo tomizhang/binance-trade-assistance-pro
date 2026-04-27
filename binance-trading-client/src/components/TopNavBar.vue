@@ -103,7 +103,7 @@ const measureLatency = async () => {
     // 测算: 前端到本地 C# 中继的真实延迟 (极轻量级 HEAD 请求抓取纯网络 RTT)
     const start = Date.now();
     try {
-      await fetch('http://localhost:5000/', { method: 'HEAD' }).catch(() => {});
+      await fetch(`${import.meta.env.VITE_API_BASE_URL}/ping`, { method: 'GET' }).catch(() => {});
       frontToBackend.value = Date.now() - start;
     } catch (e) {}
   } else {
