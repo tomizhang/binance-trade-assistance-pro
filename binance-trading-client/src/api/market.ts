@@ -10,7 +10,7 @@ export const MarketAPI = {
         params.endTime = endTime;
       }
 
-      const response = await axios.get('https://fapi.binance.com/fapi/v1/klines', { params })
+      const response = await axios.get('/fapi/v1/klines', { params })
       var result =  response.data.map((item: any[]) => ({
         time: Math.floor(item[0] / 1000), 
         open: parseFloat(item[1]),

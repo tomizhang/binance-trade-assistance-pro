@@ -110,7 +110,7 @@ const measureLatency = async () => {
     // 测算: 前端直连币安的真实延迟
     const start = Date.now();
     try {
-      await fetch('https://fapi.binance.com/fapi/v1/ping', { method: 'GET' });
+      await fetch('/fapi/v1/ping', { method: 'GET' });
       frontToBinance.value = Date.now() - start;
     } catch (e) {}
   }
