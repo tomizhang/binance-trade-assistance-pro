@@ -5,6 +5,7 @@ export const useMarketStore = defineStore('market', () => {
   const marketTickers = reactive<Record<string, any>>({});
   const latestKlines = reactive<Record<string, any>>({});
   const symbolConfigs = ref<Record<string, { leverage: number, marginType: string }>>({});
+  const backendLatency = ref(0); // 🌟 新增：后端到币安的延迟
 
   const currentSymbol = ref('BTCUSDT');
   const setCurrentSymbol = (symbol: string) => {
@@ -133,6 +134,7 @@ export const useMarketStore = defineStore('market', () => {
       if (type === 'TICKERS_DATA') handleTickersData(payload);
       if (type === 'KLINE_DATA') handleKlineData(payload);
       if (type === 'ACCOUNT_DATA') handleAccountData(payload);
+      if (type === 'BACKEND_LATENCY') backendLatency.value = payload;
     };
 
     worker.port.start();
@@ -380,6 +382,6 @@ export const useMarketStore = defineStore('market', () => {
     symbolRules, fetchExchangeInfo, clickedPrice, setClickedPrice,
     lastOverlayEvent, broadcastOverlay, wsStatus, globalCrosshairTime, updateGlobalCrosshair,
     positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory,
-    dataSource, switchDataSource, symbolConfigs,dynamicUsdtBalance
+    dataSource, switchDataSource, symbolConfigs,dynamicUsdtBalance,backendLatency
   }
 })

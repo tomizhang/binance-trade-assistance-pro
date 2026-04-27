@@ -49,6 +49,11 @@ async function connectPublicStream() {
       try { processMarketData(JSON.parse(rawJson)); } catch (e) { }
     });
 
+    // 🌟 新增：接收后端到币安的真实延迟并向所有窗口广播
+    signalRConnection.on("ReceiveBackendLatency", (ms: number) => {
+      broadcastToPorts('BACKEND_LATENCY', ms);
+    });
+
     signalRConnection.onreconnected(() => {
       // 🌟 修复断层：重连后，动态获取当前最新的订阅列表发送给 C#
       console.log('🔄 Worker: SignalR 重连成功，延迟2秒后恢复订阅...');

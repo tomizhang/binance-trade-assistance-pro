@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net.Http;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -18,7 +20,7 @@ namespace TradingTerminal.Services
         // 🌟 双轨制 WebSocket 实例
         private ClientWebSocket _publicWs = new ClientWebSocket();
         private ClientWebSocket _tradeWs = new ClientWebSocket();
-
+        private readonly HttpClient _httpClient = new HttpClient(); 
         // 用于 WS API 下单的异步回调字典
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
 
@@ -33,7 +35,8 @@ namespace TradingTerminal.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("🚀 [统一引擎] 币安双轨 WebSocket 服务启动...");
-
+            // 🌟 启动独立线程：专门测量 C# 到币安的真实延迟
+            _ = Task.Run(() => MeasureBackendToBinanceLatency(stoppingToken), stoppingToken);
             // 并行启动两个不阻塞的循环任务
             var publicStreamTask = MaintainPublicStreamAsync(stoppingToken);
             var tradeStreamTask = MaintainTradeStreamAsync(stoppingToken);
@@ -238,6 +241,23 @@ namespace TradingTerminal.Services
             var keyBytes = Encoding.UTF8.GetBytes(secret);
             using var hmac = new HMACSHA256(keyBytes);
             return BitConverter.ToString(hmac.ComputeHash(Encoding.UTF8.GetBytes(message))).Replace("-", "").ToLower();
+        }
+
+        // 🌟 测量后端到币安的真实延迟并广播给所有前端
+        private async Task MeasureBackendToBinanceLatency(CancellationToken stoppingToken)
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    var sw = Stopwatch.StartNew();
+                    await _httpClient.GetAsync("https://fapi.binance.com/fapi/v1/ping", stoppingToken);
+                    sw.Stop();
+                    await _hubContext.Clients.All.SendAsync("ReceiveBackendLatency", sw.ElapsedMilliseconds, stoppingToken);
+                }
+                catch { }
+                await Task.Delay(2000, stoppingToken); // 每2秒测一次
+            }
         }
     }
 }
