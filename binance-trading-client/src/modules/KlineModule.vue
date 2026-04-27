@@ -6,11 +6,34 @@
   >
     <div class="kline-toolbar">
       <div class="intervals">
-        <button v-for="tf in timeframes" :key="tf" :class="{ active: tf === currentTf }" @click="changeInterval(tf)">
+        <button 
+          v-for="tf in timeframes" 
+          :key="tf" 
+          :class="{ active: tf === currentTf }" 
+          @click="changeInterval(tf)"
+        >
           {{ tf }}
         </button>
       </div>
-      
+
+      <div class="actions-group">
+        <div v-if="currentPosition" class="position-panel" :class="{ 'in-profit': currentPosition.pnl >= 0, 'in-loss': currentPosition.pnl < 0 }">
+          <span class="pos-direction" :class="currentPosition.side === 'LONG' ? 'text-up' : 'text-down'">
+            {{ currentPosition.side === 'LONG' ? '↗ 多' : '↘ 空' }} 
+          </span>
+          <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
+          <span class="divider">|</span>
+          <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPrecisionConfig().precision) }}</span>
+          <span class="divider">|</span>
+          <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
+            {{ currentPosition.pnl >= 0 ? '+' : ''}}{{ currentPosition.pnl.toFixed(2) }}
+          </span>
+        </div>
+
+      </div>
+    </div>
+    
+    <div class="kline-sub-toolbar">
       <div class="drawing-tools">
         <div class="chart-type-selector">
           <button :class="{ active: localChartType === 'standard' }" @click="changeChartType('standard')">标准</button>
@@ -49,37 +72,6 @@
         <button class="sync-btn" :class="{ active: marketStore.isSyncEnabled }" @click="marketStore.toggleSync()" title="跨屏同步">
           🔗 同步
         </button>
-      </div>
-
-      <div class="actions-group">
-        <button class="action-btn copy-btn" @click="$emit('duplicate', symbol)" title="克隆当前图表窗口">
-          📋 复制
-        </button>
-        <button class="action-btn reload-btn" @click="hardReload" title="销毁图表引擎并彻底重载数据">
-          🔌 重载
-        </button>
-      </div>
-    </div>
-    
-    <div class="kline-sub-toolbar">
-      <div class="symbol-info-wrapper">
-        <span class="symbol-info">{{ symbol }}</span>
-        <span v-if="isFocused" class="focus-badge">🟢 操作中</span>
-      </div>
-
-      <div v-if="currentPosition" class="position-panel" :class="{ 'in-profit': currentPosition.pnl >= 0, 'in-loss': currentPosition.pnl < 0 }">
-        <span class="pos-direction" :class="currentPosition.side === 'LONG' ? 'text-up' : 'text-down'">
-          {{ currentPosition.side === 'LONG' ? '↗ 做多' : '↘ 做空' }} 
-        </span>
-        <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
-        <span class="divider">|</span>
-        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPrecisionConfig().precision) }}</span>
-        <span class="divider">|</span>
-        <span class="pos-label">未结盈亏</span>
-        <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
-          {{ currentPosition.pnl >= 0 ? '+' : ''}}{{ currentPosition.pnl.toFixed(2) }}
-          <span class="pos-rate">({{ currentPosition.pnlRate >= 0 ? '+' : ''}}{{ currentPosition.pnlRate.toFixed(2) }}%)</span>
-        </span>
       </div>
     </div>
 
@@ -186,8 +178,9 @@ const instanceId = Math.random().toString(36).substring(2, 10);
 const isFocused = computed(() => marketStore.currentSymbol === props.symbol);
 const takeFocus = () => { if (!isFocused.value) marketStore.setCurrentSymbol(props.symbol); };
 
-const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
+const timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M'];
 const currentTf = ref('1m'); 
+
 const localChartType = ref('standard'); 
 const showVolume = ref(true);
 const currentChartData = ref<any[]>([]);
@@ -197,12 +190,76 @@ let candleSeries: any = null;
 let volumeSeries: any = null;
 let resizeObserver: ResizeObserver | null = null;
 let positionLineId: any = null;
-let breakEvenLineId: any = null; // 🌟 损益两平线条实例
+let breakEvenLineId: any = null; 
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
 // ==========================================
-// 核心：智能动态精度推导引擎
+// 🌟 核心引擎：图表上的仓位盈亏线与保本线渲染
+// ==========================================
+const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
+
+const updatePositionLines = (currentPriceOverride?: number) => {
+  if (!candleSeries) return;
+  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
+  
+  if (!pos) {
+    if (positionLineId) { candleSeries.removePriceLine(positionLineId); positionLineId = null; }
+    if (breakEvenLineId) { candleSeries.removePriceLine(breakEvenLineId); breakEvenLineId = null; }
+    return;
+  }
+
+  const currentPrice = currentPriceOverride || getCurrentPrice() || pos.entryPrice;
+  const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+  
+  const positionLineOptions = {
+    price: pos.entryPrice, 
+    color: pnl >= 0 ? '#2ea043' : '#f85149', 
+    lineWidth: 2 as any, 
+    lineStyle: LineStyle.Dashed, 
+    axisLabelVisible: true,
+    title: `${pos.side === 'LONG' ? '多' : '空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
+  };
+
+  if (!positionLineId) {
+    positionLineId = candleSeries.createPriceLine(positionLineOptions);
+  } else {
+    positionLineId.applyOptions(positionLineOptions);
+  }
+
+  const FEE_RATE = 0.0005;
+  const breakEvenPrice = pos.side === 'LONG'
+    ? pos.entryPrice * (1 + FEE_RATE) / (1 - FEE_RATE)
+    : pos.entryPrice * (1 - FEE_RATE) / (1 + FEE_RATE);
+
+  const breakEvenOptions = {
+    price: breakEvenPrice,
+    color: '#d29922', 
+    lineWidth: 1 as any,
+    lineStyle: LineStyle.Solid, 
+    axisLabelVisible: true,
+    title: '保本价',
+  };
+
+  if (!breakEvenLineId) {
+    breakEvenLineId = candleSeries.createPriceLine(breakEvenOptions);
+  } else {
+    breakEvenLineId.applyOptions(breakEvenOptions);
+  }
+};
+
+const currentPosition = computed(() => {
+  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
+  if (!pos) return null;
+  const currentPrice = getCurrentPrice() || pos.entryPrice;
+  const pnl = pos.side === 'LONG' 
+    ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
+    : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+  return { ...pos, currentPrice, pnl };
+});
+
+// ==========================================
+// 智能动态精度推导引擎
 // ==========================================
 const getPrecisionConfig = (lastPrice?: number) => {
   const rule = marketStore.symbolRules[props.symbol];
@@ -237,19 +294,6 @@ watch(() => marketStore.symbolRules[props.symbol], (rule) => {
     });
   }
 }, { deep: true });
-
-const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
-const currentPosition = computed(() => {
-  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
-  if (!pos) return null;
-  const currentPrice = getCurrentPrice() || pos.entryPrice;
-  const pnl = pos.side === 'LONG' 
-    ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
-    : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
-  const positionValue = pos.entryPrice * Math.abs(pos.amount);
-  const pnlRate = positionValue > 0 ? (pnl / positionValue) * 100 : 0;
-  return { ...pos, currentPrice, pnl, pnlRate };
-});
 
 const notifications = ref<{id: number, msg: string}[]>([]);
 let notifIdCounter = 0;
@@ -488,7 +532,7 @@ const formatDateTime = (timestamp: number) => {
 };
 
 // ==========================================
-// 核心：数据清洗与应用防重引擎
+// 数据清洗与应用防重引擎
 // ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
@@ -547,6 +591,8 @@ const applyDataToSeries = (data: any[]) => {
         color: d.color || (isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)')
       };
     }));
+    
+    updatePositionLines();
   } catch(e) {
     console.error("K线渲染引擎异常:", e);
   }
@@ -651,7 +697,6 @@ const initCharts = () => {
       const isUp = candleData.close >= candleData.open;
       const dec = getPrecisionConfig().precision; 
       
-      // 🌟 新增计算逻辑：计算 K 线当前相对于开盘价的涨跌幅
       const changePercent = ((candleData.close - candleData.open) / candleData.open) * 100;
       const changeStr = (changePercent > 0 ? '+' : '') + changePercent.toFixed(2) + '%';
 
@@ -659,7 +704,7 @@ const initCharts = () => {
         time: formatDateTime(Number(param.time)),
         open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec),
         low: candleData.low.toFixed(dec), close: candleData.close.toFixed(dec),
-        change: changeStr, // 🌟 将涨跌幅注入悬浮数据中
+        change: changeStr,
         vol: volData && volData.value !== undefined ? Number(volData.value).toFixed(2) : '0.00',
         colorClass: isUp ? 'text-up' : 'text-down' 
       };
@@ -685,6 +730,7 @@ const disposeCharts = () => {
   volumeSeries = null;
 };
 
+// 🌟 将该方法暴露给 Dashboard
 const hardReload = async () => {
   disposeCharts();
   currentChartData.value = [];
@@ -696,6 +742,7 @@ const hardReload = async () => {
   marketStore.subscribeKline(props.symbol, currentTf.value); 
   showNotification(`[${props.symbol}] K 线控件引擎已彻底重载`);
 };
+defineExpose({ hardReload });
 
 onMounted(async () => {
   if (!chartContainer.value) return;
@@ -728,7 +775,6 @@ watch(() => marketStore.globalCrosshairTime, () => {
   }
 });
 
-// 动态流式更新
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
@@ -769,16 +815,8 @@ watch(currentKlineData, (newVal) => {
       }
     }
 
-    // 🌟 底层优化：价格跳动时只需 applyOptions 即可，不再重建线条防闪烁
-    const pos = marketStore.positions.find(p => p.symbol === props.symbol);
-    if (pos && positionLineId) {
-       const currentPrice = Number(newVal.close);
-       const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
-       positionLineId.applyOptions({
-         color: pnl >= 0 ? '#2ea043' : '#f85149',
-         title: `${pos.side === 'LONG' ? '做多' : '做空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`
-       });
-    }
+    // 更新仓位线
+    updatePositionLines(Number(newVal.close));
 
     customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
       const p0 = shape.points[0]; const p1 = shape.points[1];
@@ -795,58 +833,9 @@ watch(currentKlineData, (newVal) => {
   }
 }, { deep: true });
 
-// 🌟 仓位监听重构优化：动态更新持仓线与保本线
+// 监听持仓变化，自动画线
 watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol]?.lastPrice], () => {
-  if (!candleSeries) return;
-  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
-  
-  // 1. 如果仓位被平掉了，清理所有线
-  if (!pos) {
-    if (positionLineId) { candleSeries.removePriceLine(positionLineId); positionLineId = null; }
-    if (breakEvenLineId) { candleSeries.removePriceLine(breakEvenLineId); breakEvenLineId = null; }
-    return;
-  }
-
-  // 2. 更新持仓均价线 (动态复用实例，防止闪烁)
-  const currentPrice = getCurrentPrice() || pos.entryPrice;
-  const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
-  
-  const positionLineOptions = {
-    price: pos.entryPrice, 
-    color: pnl >= 0 ? '#2ea043' : '#f85149', 
-    lineWidth: 2 as any, 
-    lineStyle: LineStyle.Dashed, 
-    axisLabelVisible: true,
-    title: `${pos.side === 'LONG' ? '做多' : '做空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
-  };
-
-  if (!positionLineId) {
-    positionLineId = candleSeries.createPriceLine(positionLineOptions);
-  } else {
-    positionLineId.applyOptions(positionLineOptions);
-  }
-
-  // 3. 🌟 新增计算保本价 (双边手续费万五基准)
-  const FEE_RATE = 0.0005;
-  const breakEvenPrice = pos.side === 'LONG'
-    ? pos.entryPrice * (1 + FEE_RATE) / (1 - FEE_RATE)
-    : pos.entryPrice * (1 - FEE_RATE) / (1 + FEE_RATE);
-
-  const breakEvenOptions = {
-    price: breakEvenPrice,
-    color: '#d29922', // 醒目的暗金色，代表防线
-    lineWidth: 1 as any,
-    lineStyle: LineStyle.Solid, // 使用实线与持仓虚线做区分
-    axisLabelVisible: true,
-    title: '保本价',
-  };
-
-  if (!breakEvenLineId) {
-    breakEvenLineId = candleSeries.createPriceLine(breakEvenOptions);
-  } else {
-    breakEvenLineId.applyOptions(breakEvenOptions);
-  }
-  
+  updatePositionLines();
 }, { deep: true });
 
 const changeInterval = async (tf: string) => {
@@ -870,13 +859,34 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 继承你的 CSS，未做改动 */
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; border: 1px solid transparent; transition: all 0.2s ease; box-sizing: border-box; }
 .kline-module.is-focused { border-color: #58a6ff; box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1); }
-.kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; }
-.intervals button { background: transparent; border: 1px solid transparent; color: #8b949e; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+
+/* 🌟 主工具栏：布局精简与优化 */
+.kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; height: 38px; }
+
+.intervals { display: flex; align-items: center; gap: 4px; overflow-x: auto; padding-right: 8px; flex-wrap: nowrap; scrollbar-width: none; }
+.intervals::-webkit-scrollbar { display: none; }
+.intervals button { background: transparent; border: 1px solid transparent; color: #8b949e; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
 .intervals button:hover { background: #21262d; color: #c9d1d9; }
 .intervals button.active { background: #2ea043; color: #ffffff; font-weight: bold; }
+
+.actions-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.focus-badge { background: #1f6feb; color: #ffffff; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
+.action-btn { background: rgba(226, 181, 20, 0.1); border: 1px solid #e2b514; color: #e2b514; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; flex-shrink: 0;}
+.copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; padding: 4px 8px; }
+.copy-btn:hover { background: #2ea043; color: #ffffff; }
+
+/* 🌟 紧凑型仓位面板 */
+.position-panel { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: bold; background: rgba(22, 27, 34, 0.8); padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; transition: all 0.3s ease; flex-shrink: 0; }
+.position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
+.position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
+.pos-val { color: #c9d1d9; font-family: monospace;}
+.pos-pnl { display: flex; gap: 4px; align-items: baseline; font-family: monospace; }
+.pos-amount { font-family: monospace; }
+
+/* 🌟 副工具栏：绘图工具区 */
+.kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; height: 36px;}
 .drawing-tools { display: flex; align-items: center; gap: 6px; }
 .chart-type-selector { display: flex; background: #0d1117; border-radius: 4px; padding: 2px; }
 .chart-type-selector button { background: transparent; border: none; color: #8b949e; padding: 2px 8px; font-size: 12px; cursor: pointer; border-radius: 2px; }
@@ -885,27 +895,11 @@ onUnmounted(() => {
 .sync-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
 .sync-btn.active { background: #1f6feb; color: white; border-color: #1f6feb; }
 .clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
-.divider { color: #30363d; margin: 0 2px; }
+.divider { color: #30363d; margin: 0 4px; }
 
-.actions-group { display: flex; align-items: center; gap: 6px; }
-.action-btn { background: rgba(226, 181, 20, 0.1); border: 1px solid #e2b514; color: #e2b514; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
-.reload-btn { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); padding: 3px 8px; border-radius: 4px; font-weight: normal;}
-.reload-btn:hover { background: #58a6ff; color: #0d1117; }
-
-.copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; }
-.copy-btn:hover { background: #2ea043; color: #ffffff; }
-
-.kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; }
-.symbol-info-wrapper { display: flex; align-items: center; gap: 8px; margin-right: 16px; }
-.symbol-info { font-size: 15px; font-weight: bold; color: #e6edf3; }
-.focus-badge { background: #1f6feb; color: #ffffff; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: normal; }
-.position-panel { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; background: rgba(22, 27, 34, 0.8); padding: 4px 12px; border-radius: 6px; border: 1px solid #30363d; transition: all 0.3s ease; }
-.position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
-.position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
-.pos-label { color: #8b949e; font-weight: normal; font-size: 12px; }
-.pos-val { color: #c9d1d9; }
-.pos-pnl { font-size: 14px; display: flex; gap: 4px; align-items: baseline; }
-.pos-rate { font-size: 12px; opacity: 0.8; }
+/* 通用与底层覆盖 */
+.text-up { color: #2ea043; }
+.text-down { color: #f85149; }
 
 .chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; transition: box-shadow 0.2s; }
 .is-drawing-mode { box-shadow: inset 0 0 15px rgba(88, 166, 255, 0.2); cursor: crosshair; }
@@ -922,8 +916,6 @@ onUnmounted(() => {
 .legend-time { color: #8b949e; font-weight: bold; margin-right: 4px; }
 .legend-item { color: #8b949e; }
 .vol-text { color: #c9d1d9; font-weight: bold; }
-.text-up { color: #2ea043; font-weight: bold; }
-.text-down { color: #f85149; font-weight: bold; }
 
 .line-settings-panel { position: absolute; top: 8px; right: 12px; z-index: 10; display: flex; align-items: center; gap: 8px; background: rgba(22, 27, 34, 0.85); border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; backdrop-filter: blur(4px); }
 .setting-title { font-size: 12px; color: #8b949e; margin-right: 4px; }

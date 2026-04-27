@@ -68,6 +68,7 @@
             <div class="panel-header drag-handle">
               <span class="panel-title">{{ item.title }}</span>
               <div class="panel-actions">
+                <button v-if="isFocused(item.symbol)" class="action-icon-btn">🟢</button>
                 <button class="action-icon-btn" @click="duplicatePanel(item.i)" title="复制面板">📋</button>
                 <button class="action-icon-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
                 <button class="action-icon-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
@@ -103,6 +104,8 @@ import FourierModule from '@/modules/FourierModule.vue';
 
 const marketStore = useMarketStore()
 const isSidebarVisible = ref(true)
+
+const isFocused = (symbol :any) =>{console.log(symbol) ;return marketStore.currentSymbol === symbol} 
 
 // 计算加载进度
 const bootProgress = computed(() => {
