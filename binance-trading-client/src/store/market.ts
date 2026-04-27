@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
+import { ref, reactive ,computed} from 'vue'
 
 export const useMarketStore = defineStore('market', () => {
   const marketTickers = reactive<Record<string, any>>({});
@@ -164,6 +164,7 @@ export const useMarketStore = defineStore('market', () => {
 
   const connectUserDataStream = async () => {
     try {
+      await refreshAccountBalance();
       const infoRes = await fetch('http://localhost:5000/api/account/info');
       if (infoRes.ok) {
         const accountData = await infoRes.json();
@@ -251,6 +252,7 @@ export const useMarketStore = defineStore('market', () => {
         const usdtAsset = balances.find((b: any) => b.a === 'USDT');
         if (usdtAsset) usdtBalance.value = parseFloat(usdtAsset.cw || usdtAsset.wb || '0');
       }
+      refreshAccountBalance();
       const posData = payload.a?.P;
       if (posData) {
         posData.forEach((p: any) => {
@@ -332,6 +334,44 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
+  // 1. 记录从 REST API 获取时的基础状态
+  const baseAvailableBalance = ref(0); // 接口拉取那一刻的“静态可用余额”
+  const baseTotalUnrealizedPnl = ref(0); // 接口拉取那一刻的“全仓总未实现盈亏”
+
+  // 2. 获取接口数据的逻辑 (refreshAccountBalance)
+  const refreshAccountBalance = async () => {
+    const res = await fetch('http://localhost:5000/api/account/info');
+    const accountData = await res.json();
+    const usdtAsset = accountData.assets?.find((a: any) => a.asset === 'USDT');
+
+    if (usdtAsset) {
+      baseAvailableBalance.value = parseFloat(usdtAsset.availableBalance || '0');
+      baseTotalUnrealizedPnl.value = parseFloat(usdtAsset.crossUnPnl || '0');
+    }
+  };
+
+  // 3. 🌟 创造一个动态计算的可用余额 (暴露给 OrderModule.vue 使用)
+  const dynamicUsdtBalance = computed(() => {
+    // 算出当前的实时全仓总盈亏
+    let currentTotalCrossPnl = 0;
+    positions.value.forEach(pos => {
+      if (pos.marginType === 'cross') {
+        const currentPrice = marketTickers[pos.symbol]?.lastPrice || pos.entryPrice;
+        const amount = Math.abs(pos.amount);
+        const pnl = pos.side === 'LONG'
+          ? (currentPrice - pos.entryPrice) * amount
+          : (pos.entryPrice - currentPrice) * amount;
+        currentTotalCrossPnl += pnl;
+      }
+    });
+
+    // 实时可用余额 = 基础可用余额 + (当前实时盈亏 - 基础盈亏)
+    const realTimeBalance = baseAvailableBalance.value + (currentTotalCrossPnl - baseTotalUnrealizedPnl.value);
+
+    // 余额不能小于 0
+    return Math.max(0, realTimeBalance);
+  });
+
   return {
     marketTickers, latestKlines, connectAllTickers, connectWs, subscribeKline, unsubscribeKline,
     isSyncEnabled, toggleSync, crosshairData, setCrosshair, clearCrosshair,
@@ -340,6 +380,6 @@ export const useMarketStore = defineStore('market', () => {
     symbolRules, fetchExchangeInfo, clickedPrice, setClickedPrice,
     lastOverlayEvent, broadcastOverlay, wsStatus, globalCrosshairTime, updateGlobalCrosshair,
     positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory,
-    dataSource, switchDataSource
+    dataSource, switchDataSource, symbolConfigs,dynamicUsdtBalance
   }
 })
