@@ -1,9 +1,5 @@
 <template>
-  <div 
-    class="kline-module" 
-    :class="{ 'is-focused': isFocused }"
-    @click="takeFocus"
-  >
+  <div class="kline-module"  @click="takeFocus">
     <div class="kline-toolbar">
       <div class="intervals">
         <button 
@@ -28,8 +24,30 @@
           <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
             {{ currentPosition.pnl >= 0 ? '+' : ''}}{{ currentPosition.pnl.toFixed(2) }}
           </span>
+          
+          <button 
+            class="close-pos-btn btn-75" 
+            :disabled="isClosing" 
+            @click="closePosition(75)" 
+            title="以市价平掉 75% 的仓位"
+          >
+            {{ isClosing ? '...' : '平75%' }}
+          </button>
+          <button 
+            class="close-pos-btn" 
+            :disabled="isClosing" 
+            @click="closePosition(100)" 
+            title="市价平掉当前标的所有仓位"
+          >
+            {{ isClosing ? '...' : '市价全平' }}
+          </button>
         </div>
 
+        <!-- <span v-if="isFocused" class="focus-badge">🟢 操作中</span> -->
+
+        <!-- <button class="action-btn copy-btn" @click="$emit('duplicate', symbol)" title="克隆当前图表窗口">
+          📋
+        </button> -->
       </div>
     </div>
     
@@ -72,6 +90,50 @@
         <button class="sync-btn" :class="{ active: marketStore.isSyncEnabled }" @click="marketStore.toggleSync()" title="跨屏同步">
           🔗 同步
         </button>
+      </div>
+
+      <div class="quick-order-pill">
+        <label class="qt-checkbox" :class="{ active: isQuickTradeEnabled }">
+          <input type="checkbox" v-model="isQuickTradeEnabled" />
+          ⚡ 双击下单
+        </label>
+        <template v-if="isQuickTradeEnabled">
+          <span class="qt-divider"></span>
+          <span class="qt-balance" title="动态可用余额">可用 {{ marketStore.dynamicUsdtBalance?.toFixed(2) || '0.00' }}</span>
+          
+          <div class="qt-input-wrapper">
+            <input 
+              type="number" 
+              v-model="quickTradeAmount" 
+              class="qt-input" 
+              title="固定保证金(U) - 滚轮调节" 
+              @wheel.prevent="handleAmountScroll"
+            />
+            <span class="qt-unit">U</span>
+          </div>
+
+          <div class="qt-input-wrapper">
+            <input 
+              type="number" 
+              v-model="localLeverage" 
+              class="qt-input" 
+              title="当前杠杆倍数 - 滚轮调节" 
+              @wheel.prevent="handleLeverageScroll"
+            />
+            <span class="qt-unit">X</span>
+          </div>
+          
+          <button class="qt-toggle-btn" @click="quickTradeType = quickTradeType === 'MARKET' ? 'LIMIT' : 'MARKET'">
+            {{ quickTradeType === 'MARKET' ? '市价' : '限价' }}
+          </button>
+          <button 
+            class="qt-toggle-btn" 
+            :class="quickTradeSide === 'BUY' ? 'qt-buy' : 'qt-sell'" 
+            @click="quickTradeSide = quickTradeSide === 'BUY' ? 'SELL' : 'BUY'"
+          >
+            {{ quickTradeSide === 'BUY' ? '做多' : '做空' }}
+          </button>
+        </template>
       </div>
     </div>
 
@@ -167,10 +229,6 @@ import { MarketAPI } from '@/api/market';
 
 const props = defineProps<{ symbol: string }>();
 
-const emit = defineEmits<{
-  (e: 'duplicate', symbol: string): void
-}>();
-
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
@@ -191,11 +249,209 @@ let volumeSeries: any = null;
 let resizeObserver: ResizeObserver | null = null;
 let positionLineId: any = null;
 let breakEvenLineId: any = null; 
+let openOrderLines: any[] = []; 
+
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
+const notifications = ref<{id: number, msg: string}[]>([]);
+let notifIdCounter = 0;
+const showNotification = (msg: string) => {
+  const id = notifIdCounter++;
+  notifications.value.push({ id, msg });
+  setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id); }, 5000);
+};
+
 // ==========================================
-// 🌟 核心引擎：图表上的仓位盈亏线与保本线渲染
+// 🌟 1. 快捷双击下单状态与滚轮防爆仓修改逻辑
+// ==========================================
+const isQuickTradeEnabled = ref(true);
+const quickTradeAmount = ref(5); // 固定保证金 5U
+const localLeverage = ref(20); // 🌟 新增：独立杠杆状态
+const quickTradeType = ref<'MARKET' | 'LIMIT'>('MARKET');
+const quickTradeSide = ref<'BUY' | 'SELL'>('BUY');
+const isPlacingOrder = ref(false);
+
+// 🌟 新增：监听全局杠杆更新
+watch(() => marketStore.symbolConfigs[props.symbol], (config) => {
+  if (config && config.leverage) {
+    localLeverage.value = config.leverage;
+  }
+}, { immediate: true, deep: true });
+
+const handleAmountScroll = (e: WheelEvent) => {
+  const step = 5; 
+  const maxBalance = Math.floor(marketStore.dynamicUsdtBalance || 0);
+
+  if (e.deltaY < 0) {
+    let nextVal = quickTradeAmount.value + step;
+    if (maxBalance > 0 && nextVal > maxBalance) nextVal = maxBalance;
+    quickTradeAmount.value = Math.max(1, nextVal);
+  } else {
+    quickTradeAmount.value = Math.max(1, quickTradeAmount.value - step);
+  }
+};
+
+// 🌟 新增：滚动调节杠杆（附带防抖发往后端）
+let leverageTimer: any = null;
+const handleLeverageScroll = (e: WheelEvent) => {
+  const step = 1;
+  if (e.deltaY < 0) {
+    localLeverage.value = Math.min(125, localLeverage.value + step);
+  } else {
+    localLeverage.value = Math.max(1, localLeverage.value - step);
+  }
+
+  if (leverageTimer) clearTimeout(leverageTimer);
+  leverageTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/leverage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: props.symbol, leverage: localLeverage.value })
+      });
+      if (!res.ok) throw new Error();
+      showNotification(`⚙️ [${props.symbol}] 杠杆已自动同步为 ${localLeverage.value}x`);
+    } catch (e) {
+      showNotification(`❌ 杠杆同步失败，已回退`);
+      localLeverage.value = marketStore.symbolConfigs[props.symbol]?.leverage || 20;
+    }
+  }, 800);
+};
+
+// 🌟 修复：防抖节流锁与名义价值 5U 底线补齐
+let lastOrderTime = 0;
+const executeQuickTrade = async (clickedPrice: number) => {
+  const now = Date.now();
+  if (now - lastOrderTime < 1000) return; // 🌟 1000ms 绝对防抖，防止手抖连点
+  if (isPlacingOrder.value) return;
+
+  const currentPrice = marketStore.marketTickers[props.symbol]?.lastPrice || clickedPrice;
+  const calcPrice = quickTradeType.value === 'MARKET' ? currentPrice : clickedPrice;
+  const rule = marketStore.symbolRules[props.symbol] || { stepSize: '0.001', tickSize: '0.1' };
+
+  const notionalValue = quickTradeAmount.value * localLeverage.value;
+  let rawQuantity = notionalValue / calcPrice;
+  let formattedQtyStr = formatByStep(rawQuantity, rule.stepSize);
+  let quantity = parseFloat(formattedQtyStr);
+
+  // 🌟 核心修复：防止报错 -4164，确保名义价值必须 >= 5.01
+  if (quantity * calcPrice < 5.01) {
+    const minRequiredQty = 5.01 / calcPrice;
+    const step = parseFloat(rule.stepSize);
+    // 强制向上取整，跨过 5U 及格线
+    quantity = Math.ceil(minRequiredQty / step) * step;
+    quantity = parseFloat(quantity.toFixed(step.toString().includes('.') ? step.toString().split('.')[1].length : 0));
+    
+    // 如果补齐后的保证金超出了用户真实可用余额，拦截
+    if ((quantity * calcPrice) / localLeverage.value > marketStore.dynamicUsdtBalance) {
+       showNotification(`❌ 余额不足以满足币安最低下单限制(5U)`);
+       return;
+    }
+    showNotification(`⚠️ 已自动补足数量至币安最低要求(约5U)`);
+  }
+
+  const formattedPrice = parseFloat(formatByStep(clickedPrice, rule.tickSize));
+
+  try {
+    lastOrderTime = Date.now();
+    isPlacingOrder.value = true;
+    showNotification(`⚡ [狙击指令] 准备${quickTradeType.value === 'MARKET' ? '市价' : '限价'}${quickTradeSide.value === 'BUY' ? '做多' : '做空'}...`);
+    
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol: props.symbol,
+        side: quickTradeSide.value,
+        type: quickTradeType.value,
+        quantity: quantity,
+        price: quickTradeType.value === 'LIMIT' ? formattedPrice : null
+      })
+    });
+    
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.msg || '下单被拒');
+    
+    showNotification(`✅ [快捷下单成功] ${quickTradeSide.value === 'BUY' ? '做多' : '做空'} ${quantity} 个`);
+  } catch(e: any) {
+    showNotification(`❌ 快捷下单失败: ${e.message}`);
+  } finally {
+    isPlacingOrder.value = false;
+  }
+};
+
+
+// ==========================================
+// 🌟 2. 平仓逻辑 (包含 75% 与 100%)
+// ==========================================
+const isClosing = ref(false);
+let lastCloseTime = 0;
+
+const formatByStep = (value: number, stepStr: string) => {
+  const step = parseFloat(stepStr);
+  if (isNaN(step) || step <= 0) return value.toString();
+  let dec = 0;
+  if (step < 1) {
+    const stepStrParsed = step.toString();
+    if (stepStrParsed.includes('e-')) {
+      dec = parseInt(stepStrParsed.split('e-')[1], 10);
+    } else if (stepStrParsed.includes('.')) {
+      dec = stepStrParsed.split('.')[1].length;
+    }
+  }
+  const truncated = Math.floor(value / step + Number.EPSILON) * step;
+  return truncated.toFixed(dec);
+};
+
+const closePosition = async (percent: number) => {
+  const now = Date.now();
+  if (now - lastCloseTime < 1000) return; // 🌟 防抖
+  
+  const pos = currentPosition.value;
+  if (!pos || isClosing.value) return;
+
+  const amountToClose = Math.abs(pos.amount) * (percent / 100);
+  if (amountToClose <= 0) return;
+
+  const rule = marketStore.symbolRules[props.symbol] || { stepSize: '0.001' };
+  const formattedQtyStr = formatByStep(amountToClose, rule.stepSize);
+  const quantity = parseFloat(formattedQtyStr);
+  
+  if (quantity <= 0) {
+    showNotification(`[警告] 计算后的平仓数量过小`);
+    return;
+  }
+
+  const side = pos.side === 'LONG' ? 'SELL' : 'BUY';
+
+  try {
+    lastCloseTime = Date.now();
+    isClosing.value = true;
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol: props.symbol,
+        side: side,
+        type: 'MARKET',
+        quantity: quantity
+      })
+    });
+    
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.msg || '平仓失败');
+    showNotification(`✅ [${props.symbol}] ${percent}% 平仓成功!`);
+  } catch(e: any) {
+    showNotification(`❌ 平仓失败: ${e.message}`);
+  } finally {
+    isClosing.value = false;
+  }
+};
+
+
+// ==========================================
+// 3. 仓位渲染引擎 (挂单可视化)
 // ==========================================
 const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
 
@@ -248,6 +504,29 @@ const updatePositionLines = (currentPriceOverride?: number) => {
   }
 };
 
+const updateOpenOrderLines = () => {
+  if (!candleSeries) return;
+  
+  openOrderLines.forEach(line => {
+    try { candleSeries.removePriceLine(line); } catch (e) {}
+  });
+  openOrderLines = [];
+
+  const orders = marketStore.positions?.filter((o: any) => o.symbol === props.symbol) || [];
+  
+  orders.forEach((order: any) => {
+    const line = candleSeries.createPriceLine({
+      price: order.entryPrice,
+      color: order.side === 'BUY' ? '#2ea043' : '#f85149',
+      lineWidth: 1 as any,
+      lineStyle: LineStyle.Dotted, 
+      axisLabelVisible: true,
+      title: `挂单 ${order.side === 'BUY' ? '买' : '卖'} ${order.amount}`
+    });
+    openOrderLines.push(line);
+  });
+};
+
 const currentPosition = computed(() => {
   const pos = marketStore.positions.find(p => p.symbol === props.symbol);
   if (!pos) return null;
@@ -258,9 +537,6 @@ const currentPosition = computed(() => {
   return { ...pos, currentPrice, pnl };
 });
 
-// ==========================================
-// 智能动态精度推导引擎
-// ==========================================
 const getPrecisionConfig = (lastPrice?: number) => {
   const rule = marketStore.symbolRules[props.symbol];
   if (rule && rule.tickSize) {
@@ -295,13 +571,6 @@ watch(() => marketStore.symbolRules[props.symbol], (rule) => {
   }
 }, { deep: true });
 
-const notifications = ref<{id: number, msg: string}[]>([]);
-let notifIdCounter = 0;
-const showNotification = (msg: string) => {
-  const id = notifIdCounter++;
-  notifications.value.push({ id, msg });
-  setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id); }, 5000);
-};
 
 watch(
   () => marketStore.wsStatus,
@@ -314,7 +583,7 @@ watch(
 );
 
 // ==========================================
-// 绘图引擎核心
+// 绘图引擎与数据逻辑
 // ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
@@ -531,9 +800,6 @@ const formatDateTime = (timestamp: number) => {
   return `${y}-${m}-${d} ${H}:${M}:${S}`;
 };
 
-// ==========================================
-// 数据清洗与应用防重引擎
-// ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA: any = null;
@@ -593,6 +859,7 @@ const applyDataToSeries = (data: any[]) => {
     }));
     
     updatePositionLines();
+    updateOpenOrderLines();
   } catch(e) {
     console.error("K线渲染引擎异常:", e);
   }
@@ -715,6 +982,14 @@ const initCharts = () => {
     } else hoverData.value = null;
   });
 
+  chart.subscribeDblClick((param) => {
+    if (!isQuickTradeEnabled.value || !param.point || !candleSeries) return;
+    const clickedPrice = candleSeries.coordinateToPrice(param.point.y);
+    if (clickedPrice !== null) {
+      executeQuickTrade(clickedPrice);
+    }
+  });
+
   if (resizeObserver) resizeObserver.disconnect();
   resizeObserver = new ResizeObserver(entries => {
     if (entries[0].contentRect.width === 0) return;
@@ -730,7 +1005,6 @@ const disposeCharts = () => {
   volumeSeries = null;
 };
 
-// 🌟 将该方法暴露给 Dashboard
 const hardReload = async () => {
   disposeCharts();
   currentChartData.value = [];
@@ -815,7 +1089,6 @@ watch(currentKlineData, (newVal) => {
       }
     }
 
-    // 更新仓位线
     updatePositionLines(Number(newVal.close));
 
     customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
@@ -833,9 +1106,12 @@ watch(currentKlineData, (newVal) => {
   }
 }, { deep: true });
 
-// 监听持仓变化，自动画线
 watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol]?.lastPrice], () => {
   updatePositionLines();
+}, { deep: true });
+
+watch(() => marketStore.positions, () => {
+  updateOpenOrderLines();
 }, { deep: true });
 
 const changeInterval = async (tf: string) => {
@@ -862,7 +1138,6 @@ onUnmounted(() => {
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; border: 1px solid transparent; transition: all 0.2s ease; box-sizing: border-box; }
 .kline-module.is-focused { border-color: #58a6ff; box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1); }
 
-/* 🌟 主工具栏：布局精简与优化 */
 .kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; height: 38px; }
 
 .intervals { display: flex; align-items: center; gap: 4px; overflow-x: auto; padding-right: 8px; flex-wrap: nowrap; scrollbar-width: none; }
@@ -877,7 +1152,6 @@ onUnmounted(() => {
 .copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; padding: 4px 8px; }
 .copy-btn:hover { background: #2ea043; color: #ffffff; }
 
-/* 🌟 紧凑型仓位面板 */
 .position-panel { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: bold; background: rgba(22, 27, 34, 0.8); padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; transition: all 0.3s ease; flex-shrink: 0; }
 .position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
 .position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
@@ -885,8 +1159,30 @@ onUnmounted(() => {
 .pos-pnl { display: flex; gap: 4px; align-items: baseline; font-family: monospace; }
 .pos-amount { font-family: monospace; }
 
-/* 🌟 副工具栏：绘图工具区 */
-.kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; height: 36px;}
+.close-pos-btn {
+  background: rgba(248, 81, 73, 0.15);
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  color: #f85149;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
+  margin-left: 2px;
+  transition: all 0.2s;
+}
+.close-pos-btn:hover:not(:disabled) { background: #f85149; color: #ffffff; }
+.close-pos-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.close-pos-btn.btn-75 {
+  background: rgba(210, 153, 34, 0.15);
+  border-color: rgba(210, 153, 34, 0.4);
+  color: #d29922;
+  margin-left: 6px;
+}
+.close-pos-btn.btn-75:hover:not(:disabled) { background: #d29922; color: #0d1117; }
+
+.kline-sub-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; height: 36px;}
 .drawing-tools { display: flex; align-items: center; gap: 6px; }
 .chart-type-selector { display: flex; background: #0d1117; border-radius: 4px; padding: 2px; }
 .chart-type-selector button { background: transparent; border: none; color: #8b949e; padding: 2px 8px; font-size: 12px; cursor: pointer; border-radius: 2px; }
@@ -897,7 +1193,46 @@ onUnmounted(() => {
 .clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
 .divider { color: #30363d; margin: 0 4px; }
 
-/* 通用与底层覆盖 */
+.quick-order-pill {
+  display: flex;
+  align-items: center;
+  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 2px 4px;
+  gap: 4px;
+  transition: all 0.3s ease;
+}
+.qt-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #8b949e;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  user-select: none;
+}
+.qt-checkbox:hover { color: #c9d1d9; background: #21262d; }
+.qt-checkbox.active { color: #e2b514; }
+
+.qt-divider { width: 1px; height: 14px; background: #30363d; margin: 0 2px; }
+.qt-balance { color: #8b949e; font-size: 11px; font-family: monospace; margin: 0 4px; white-space: nowrap; }
+
+.qt-input-wrapper { display: flex; align-items: center; background: #010409; border: 1px solid #30363d; border-radius: 4px; padding: 0 4px; }
+.qt-input { background: transparent; border: none; color: #e6edf3; width: 32px; text-align: center; font-size: 12px; outline: none; font-family: monospace; }
+.qt-input::-webkit-outer-spin-button, .qt-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qt-unit { color: #8b949e; font-size: 12px; font-weight: bold; margin-right: 2px; }
+
+.qt-toggle-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 12px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+.qt-toggle-btn:hover { background: #30363d; }
+.qt-buy { color: #2ea043; border-color: rgba(46, 160, 67, 0.4); background: rgba(46, 160, 67, 0.1); }
+.qt-buy:hover { background: #2ea043; color: white; }
+.qt-sell { color: #f85149; border-color: rgba(248, 81, 73, 0.4); background: rgba(248, 81, 73, 0.1); }
+.qt-sell:hover { background: #f85149; color: white; }
+
 .text-up { color: #2ea043; }
 .text-down { color: #f85149; }
 

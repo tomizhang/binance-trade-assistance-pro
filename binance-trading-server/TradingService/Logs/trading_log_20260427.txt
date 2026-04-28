@@ -2630,3 +2630,130 @@ System.Net.WebSockets.WebSocketException (0x80004005): The remote party closed t
 2026-04-27 22:44:49.069 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500&endTime=1777270920000
 2026-04-27 22:44:51.294 +08:00 [INF] Received HTTP response headers after 2220.393ms - 200
 2026-04-27 22:44:51.308 +08:00 [INF] End processing HTTP request after 2254.0253ms - 200
+2026-04-27 22:47:04.566 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=500&endTime=1777270920000
+2026-04-27 22:47:04.605 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=500&endTime=1777270920000
+2026-04-27 22:47:06.873 +08:00 [INF] Received HTTP response headers after 2256.5916ms - 200
+2026-04-27 22:47:06.883 +08:00 [INF] End processing HTTP request after 2317.3362ms - 200
+2026-04-27 22:47:08.921 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=500&endTime=1777240920000
+2026-04-27 22:47:08.941 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=500&endTime=1777240920000
+2026-04-27 22:47:10.124 +08:00 [INF] Received HTTP response headers after 1157.5405ms - 200
+2026-04-27 22:47:10.132 +08:00 [INF] End processing HTTP request after 1210.9352ms - 200
+2026-04-27 22:52:30.497 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 22:52:39.956 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 22:56:26.164 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=500
+2026-04-27 22:56:26.209 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=DAMUSDT&interval=1m&limit=500
+2026-04-27 22:56:26.672 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=1m&limit=500
+2026-04-27 22:56:26.455 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500
+2026-04-27 22:56:26.212 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=500
+2026-04-27 22:56:26.804 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=1m&limit=500
+2026-04-27 22:56:26.889 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500
+2026-04-27 22:56:26.680 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=DAMUSDT&interval=1m&limit=500
+2026-04-27 22:56:29.370 +08:00 [INF] Received HTTP response headers after 2252.1065ms - 200
+2026-04-27 22:56:29.374 +08:00 [INF] End processing HTTP request after 2918.5618ms - 200
+2026-04-27 22:56:29.522 +08:00 [INF] Received HTTP response headers after 2449.807ms - 200
+2026-04-27 22:56:29.534 +08:00 [INF] End processing HTTP request after 2862.1145ms - 200
+2026-04-27 22:56:29.821 +08:00 [INF] 📡 已向币安发送订阅: prlusdt@kline_1m
+2026-04-27 22:56:30.113 +08:00 [INF] 📡 已向币安发送订阅: lumiausdt@kline_1m
+2026-04-27 22:56:30.174 +08:00 [INF] Received HTTP response headers after 3175.5627ms - 200
+2026-04-27 22:56:30.185 +08:00 [INF] End processing HTTP request after 4020.597ms - 200
+2026-04-27 22:56:30.480 +08:00 [INF] Received HTTP response headers after 3324.1672ms - 200
+2026-04-27 22:56:30.492 +08:00 [INF] End processing HTTP request after 4283.1205ms - 200
+2026-04-27 22:56:30.516 +08:00 [INF] 📡 已向币安发送订阅: damusdt@kline_1m
+2026-04-27 22:56:30.603 +08:00 [INF] 📡 已向币安发送订阅: btcusdt@kline_1m
+2026-04-27 22:56:54.033 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=1m&limit=500&endTime=1777271760000
+2026-04-27 22:56:54.048 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=1m&limit=500&endTime=1777271760000
+2026-04-27 22:56:55.111 +08:00 [INF] Received HTTP response headers after 1052.7292ms - 200
+2026-04-27 22:56:55.118 +08:00 [INF] End processing HTTP request after 1084.8609ms - 200
+2026-04-27 22:57:04.524 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=1m&limit=500&endTime=1777241760000
+2026-04-27 22:57:04.545 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=1m&limit=500&endTime=1777241760000
+2026-04-27 22:57:05.944 +08:00 [INF] Received HTTP response headers after 1394.5884ms - 200
+2026-04-27 22:57:05.961 +08:00 [INF] End processing HTTP request after 1436.3064ms - 200
+2026-04-27 22:57:20.671 +08:00 [INF] 🚀 [WS专线] 已发送订单: LUMIAUSDT BUY 21.1
+2026-04-27 22:57:26.196 +08:00 [INF] 🚀 [WS专线] 已发送订单: LUMIAUSDT BUY 28.2
+2026-04-27 22:57:26.668 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777301846668&signature=44a2eb975620107bffdb8a0f53e7a39c183666a3b9fd83ce065141cee478a313
+2026-04-27 22:57:26.684 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v2/account?timestamp=1777301846668&signature=44a2eb975620107bffdb8a0f53e7a39c183666a3b9fd83ce065141cee478a313
+2026-04-27 22:57:30.100 +08:00 [INF] Received HTTP response headers after 3408.6185ms - 200
+2026-04-27 22:57:30.106 +08:00 [INF] End processing HTTP request after 3437.4927ms - 200
+2026-04-27 22:57:33.921 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=5m&limit=500
+2026-04-27 22:57:33.928 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=5m&limit=500
+2026-04-27 22:57:35.278 +08:00 [INF] Received HTTP response headers after 1341.5568ms - 200
+2026-04-27 22:57:35.285 +08:00 [INF] End processing HTTP request after 1363.7715ms - 200
+2026-04-27 22:57:35.331 +08:00 [INF] 📡 已向币安发送订阅: lumiausdt@kline_5m
+2026-04-27 22:57:36.807 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=5m&limit=500&endTime=1777151700000
+2026-04-27 22:57:36.817 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=5m&limit=500&endTime=1777151700000
+2026-04-27 22:57:37.316 +08:00 [INF] Received HTTP response headers after 494.4905ms - 200
+2026-04-27 22:57:37.327 +08:00 [INF] End processing HTTP request after 519.8023ms - 200
+2026-04-27 22:57:39.240 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=5m&limit=500&endTime=1777001700000
+2026-04-27 22:57:39.250 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=LUMIAUSDT&interval=5m&limit=500&endTime=1777001700000
+2026-04-27 22:57:40.662 +08:00 [INF] Received HTTP response headers after 1406.4706ms - 200
+2026-04-27 22:57:40.675 +08:00 [INF] End processing HTTP request after 1434.7932ms - 200
+2026-04-27 22:58:59.881 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=DAMUSDT&interval=1m&limit=500
+2026-04-27 22:58:59.894 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=DAMUSDT&interval=1m&limit=500
+2026-04-27 22:59:02.631 +08:00 [INF] Received HTTP response headers after 2716.6305ms - 200
+2026-04-27 22:59:02.643 +08:00 [INF] End processing HTTP request after 2761.1987ms - 200
+2026-04-27 22:59:10.203 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=DAMUSDT&interval=1m&limit=500&endTime=1777271880000
+2026-04-27 22:59:10.233 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=DAMUSDT&interval=1m&limit=500&endTime=1777271880000
+2026-04-27 22:59:15.080 +08:00 [INF] Received HTTP response headers after 4755.4355ms - 200
+2026-04-27 22:59:15.088 +08:00 [INF] End processing HTTP request after 4885.2127ms - 200
+2026-04-27 22:59:28.734 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=AIOTUSDT&interval=1m&limit=500
+2026-04-27 22:59:28.740 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=AIOTUSDT&interval=1m&limit=500
+2026-04-27 22:59:29.347 +08:00 [INF] Received HTTP response headers after 595.1767ms - 200
+2026-04-27 22:59:29.360 +08:00 [INF] End processing HTTP request after 626.1213ms - 200
+2026-04-27 22:59:29.901 +08:00 [INF] 📡 已向币安发送订阅: aiotusdt@kline_1m
+2026-04-27 22:59:49.738 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500&endTime=1777271760000
+2026-04-27 22:59:49.753 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500&endTime=1777271760000
+2026-04-27 22:59:50.318 +08:00 [INF] Received HTTP response headers after 562.2469ms - 200
+2026-04-27 22:59:50.330 +08:00 [INF] End processing HTTP request after 591.3613ms - 200
+2026-04-27 23:00:28.463 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1h&limit=500
+2026-04-27 23:00:28.470 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1h&limit=500
+2026-04-27 23:00:29.489 +08:00 [INF] Received HTTP response headers after 1012.793ms - 200
+2026-04-27 23:00:29.500 +08:00 [INF] End processing HTTP request after 1036.1815ms - 200
+2026-04-27 23:00:30.926 +08:00 [INF] 📡 已向币安发送订阅: prlusdt@kline_1h
+2026-04-27 23:00:33.873 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1h&limit=500&endTime=1775502000000
+2026-04-27 23:00:33.895 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1h&limit=500&endTime=1775502000000
+2026-04-27 23:00:34.893 +08:00 [INF] Received HTTP response headers after 988.7991ms - 200
+2026-04-27 23:00:34.908 +08:00 [INF] End processing HTTP request after 1035.0147ms - 200
+2026-04-27 23:00:38.744 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500
+2026-04-27 23:00:38.750 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500
+2026-04-27 23:00:39.275 +08:00 [INF] Received HTTP response headers after 519.3447ms - 200
+2026-04-27 23:00:39.285 +08:00 [INF] End processing HTTP request after 540.9411ms - 200
+2026-04-27 23:00:39.329 +08:00 [INF] 📡 已向币安发送订阅: prlusdt@kline_1d
+2026-04-27 23:00:39.384 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:39.395 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:39.903 +08:00 [INF] Received HTTP response headers after 505.1775ms - 200
+2026-04-27 23:00:39.915 +08:00 [INF] End processing HTTP request after 530.8154ms - 200
+2026-04-27 23:00:40.335 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:40.373 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:40.891 +08:00 [INF] Received HTTP response headers after 513.2029ms - 200
+2026-04-27 23:00:40.905 +08:00 [INF] End processing HTTP request after 569.3069ms - 200
+2026-04-27 23:00:41.189 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:41.204 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:42.346 +08:00 [INF] Received HTTP response headers after 1137.9011ms - 200
+2026-04-27 23:00:42.356 +08:00 [INF] End processing HTTP request after 1167.5979ms - 200
+2026-04-27 23:00:42.422 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:42.436 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1d&limit=500&endTime=1774998000000
+2026-04-27 23:00:43.604 +08:00 [INF] Received HTTP response headers after 1164.6581ms - 200
+2026-04-27 23:00:43.620 +08:00 [INF] End processing HTTP request after 1197.4594ms - 200
+2026-04-27 23:00:44.706 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500
+2026-04-27 23:00:44.726 +08:00 [INF] Start processing HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500&endTime=1775001540000
+2026-04-27 23:00:44.728 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500
+2026-04-27 23:00:44.755 +08:00 [INF] Sending HTTP request GET https://fapi.binance.com/fapi/v1/klines?symbol=PRLUSDT&interval=1m&limit=500&endTime=1775001540000
+2026-04-27 23:00:45.859 +08:00 [INF] Received HTTP response headers after 1096.1664ms - 200
+2026-04-27 23:00:45.877 +08:00 [INF] End processing HTTP request after 1171.1801ms - 200
+2026-04-27 23:00:46.018 +08:00 [INF] 📡 已向币安发送订阅: prlusdt@kline_1m
+2026-04-27 23:00:46.081 +08:00 [INF] Received HTTP response headers after 1275.0923ms - 200
+2026-04-27 23:00:46.083 +08:00 [INF] End processing HTTP request after 1356.8921ms - 200
+2026-04-27 23:04:40.033 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 23:04:47.031 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 23:12:47.107 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 23:12:53.639 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 23:20:53.704 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 23:21:01.278 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 23:29:01.350 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 23:29:08.334 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 23:37:08.383 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 23:37:14.913 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 23:45:14.971 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 23:45:34.127 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接
+2026-04-27 23:53:34.195 +08:00 [WRN] ⚠️ [交易 API 轨] 断开，5秒后重连: The remote party closed the WebSocket connection without completing the close handshake.
+2026-04-27 23:53:41.164 +08:00 [INF] 🟢 [交易 API 轨] 专线已连接

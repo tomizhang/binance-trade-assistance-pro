@@ -77,7 +77,11 @@
               </div>
             </div>
             
-            <div class="panel-content no-drag">
+            <div class="panel-content no-drag"
+            @mousedown.stop
+            @touchstart.stop
+            @pointerdown.stop
+            >
               <component 
                 :is="getComponentByType(item.type)" 
                 :symbol="item.symbol" 
