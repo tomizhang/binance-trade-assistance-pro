@@ -122,7 +122,7 @@ const latestPrice = computed(() => marketStore.marketTickers[currentSymbol.value
 const priceTrend = ref('');
 
 onMounted(() => { 
-  marketStore.fetchExchangeInfo(); 
+  // marketStore.fetchExchangeInfo(); 
   // 同步当前真实杠杆
   if (marketStore.symbolConfigs[currentSymbol.value]) {
     leverage.value = marketStore.symbolConfigs[currentSymbol.value].leverage;
@@ -153,11 +153,28 @@ watch(currentSymbol, (newSymbol) => {
   }
 });
 
+// 🌟 终极修复：防弹级步长与精度格式化函数
 const formatByStep = (value: number, stepStr: string) => {
   const step = parseFloat(stepStr);
-  if (step <= 0) return value.toString();
-  const factor = (value / step) + Number.EPSILON;
-  return (Math.floor(factor) * step).toFixed(stepStr.includes('.') ? stepStr.split('.')[1].length : 0);
+  if (isNaN(step) || step <= 0) return value.toString();
+
+  // 1. 完美解析需要保留的小数位数 (兼容 "1e-5" 科学计数法 和 "0.001" 传统写法)
+  let dec = 0;
+  if (step < 1) {
+    const stepStrParsed = step.toString();
+    if (stepStrParsed.includes('e-')) {
+      dec = parseInt(stepStrParsed.split('e-')[1], 10);
+    } else if (stepStrParsed.includes('.')) {
+      dec = stepStrParsed.split('.')[1].length;
+    }
+  }
+
+  // 2. 核心防御：规避 0.14 * 100 = 14.000000000002 这种底层浮点数鬼故事
+  // 使用 Number.EPSILON 吸收舍入误差，然后严格向下取整 (不超买)
+  const truncated = Math.floor(value / step + Number.EPSILON) * step;
+
+  // 3. 强制抹平尾数输出
+  return truncated.toFixed(dec);
 };
 
 const getPriceForCalc = () => orderType.value === 'LIMIT' ? (parseFloat(price.value) || 0) : latestPrice.value;

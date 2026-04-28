@@ -1,16 +1,57 @@
 <template>
-  <div 
-    class="kline-module" 
-    :class="{ 'is-focused': isFocused }"
-    @click="takeFocus"
-  >
+  <div class="kline-module"  @click="takeFocus">
     <div class="kline-toolbar">
       <div class="intervals">
-        <button v-for="tf in timeframes" :key="tf" :class="{ active: tf === currentTf }" @click="changeInterval(tf)">
+        <button 
+          v-for="tf in timeframes" 
+          :key="tf" 
+          :class="{ active: tf === currentTf }" 
+          @click="changeInterval(tf)"
+        >
           {{ tf }}
         </button>
       </div>
-      
+
+      <div class="actions-group">
+        <div v-if="currentPosition" class="position-panel" :class="{ 'in-profit': currentPosition.pnl >= 0, 'in-loss': currentPosition.pnl < 0 }">
+          <span class="pos-direction" :class="currentPosition.side === 'LONG' ? 'text-up' : 'text-down'">
+            {{ currentPosition.side === 'LONG' ? '↗ 多' : '↘ 空' }} 
+          </span>
+          <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
+          <span class="divider">|</span>
+          <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPrecisionConfig().precision) }}</span>
+          <span class="divider">|</span>
+          <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
+            {{ currentPosition.pnl >= 0 ? '+' : ''}}{{ currentPosition.pnl.toFixed(2) }}
+          </span>
+          
+          <button 
+            class="close-pos-btn btn-75" 
+            :disabled="isClosing" 
+            @click="closePosition(75)" 
+            title="以市价平掉 75% 的仓位"
+          >
+            {{ isClosing ? '...' : '平75%' }}
+          </button>
+          <button 
+            class="close-pos-btn" 
+            :disabled="isClosing" 
+            @click="closePosition(100)" 
+            title="市价平掉当前标的所有仓位"
+          >
+            {{ isClosing ? '...' : '市价全平' }}
+          </button>
+        </div>
+
+        <!-- <span v-if="isFocused" class="focus-badge">🟢 操作中</span> -->
+
+        <!-- <button class="action-btn copy-btn" @click="$emit('duplicate', symbol)" title="克隆当前图表窗口">
+          📋
+        </button> -->
+      </div>
+    </div>
+    
+    <div class="kline-sub-toolbar">
       <div class="drawing-tools">
         <div class="chart-type-selector">
           <button :class="{ active: localChartType === 'standard' }" @click="changeChartType('standard')">标准</button>
@@ -51,35 +92,48 @@
         </button>
       </div>
 
-      <div class="actions-group">
-        <button class="action-btn copy-btn" @click="$emit('duplicate', symbol)" title="克隆当前图表窗口">
-          📋 复制
-        </button>
-        <button class="action-btn reload-btn" @click="hardReload" title="销毁图表引擎并彻底重载数据">
-          🔌 重载
-        </button>
-      </div>
-    </div>
-    
-    <div class="kline-sub-toolbar">
-      <div class="symbol-info-wrapper">
-        <span class="symbol-info">{{ symbol }}</span>
-        <span v-if="isFocused" class="focus-badge">🟢 操作中</span>
-      </div>
+      <div class="quick-order-pill">
+        <label class="qt-checkbox" :class="{ active: isQuickTradeEnabled }">
+          <input type="checkbox" v-model="isQuickTradeEnabled" />
+          ⚡ 双击下单
+        </label>
+        <template v-if="isQuickTradeEnabled">
+          <span class="qt-divider"></span>
+          <span class="qt-balance" title="动态可用余额">可用 {{ marketStore.dynamicUsdtBalance?.toFixed(2) || '0.00' }}</span>
+          
+          <div class="qt-input-wrapper">
+            <input 
+              type="number" 
+              v-model="quickTradeAmount" 
+              class="qt-input" 
+              title="固定保证金(U) - 滚轮调节" 
+              @wheel.prevent="handleAmountScroll"
+            />
+            <span class="qt-unit">U</span>
+          </div>
 
-      <div v-if="currentPosition" class="position-panel" :class="{ 'in-profit': currentPosition.pnl >= 0, 'in-loss': currentPosition.pnl < 0 }">
-        <span class="pos-direction" :class="currentPosition.side === 'LONG' ? 'text-up' : 'text-down'">
-          {{ currentPosition.side === 'LONG' ? '↗ 做多' : '↘ 做空' }} 
-        </span>
-        <span class="pos-amount">{{ Math.abs(currentPosition.amount) }}</span>
-        <span class="divider">|</span>
-        <span class="pos-label">均价</span> <span class="pos-val">{{ currentPosition.entryPrice.toFixed(getPrecisionConfig().precision) }}</span>
-        <span class="divider">|</span>
-        <span class="pos-label">未结盈亏</span>
-        <span class="pos-pnl" :class="currentPosition.pnl >= 0 ? 'text-up' : 'text-down'">
-          {{ currentPosition.pnl >= 0 ? '+' : ''}}{{ currentPosition.pnl.toFixed(2) }}
-          <span class="pos-rate">({{ currentPosition.pnlRate >= 0 ? '+' : ''}}{{ currentPosition.pnlRate.toFixed(2) }}%)</span>
-        </span>
+          <div class="qt-input-wrapper">
+            <input 
+              type="number" 
+              v-model="localLeverage" 
+              class="qt-input" 
+              title="当前杠杆倍数 - 滚轮调节" 
+              @wheel.prevent="handleLeverageScroll"
+            />
+            <span class="qt-unit">X</span>
+          </div>
+          
+          <button class="qt-toggle-btn" @click="quickTradeType = quickTradeType === 'MARKET' ? 'LIMIT' : 'MARKET'">
+            {{ quickTradeType === 'MARKET' ? '市价' : '限价' }}
+          </button>
+          <button 
+            class="qt-toggle-btn" 
+            :class="quickTradeSide === 'BUY' ? 'qt-buy' : 'qt-sell'" 
+            @click="quickTradeSide = quickTradeSide === 'BUY' ? 'SELL' : 'BUY'"
+          >
+            {{ quickTradeSide === 'BUY' ? '做多' : '做空' }}
+          </button>
+        </template>
       </div>
     </div>
 
@@ -96,6 +150,7 @@
         <span class="legend-item">高: <span :class="hoverData.colorClass">{{ hoverData.high }}</span></span>
         <span class="legend-item">低: <span :class="hoverData.colorClass">{{ hoverData.low }}</span></span>
         <span class="legend-item">收: <span :class="hoverData.colorClass">{{ hoverData.close }}</span></span>
+        <span class="legend-item">幅: <span :class="hoverData.colorClass">{{ hoverData.change }}</span></span>
         <span class="legend-item" v-if="showVolume">量: <span class="vol-text">{{ hoverData.vol }}</span></span>
       </div>
 
@@ -174,10 +229,6 @@ import { MarketAPI } from '@/api/market';
 
 const props = defineProps<{ symbol: string }>();
 
-const emit = defineEmits<{
-  (e: 'duplicate', symbol: string): void
-}>();
-
 const marketStore = useMarketStore();
 const chartContainer = ref<HTMLElement | null>(null);
 
@@ -185,8 +236,9 @@ const instanceId = Math.random().toString(36).substring(2, 10);
 const isFocused = computed(() => marketStore.currentSymbol === props.symbol);
 const takeFocus = () => { if (!isFocused.value) marketStore.setCurrentSymbol(props.symbol); };
 
-const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
+const timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M'];
 const currentTf = ref('1m'); 
+
 const localChartType = ref('standard'); 
 const showVolume = ref(true);
 const currentChartData = ref<any[]>([]);
@@ -196,16 +248,297 @@ let candleSeries: any = null;
 let volumeSeries: any = null;
 let resizeObserver: ResizeObserver | null = null;
 let positionLineId: any = null;
+let breakEvenLineId: any = null; 
+let openOrderLines: any[] = []; 
+
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
+const notifications = ref<{id: number, msg: string}[]>([]);
+let notifIdCounter = 0;
+const showNotification = (msg: string) => {
+  const id = notifIdCounter++;
+  notifications.value.push({ id, msg });
+  setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id); }, 5000);
+};
+
 // ==========================================
-// 🌟 核心：智能动态精度推导引擎 (完美解决 2 位小数问题)
+// 🌟 1. 快捷双击下单状态与滚轮防爆仓修改逻辑
 // ==========================================
+const isQuickTradeEnabled = ref(true);
+const quickTradeAmount = ref(5); // 固定保证金 5U
+const localLeverage = ref(20); // 🌟 新增：独立杠杆状态
+const quickTradeType = ref<'MARKET' | 'LIMIT'>('MARKET');
+const quickTradeSide = ref<'BUY' | 'SELL'>('BUY');
+const isPlacingOrder = ref(false);
+
+// 🌟 新增：监听全局杠杆更新
+watch(() => marketStore.symbolConfigs[props.symbol], (config) => {
+  if (config && config.leverage) {
+    localLeverage.value = config.leverage;
+  }
+}, { immediate: true, deep: true });
+
+const handleAmountScroll = (e: WheelEvent) => {
+  const step = 5; 
+  const maxBalance = Math.floor(marketStore.dynamicUsdtBalance || 0);
+
+  if (e.deltaY < 0) {
+    let nextVal = quickTradeAmount.value + step;
+    if (maxBalance > 0 && nextVal > maxBalance) nextVal = maxBalance;
+    quickTradeAmount.value = Math.max(1, nextVal);
+  } else {
+    quickTradeAmount.value = Math.max(1, quickTradeAmount.value - step);
+  }
+};
+
+// 🌟 新增：滚动调节杠杆（附带防抖发往后端）
+let leverageTimer: any = null;
+const handleLeverageScroll = (e: WheelEvent) => {
+  const step = 1;
+  if (e.deltaY < 0) {
+    localLeverage.value = Math.min(125, localLeverage.value + step);
+  } else {
+    localLeverage.value = Math.max(1, localLeverage.value - step);
+  }
+
+  if (leverageTimer) clearTimeout(leverageTimer);
+  leverageTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/leverage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: props.symbol, leverage: localLeverage.value })
+      });
+      if (!res.ok) throw new Error();
+      showNotification(`⚙️ [${props.symbol}] 杠杆已自动同步为 ${localLeverage.value}x`);
+    } catch (e) {
+      showNotification(`❌ 杠杆同步失败，已回退`);
+      localLeverage.value = marketStore.symbolConfigs[props.symbol]?.leverage || 20;
+    }
+  }, 800);
+};
+
+// 🌟 修复：防抖节流锁与名义价值 5U 底线补齐
+let lastOrderTime = 0;
+const executeQuickTrade = async (clickedPrice: number) => {
+  const now = Date.now();
+  if (now - lastOrderTime < 1000) return; // 🌟 1000ms 绝对防抖，防止手抖连点
+  if (isPlacingOrder.value) return;
+
+  const currentPrice = marketStore.marketTickers[props.symbol]?.lastPrice || clickedPrice;
+  const calcPrice = quickTradeType.value === 'MARKET' ? currentPrice : clickedPrice;
+  const rule = marketStore.symbolRules[props.symbol] || { stepSize: '0.001', tickSize: '0.1' };
+
+  const notionalValue = quickTradeAmount.value * localLeverage.value;
+  let rawQuantity = notionalValue / calcPrice;
+  let formattedQtyStr = formatByStep(rawQuantity, rule.stepSize);
+  let quantity = parseFloat(formattedQtyStr);
+
+  // 🌟 核心修复：防止报错 -4164，确保名义价值必须 >= 5.01
+  if (quantity * calcPrice < 5.01) {
+    const minRequiredQty = 5.01 / calcPrice;
+    const step = parseFloat(rule.stepSize);
+    // 强制向上取整，跨过 5U 及格线
+    quantity = Math.ceil(minRequiredQty / step) * step;
+    quantity = parseFloat(quantity.toFixed(step.toString().includes('.') ? step.toString().split('.')[1].length : 0));
+    
+    // 如果补齐后的保证金超出了用户真实可用余额，拦截
+    if ((quantity * calcPrice) / localLeverage.value > marketStore.dynamicUsdtBalance) {
+       showNotification(`❌ 余额不足以满足币安最低下单限制(5U)`);
+       return;
+    }
+    showNotification(`⚠️ 已自动补足数量至币安最低要求(约5U)`);
+  }
+
+  const formattedPrice = parseFloat(formatByStep(clickedPrice, rule.tickSize));
+
+  try {
+    lastOrderTime = Date.now();
+    isPlacingOrder.value = true;
+    showNotification(`⚡ [狙击指令] 准备${quickTradeType.value === 'MARKET' ? '市价' : '限价'}${quickTradeSide.value === 'BUY' ? '做多' : '做空'}...`);
+    
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol: props.symbol,
+        side: quickTradeSide.value,
+        type: quickTradeType.value,
+        quantity: quantity,
+        price: quickTradeType.value === 'LIMIT' ? formattedPrice : null
+      })
+    });
+    
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.msg || '下单被拒');
+    
+    showNotification(`✅ [快捷下单成功] ${quickTradeSide.value === 'BUY' ? '做多' : '做空'} ${quantity} 个`);
+  } catch(e: any) {
+    showNotification(`❌ 快捷下单失败: ${e.message}`);
+  } finally {
+    isPlacingOrder.value = false;
+  }
+};
+
+
+// ==========================================
+// 🌟 2. 平仓逻辑 (包含 75% 与 100%)
+// ==========================================
+const isClosing = ref(false);
+let lastCloseTime = 0;
+
+const formatByStep = (value: number, stepStr: string) => {
+  const step = parseFloat(stepStr);
+  if (isNaN(step) || step <= 0) return value.toString();
+  let dec = 0;
+  if (step < 1) {
+    const stepStrParsed = step.toString();
+    if (stepStrParsed.includes('e-')) {
+      dec = parseInt(stepStrParsed.split('e-')[1], 10);
+    } else if (stepStrParsed.includes('.')) {
+      dec = stepStrParsed.split('.')[1].length;
+    }
+  }
+  const truncated = Math.floor(value / step + Number.EPSILON) * step;
+  return truncated.toFixed(dec);
+};
+
+const closePosition = async (percent: number) => {
+  const now = Date.now();
+  if (now - lastCloseTime < 1000) return; // 🌟 防抖
+  
+  const pos = currentPosition.value;
+  if (!pos || isClosing.value) return;
+
+  const amountToClose = Math.abs(pos.amount) * (percent / 100);
+  if (amountToClose <= 0) return;
+
+  const rule = marketStore.symbolRules[props.symbol] || { stepSize: '0.001' };
+  const formattedQtyStr = formatByStep(amountToClose, rule.stepSize);
+  const quantity = parseFloat(formattedQtyStr);
+  
+  if (quantity <= 0) {
+    showNotification(`[警告] 计算后的平仓数量过小`);
+    return;
+  }
+
+  const side = pos.side === 'LONG' ? 'SELL' : 'BUY';
+
+  try {
+    lastCloseTime = Date.now();
+    isClosing.value = true;
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol: props.symbol,
+        side: side,
+        type: 'MARKET',
+        quantity: quantity
+      })
+    });
+    
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.msg || '平仓失败');
+    showNotification(`✅ [${props.symbol}] ${percent}% 平仓成功!`);
+  } catch(e: any) {
+    showNotification(`❌ 平仓失败: ${e.message}`);
+  } finally {
+    isClosing.value = false;
+  }
+};
+
+
+// ==========================================
+// 3. 仓位渲染引擎 (挂单可视化)
+// ==========================================
+const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
+
+const updatePositionLines = (currentPriceOverride?: number) => {
+  if (!candleSeries) return;
+  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
+  
+  if (!pos) {
+    if (positionLineId) { candleSeries.removePriceLine(positionLineId); positionLineId = null; }
+    if (breakEvenLineId) { candleSeries.removePriceLine(breakEvenLineId); breakEvenLineId = null; }
+    return;
+  }
+
+  const currentPrice = currentPriceOverride || getCurrentPrice() || pos.entryPrice;
+  const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+  
+  const positionLineOptions = {
+    price: pos.entryPrice, 
+    color: pnl >= 0 ? '#2ea043' : '#f85149', 
+    lineWidth: 2 as any, 
+    lineStyle: LineStyle.Dashed, 
+    axisLabelVisible: true,
+    title: `${pos.side === 'LONG' ? '多' : '空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
+  };
+
+  if (!positionLineId) {
+    positionLineId = candleSeries.createPriceLine(positionLineOptions);
+  } else {
+    positionLineId.applyOptions(positionLineOptions);
+  }
+
+  const FEE_RATE = 0.0005;
+  const breakEvenPrice = pos.side === 'LONG'
+    ? pos.entryPrice * (1 + FEE_RATE) / (1 - FEE_RATE)
+    : pos.entryPrice * (1 - FEE_RATE) / (1 + FEE_RATE);
+
+  const breakEvenOptions = {
+    price: breakEvenPrice,
+    color: '#d29922', 
+    lineWidth: 1 as any,
+    lineStyle: LineStyle.Solid, 
+    axisLabelVisible: true,
+    title: '保本价',
+  };
+
+  if (!breakEvenLineId) {
+    breakEvenLineId = candleSeries.createPriceLine(breakEvenOptions);
+  } else {
+    breakEvenLineId.applyOptions(breakEvenOptions);
+  }
+};
+
+const updateOpenOrderLines = () => {
+  if (!candleSeries) return;
+  
+  openOrderLines.forEach(line => {
+    try { candleSeries.removePriceLine(line); } catch (e) {}
+  });
+  openOrderLines = [];
+
+  const orders = marketStore.positions?.filter((o: any) => o.symbol === props.symbol) || [];
+  
+  orders.forEach((order: any) => {
+    const line = candleSeries.createPriceLine({
+      price: order.entryPrice,
+      color: order.side === 'BUY' ? '#2ea043' : '#f85149',
+      lineWidth: 1 as any,
+      lineStyle: LineStyle.Dotted, 
+      axisLabelVisible: true,
+      title: `挂单 ${order.side === 'BUY' ? '买' : '卖'} ${order.amount}`
+    });
+    openOrderLines.push(line);
+  });
+};
+
+const currentPosition = computed(() => {
+  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
+  if (!pos) return null;
+  const currentPrice = getCurrentPrice() || pos.entryPrice;
+  const pnl = pos.side === 'LONG' 
+    ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
+    : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+  return { ...pos, currentPrice, pnl };
+});
+
 const getPrecisionConfig = (lastPrice?: number) => {
   const rule = marketStore.symbolRules[props.symbol];
-  
-  // 1. 如果有官方配置的精度规则，绝对服从官方
   if (rule && rule.tickSize) {
     const minM = parseFloat(rule.tickSize);
     let dec = 2;
@@ -217,13 +550,10 @@ const getPrecisionConfig = (lastPrice?: number) => {
       } else {
         dec = str.split('.')[1]?.length || 2;
       }
-    } else {
-      dec = 0;
-    }
+    } else { dec = 0; }
     return { precision: dec, minMove: minM };
   }
 
-  // 2. 如果规则还没拿到，启用智能 AI 推断 (根据价格自动给精度)
   const p = lastPrice || marketStore.marketTickers[props.symbol]?.lastPrice || 100;
   if (p < 0.000001) return { precision: 8, minMove: 0.00000001 };
   if (p < 0.001) return { precision: 6, minMove: 0.000001 };
@@ -232,7 +562,6 @@ const getPrecisionConfig = (lastPrice?: number) => {
   return { precision: 2, minMove: 0.01 };
 };
 
-// 监听官方规则，一旦获取到就刷新图表轴
 watch(() => marketStore.symbolRules[props.symbol], (rule) => {
   if (rule && candleSeries) {
     const config = getPrecisionConfig();
@@ -242,29 +571,6 @@ watch(() => marketStore.symbolRules[props.symbol], (rule) => {
   }
 }, { deep: true });
 
-// ==========================================
-// 仓位计算与通知
-// ==========================================
-const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
-const currentPosition = computed(() => {
-  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
-  if (!pos) return null;
-  const currentPrice = getCurrentPrice() || pos.entryPrice;
-  const pnl = pos.side === 'LONG' 
-    ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
-    : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
-  const positionValue = pos.entryPrice * Math.abs(pos.amount);
-  const pnlRate = positionValue > 0 ? (pnl / positionValue) * 100 : 0;
-  return { ...pos, currentPrice, pnl, pnlRate };
-});
-
-const notifications = ref<{id: number, msg: string}[]>([]);
-let notifIdCounter = 0;
-const showNotification = (msg: string) => {
-  const id = notifIdCounter++;
-  notifications.value.push({ id, msg });
-  setTimeout(() => { notifications.value = notifications.value.filter(n => n.id !== id); }, 5000);
-};
 
 watch(
   () => marketStore.wsStatus,
@@ -277,7 +583,7 @@ watch(
 );
 
 // ==========================================
-// 绘图引擎核心
+// 绘图引擎与数据逻辑
 // ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
@@ -305,7 +611,7 @@ const renderSvgLoop = () => {
       const pts = shape.points.map(p => {
         const x = chart!.timeScale().logicalToCoordinate(p.logical as any);
         const y = candleSeries.priceToCoordinate(p.price);
-        return { x, y };
+        return { x: x as any, y: y as any };
       });
       if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) { pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x) as any, y: pts[2].y + (pts[1].y - pts[0].y) }; }
       if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
@@ -494,15 +800,11 @@ const formatDateTime = (timestamp: number) => {
   return `${y}-${m}-${d} ${H}:${M}:${S}`;
 };
 
-// ==========================================
-// 🌟 核心：数据清洗与应用防重引擎 (已修复 HA 报错)
-// ==========================================
 const calculateHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA: any = null;
   for (const raw of rawData) {
     const rawVolume = raw.value !== undefined ? raw.value : (raw.volume !== undefined ? raw.volume : (raw.vol || 0));
-    // 🌟 修复: 原封不动传递 parsedTime 给下游，防止 setData 时 undefined 崩溃
     const ha = { 
       time: raw.time, 
       parsedTime: raw.parsedTime,
@@ -536,7 +838,6 @@ const applyDataToSeries = (data: any[]) => {
   const finalData = localChartType.value === 'heikinAshi' ? calculateHeikinAshi(uniqueData) : uniqueData;
   
   try {
-    // 🌟 加载数据时，顺便智能调整当前图表精度
     const lastPrice = finalData[finalData.length - 1]?.close;
     const config = getPrecisionConfig(lastPrice);
     candleSeries.applyOptions({
@@ -544,7 +845,6 @@ const applyDataToSeries = (data: any[]) => {
     });
 
     candleSeries.setData(finalData.map((d: any) => ({
-      // 🌟 修复: 增加兜底获取 time，绝不传给图表 undefined
       time: d.parsedTime !== undefined ? d.parsedTime : d.time, 
       open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close)
     })));
@@ -557,6 +857,9 @@ const applyDataToSeries = (data: any[]) => {
         color: d.color || (isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)')
       };
     }));
+    
+    updatePositionLines();
+    updateOpenOrderLines();
   } catch(e) {
     console.error("K线渲染引擎异常:", e);
   }
@@ -660,10 +963,15 @@ const initCharts = () => {
     if (candleData) {
       const isUp = candleData.close >= candleData.open;
       const dec = getPrecisionConfig().precision; 
+      
+      const changePercent = ((candleData.close - candleData.open) / candleData.open) * 100;
+      const changeStr = (changePercent > 0 ? '+' : '') + changePercent.toFixed(2) + '%';
+
       hoverData.value = {
         time: formatDateTime(Number(param.time)),
         open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec),
         low: candleData.low.toFixed(dec), close: candleData.close.toFixed(dec),
+        change: changeStr,
         vol: volData && volData.value !== undefined ? Number(volData.value).toFixed(2) : '0.00',
         colorClass: isUp ? 'text-up' : 'text-down' 
       };
@@ -672,6 +980,14 @@ const initCharts = () => {
         marketStore.updateGlobalCrosshair(Number(param.time), candleData.close, props.symbol, instanceId);
       }
     } else hoverData.value = null;
+  });
+
+  chart.subscribeDblClick((param) => {
+    if (!isQuickTradeEnabled.value || !param.point || !candleSeries) return;
+    const clickedPrice = candleSeries.coordinateToPrice(param.point.y);
+    if (clickedPrice !== null) {
+      executeQuickTrade(clickedPrice);
+    }
   });
 
   if (resizeObserver) resizeObserver.disconnect();
@@ -700,6 +1016,7 @@ const hardReload = async () => {
   marketStore.subscribeKline(props.symbol, currentTf.value); 
   showNotification(`[${props.symbol}] K 线控件引擎已彻底重载`);
 };
+defineExpose({ hardReload });
 
 onMounted(async () => {
   if (!chartContainer.value) return;
@@ -732,7 +1049,6 @@ watch(() => marketStore.globalCrosshairTime, () => {
   }
 });
 
-// 动态流式更新
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
@@ -773,15 +1089,7 @@ watch(currentKlineData, (newVal) => {
       }
     }
 
-    const pos = marketStore.positions.find(p => p.symbol === props.symbol);
-    if (pos && positionLineId) {
-       const currentPrice = Number(newVal.close);
-       const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
-       positionLineId.applyOptions({
-         color: pnl >= 0 ? '#2ea043' : '#f85149',
-         title: `${pos.side === 'LONG' ? '做多' : '做空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`
-       });
-    }
+    updatePositionLines(Number(newVal.close));
 
     customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
       const p0 = shape.points[0]; const p1 = shape.points[1];
@@ -799,20 +1107,11 @@ watch(currentKlineData, (newVal) => {
 }, { deep: true });
 
 watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol]?.lastPrice], () => {
-  if (!candleSeries) return;
-  const pos = marketStore.positions.find(p => p.symbol === props.symbol);
-  
-  if (positionLineId) { candleSeries.removePriceLine(positionLineId); positionLineId = null; }
+  updatePositionLines();
+}, { deep: true });
 
-  if (pos) {
-    const currentPrice = getCurrentPrice() || pos.entryPrice;
-    const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
-      
-    positionLineId = candleSeries.createPriceLine({
-      price: pos.entryPrice, color: pnl >= 0 ? '#2ea043' : '#f85149', lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true,
-      title: `${pos.side === 'LONG' ? '做多' : '做空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
-    });
-  }
+watch(() => marketStore.positions, () => {
+  updateOpenOrderLines();
 }, { deep: true });
 
 const changeInterval = async (tf: string) => {
@@ -836,13 +1135,54 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 继承你的无敌 CSS，一行未动 */
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; border: 1px solid transparent; transition: all 0.2s ease; box-sizing: border-box; }
 .kline-module.is-focused { border-color: #58a6ff; box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1); }
-.kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; }
-.intervals button { background: transparent; border: 1px solid transparent; color: #8b949e; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+
+.kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; height: 38px; }
+
+.intervals { display: flex; align-items: center; gap: 4px; overflow-x: auto; padding-right: 8px; flex-wrap: nowrap; scrollbar-width: none; }
+.intervals::-webkit-scrollbar { display: none; }
+.intervals button { background: transparent; border: 1px solid transparent; color: #8b949e; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
 .intervals button:hover { background: #21262d; color: #c9d1d9; }
 .intervals button.active { background: #2ea043; color: #ffffff; font-weight: bold; }
+
+.actions-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.focus-badge { background: #1f6feb; color: #ffffff; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
+.action-btn { background: rgba(226, 181, 20, 0.1); border: 1px solid #e2b514; color: #e2b514; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; flex-shrink: 0;}
+.copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; padding: 4px 8px; }
+.copy-btn:hover { background: #2ea043; color: #ffffff; }
+
+.position-panel { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: bold; background: rgba(22, 27, 34, 0.8); padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; transition: all 0.3s ease; flex-shrink: 0; }
+.position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
+.position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
+.pos-val { color: #c9d1d9; font-family: monospace;}
+.pos-pnl { display: flex; gap: 4px; align-items: baseline; font-family: monospace; }
+.pos-amount { font-family: monospace; }
+
+.close-pos-btn {
+  background: rgba(248, 81, 73, 0.15);
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  color: #f85149;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
+  margin-left: 2px;
+  transition: all 0.2s;
+}
+.close-pos-btn:hover:not(:disabled) { background: #f85149; color: #ffffff; }
+.close-pos-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.close-pos-btn.btn-75 {
+  background: rgba(210, 153, 34, 0.15);
+  border-color: rgba(210, 153, 34, 0.4);
+  color: #d29922;
+  margin-left: 6px;
+}
+.close-pos-btn.btn-75:hover:not(:disabled) { background: #d29922; color: #0d1117; }
+
+.kline-sub-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; height: 36px;}
 .drawing-tools { display: flex; align-items: center; gap: 6px; }
 .chart-type-selector { display: flex; background: #0d1117; border-radius: 4px; padding: 2px; }
 .chart-type-selector button { background: transparent; border: none; color: #8b949e; padding: 2px 8px; font-size: 12px; cursor: pointer; border-radius: 2px; }
@@ -851,27 +1191,50 @@ onUnmounted(() => {
 .sync-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
 .sync-btn.active { background: #1f6feb; color: white; border-color: #1f6feb; }
 .clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
-.divider { color: #30363d; margin: 0 2px; }
+.divider { color: #30363d; margin: 0 4px; }
 
-.actions-group { display: flex; align-items: center; gap: 6px; }
-.action-btn { background: rgba(226, 181, 20, 0.1); border: 1px solid #e2b514; color: #e2b514; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
-.reload-btn { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); padding: 3px 8px; border-radius: 4px; font-weight: normal;}
-.reload-btn:hover { background: #58a6ff; color: #0d1117; }
+.quick-order-pill {
+  display: flex;
+  align-items: center;
+  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 2px 4px;
+  gap: 4px;
+  transition: all 0.3s ease;
+}
+.qt-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #8b949e;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  user-select: none;
+}
+.qt-checkbox:hover { color: #c9d1d9; background: #21262d; }
+.qt-checkbox.active { color: #e2b514; }
 
-.copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; }
-.copy-btn:hover { background: #2ea043; color: #ffffff; }
+.qt-divider { width: 1px; height: 14px; background: #30363d; margin: 0 2px; }
+.qt-balance { color: #8b949e; font-size: 11px; font-family: monospace; margin: 0 4px; white-space: nowrap; }
 
-.kline-sub-toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; }
-.symbol-info-wrapper { display: flex; align-items: center; gap: 8px; margin-right: 16px; }
-.symbol-info { font-size: 15px; font-weight: bold; color: #e6edf3; }
-.focus-badge { background: #1f6feb; color: #ffffff; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: normal; }
-.position-panel { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; background: rgba(22, 27, 34, 0.8); padding: 4px 12px; border-radius: 6px; border: 1px solid #30363d; transition: all 0.3s ease; }
-.position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
-.position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
-.pos-label { color: #8b949e; font-weight: normal; font-size: 12px; }
-.pos-val { color: #c9d1d9; }
-.pos-pnl { font-size: 14px; display: flex; gap: 4px; align-items: baseline; }
-.pos-rate { font-size: 12px; opacity: 0.8; }
+.qt-input-wrapper { display: flex; align-items: center; background: #010409; border: 1px solid #30363d; border-radius: 4px; padding: 0 4px; }
+.qt-input { background: transparent; border: none; color: #e6edf3; width: 32px; text-align: center; font-size: 12px; outline: none; font-family: monospace; }
+.qt-input::-webkit-outer-spin-button, .qt-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qt-unit { color: #8b949e; font-size: 12px; font-weight: bold; margin-right: 2px; }
+
+.qt-toggle-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 12px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+.qt-toggle-btn:hover { background: #30363d; }
+.qt-buy { color: #2ea043; border-color: rgba(46, 160, 67, 0.4); background: rgba(46, 160, 67, 0.1); }
+.qt-buy:hover { background: #2ea043; color: white; }
+.qt-sell { color: #f85149; border-color: rgba(248, 81, 73, 0.4); background: rgba(248, 81, 73, 0.1); }
+.qt-sell:hover { background: #f85149; color: white; }
+
+.text-up { color: #2ea043; }
+.text-down { color: #f85149; }
 
 .chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; transition: box-shadow 0.2s; }
 .is-drawing-mode { box-shadow: inset 0 0 15px rgba(88, 166, 255, 0.2); cursor: crosshair; }
@@ -888,8 +1251,6 @@ onUnmounted(() => {
 .legend-time { color: #8b949e; font-weight: bold; margin-right: 4px; }
 .legend-item { color: #8b949e; }
 .vol-text { color: #c9d1d9; font-weight: bold; }
-.text-up { color: #2ea043; font-weight: bold; }
-.text-down { color: #f85149; font-weight: bold; }
 
 .line-settings-panel { position: absolute; top: 8px; right: 12px; z-index: 10; display: flex; align-items: center; gap: 8px; background: rgba(22, 27, 34, 0.85); border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; backdrop-filter: blur(4px); }
 .setting-title { font-size: 12px; color: #8b949e; margin-right: 4px; }
