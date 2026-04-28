@@ -41,6 +41,7 @@ try
 
 
     builder.Services.AddSignalR();
+
     builder.Services.AddHttpClient<BinanceAccountService>();
     builder.Services.AddHostedService<BinanceUserDataWorker>();
     builder.Services.AddHttpClient<BinanceTradeService>();
@@ -64,11 +65,13 @@ try
         options.AddPolicy("AllowVueFrontend",
                 policy => policy
                     // 🌟 核心修改：允许任意来源，但使用安全的 SetIsOriginAllowed 替代 AllowAnyOrigin
+                    //.AllowAnyOrigin()
                     .SetIsOriginAllowed(origin => true)
                     .AllowAnyMethod()
                     .AllowAnyHeader()
                     // 🌟 核心修改：SignalR 跨域协商必须加上这一句！
-                    .AllowCredentials());
+                    .AllowCredentials()
+                    );
     });
 
     // 预留位置：后续在这里注册 HttpClient 和 SignalR
@@ -89,12 +92,13 @@ try
         app.UseSwaggerUI();
     }
 
-    app.MapHub<AccountHub>("/hubs/account");
-    // 3. 映射 Hub 路由
-    app.MapHub<MarketHub>("/hubs/market");
+
 
     app.UseCors("AllowVueFrontend");
     app.UseAuthorization();
+    app.MapHub<AccountHub>("/hubs/account");
+    // 3. 映射 Hub 路由
+    app.MapHub<MarketHub>("/hubs/market");
     app.MapControllers();
 
     // 启动应用

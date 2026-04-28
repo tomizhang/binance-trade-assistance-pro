@@ -25,39 +25,57 @@ namespace TradingService.Services
             _httpClient.DefaultRequestHeaders.Add("X-MBX-APIKEY", config["BinanceConfig:ApiKey"]);
         }
 
-        public async Task<string> PlaceOrderAsync(string symbol, string side, string type, decimal quantity, decimal? price = null)
+        // 🌟 终极版下单引擎：自动识别参数名变更 (stopPrice -> triggerPrice)
+        // 🌟 标准版下单引擎：老老实实走 fapi/v1/order，把丢失的 stopPrice 补上！
+        // 🌟 1. 终极发单引擎：自动切换 algoType 与 triggerPrice
+        public async Task<string> PlaceOrderAsync(string symbol, string side, string type, decimal quantity, decimal? price = null, decimal? stopPrice = null, bool? reduceOnly = null)
         {
             long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-            // 拼接币安要求的必须参数
-            var queryString = $"symbol={symbol}&side={side}&type={type}&quantity={quantity}&timestamp={timestamp}";
+            // 判断是否为条件单
+            bool isAlgo = type == "STOP_MARKET" || type == "TAKE_PROFIT_MARKET" || type == "STOP" || type == "TAKE_PROFIT" || type == "TRAILING_STOP_MARKET";
 
-            // 如果是限价单，必须带上价格和 TimeInForce (GTC = 一直有效直到取消)
-            if (type == "LIMIT" && price.HasValue)
+            var queryParams = new List<string>();
+            queryParams.Add($"symbol={symbol.ToUpper()}");
+            queryParams.Add($"side={side}");
+            queryParams.Add($"type={type}");
+            queryParams.Add($"quantity={quantity}");
+
+            if (price.HasValue) queryParams.Add($"price={price.Value}");
+            if (reduceOnly.HasValue && reduceOnly.Value) queryParams.Add("reduceOnly=true");
+
+            if (isAlgo)
             {
-                queryString += $"&price={price.Value}&timeInForce=GTC";
+                // 条件单专有硬性规定
+                queryParams.Add("algoType=CONDITIONAL");
+                if (stopPrice.HasValue) queryParams.Add($"triggerPrice={stopPrice.Value}");
+            }
+            else
+            {
+                // 普通单专有规定
+                if (stopPrice.HasValue) queryParams.Add($"stopPrice={stopPrice.Value}");
+                if (type == "LIMIT") queryParams.Add("timeInForce=GTC");
             }
 
-            // 生成签名
+            queryParams.Add($"timestamp={timestamp}");
+
+            var queryString = string.Join("&", queryParams);
             var signature = GenerateSignature(queryString, _apiSecret);
-            var requestUri = $"/fapi/v1/order?{queryString}&signature={signature}";
 
-            _logger.LogInformation("🚀 正在发送订单: {Side} {Quantity} {Symbol} @ {Type}", side, quantity, symbol, type);
+            // 路由分发
+            var endpoint = isAlgo ? "/fapi/v1/algoOrder" : "/fapi/v1/order";
+            var requestUri = $"{endpoint}?{queryString}&signature={signature}";
 
-            // 发起 HTTP POST 请求
+            _logger.LogInformation("🚀 发送订单 [{Endpoint}]: {Side} {Quantity} {Symbol} @ {Type}", endpoint, side, quantity, symbol, type);
+
             var response = await _httpClient.PostAsync(requestUri, null);
             var resultJson = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogError("❌ 下单失败: {Error}", resultJson);
-                throw new Exception($"币安接口返回错误: {resultJson}");
-            }
+                throw new Exception($"币安接口拒绝: {resultJson}");
 
-            _logger.LogInformation("✅ 下单成功: {Result}", resultJson);
             return resultJson;
         }
-
         public async Task<string> ChangeLeverageAsync(string symbol, int leverage)
         {
             long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -197,5 +215,60 @@ namespace TradingService.Services
             }
             return result;
         }
+
+        // 🌟 2. 终极查单引擎：双通道并发拉取并合并
+        public async Task<string> GetOpenOrdersAsync(string symbol = null)
+        {
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var queryParams = $"timestamp={timestamp}";
+            if (!string.IsNullOrEmpty(symbol)) queryParams = $"symbol={symbol.ToUpper()}&{queryParams}";
+
+            // 并发请求两个接口
+            var sig1 = GenerateSignature(queryParams, _apiSecret);
+            var task1 = _httpClient.GetAsync($"/fapi/v1/openOrders?{queryParams}&signature={sig1}");
+
+            var sig2 = GenerateSignature(queryParams, _apiSecret);
+            var task2 = _httpClient.GetAsync($"/fapi/v1/openAlgoOrders?{queryParams}&signature={sig2}");
+
+            await Task.WhenAll(task1, task2);
+
+            var res1 = await task1.Result.Content.ReadAsStringAsync();
+            var res2 = await task2.Result.Content.ReadAsStringAsync();
+
+            bool hasNormal = task1.Result.IsSuccessStatusCode && res1.Trim().Length > 2;
+            bool hasAlgo = task2.Result.IsSuccessStatusCode && res2.Trim().Length > 2;
+
+            if (hasNormal && hasAlgo)
+                return "[" + res1.Trim().Trim('[', ']') + "," + res2.Trim().Trim('[', ']') + "]";
+            else if (hasNormal)
+                return res1;
+            else if (hasAlgo)
+                return res2;
+
+            return "[]";
+        }
+
+        // 🌟 3. 终极智能撤单：静默双重尝试
+        public async Task<string> CancelOrderAsync(string symbol, string orderId)
+        {
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            // 尝试 1：当作算法单撤销 (algoId)
+            var algoQuery = $"symbol={symbol.ToUpper()}&algoId={orderId}&timestamp={timestamp}";
+            var algoSig = GenerateSignature(algoQuery, _apiSecret);
+            var algoRes = await _httpClient.DeleteAsync($"/fapi/v1/algoOrder?{algoQuery}&signature={algoSig}");
+            if (algoRes.IsSuccessStatusCode) return await algoRes.Content.ReadAsStringAsync();
+
+            // 尝试 2：当作普通单撤销 (orderId)
+            var normalQuery = $"symbol={symbol.ToUpper()}&orderId={orderId}&timestamp={timestamp}";
+            var normalSig = GenerateSignature(normalQuery, _apiSecret);
+            var normalRes = await _httpClient.DeleteAsync($"/fapi/v1/order?{normalQuery}&signature={normalSig}");
+            var normalJson = await normalRes.Content.ReadAsStringAsync();
+
+            if (normalRes.IsSuccessStatusCode) return normalJson;
+
+            throw new Exception($"撤单失败。正常单响应: {normalJson}");
+        }
+
     }
 }

@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
@@ -20,7 +21,8 @@ namespace TradingTerminal.Services
         // 🌟 双轨制 WebSocket 实例
         private ClientWebSocket _publicWs = new ClientWebSocket();
         private ClientWebSocket _tradeWs = new ClientWebSocket();
-        private readonly HttpClient _httpClient = new HttpClient(); 
+
+        private readonly HttpClient _httpClient;
         // 用于 WS API 下单的异步回调字典
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
 
@@ -30,6 +32,21 @@ namespace TradingTerminal.Services
             _logger = logger;
             _apiKey = config["BinanceConfig:ApiKey"];
             _apiSecret = config["BinanceConfig:ApiSecret"];
+            // 1. 创建代理对象 (推荐 SOCKS5)
+            WebProxy proxy = new WebProxy("socks5://127.0.0.1:10808");
+            // var proxy = new WebProxy("http://127.0.0.1:10809"); // 如果只有 HTTP 代理
+
+            // 2. 配置高性能的底层的 SocketsHttpHandler
+            SocketsHttpHandler handler = new SocketsHttpHandler
+            {
+                Proxy = proxy,
+                UseProxy = true, // 明确开启代理
+
+                // 👇 高频交易场景下的性能优化项：
+                // 设置连接池中 TCP 连接的最大生命周期，防止长时间运行后 DNS 变更导致连接失效
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+            };
+            _httpClient = new HttpClient(handler);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -57,7 +74,7 @@ namespace TradingTerminal.Services
                 {
                     _publicWs?.Dispose();
                     _publicWs = new ClientWebSocket();
-
+                    _publicWs.Options.Proxy = new WebProxy("socks5://127.0.0.1:10808");
                     // 🌟 核心修复：自动处理 Ping/Pong 心跳，防止被币安强踢
                     _publicWs.Options.KeepAliveInterval = TimeSpan.FromMinutes(2);
 
@@ -103,7 +120,7 @@ namespace TradingTerminal.Services
                 {
                     _tradeWs?.Dispose();
                     _tradeWs = new ClientWebSocket();
-
+                    _tradeWs.Options.Proxy = new WebProxy("socks5://127.0.0.1:10808");
                     // 🌟 核心修复：自动处理 Ping/Pong 心跳
                     _tradeWs.Options.KeepAliveInterval = TimeSpan.FromMinutes(2);
 

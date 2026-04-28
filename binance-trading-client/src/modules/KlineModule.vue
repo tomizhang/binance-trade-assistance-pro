@@ -42,12 +42,6 @@
             {{ isClosing ? '...' : '市价全平' }}
           </button>
         </div>
-
-        <!-- <span v-if="isFocused" class="focus-badge">🟢 操作中</span> -->
-
-        <!-- <button class="action-btn copy-btn" @click="$emit('duplicate', symbol)" title="克隆当前图表窗口">
-          📋
-        </button> -->
       </div>
     </div>
     
@@ -204,11 +198,42 @@
             <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(getPrecisionConfig().precision) }}</text>
           </template>
         </g>
+
+        <g v-if="isDraggingPosition && dragPositionPrice !== null">
+          <line 
+            x1="0" :y1="dragPositionY" 
+            :x2="containerWidth" :y2="dragPositionY" 
+            :stroke="dragPositionType === 'TP' ? '#2ea043' : '#f85149'" 
+            stroke-width="2" stroke-dasharray="4 4" 
+          />
+          <rect 
+            :x="containerWidth - 140" :y="dragPositionY - 24" 
+            width="140" height="24" 
+            :fill="dragPositionType === 'TP' ? '#2ea043' : '#f85149'" 
+            rx="4" 
+          />
+          <text 
+            :x="containerWidth - 70" :y="dragPositionY - 8" 
+            fill="white" font-size="12" font-weight="bold" text-anchor="middle"
+          >
+            {{ dragPositionType === 'TP' ? '止盈' : '止损' }} | {{ dragPositionPnl >= 0 ? '+' : ''}}{{ dragPositionPnl.toFixed(2) }}
+          </text>
+          <text 
+            :x="40" :y="dragPositionY - 8" 
+            :fill="dragPositionType === 'TP' ? '#2ea043' : '#f85149'" 
+            font-size="12" font-weight="bold"
+          >
+            松手挂单: {{ dragPositionPrice.toFixed(getPrecisionConfig().precision) }}
+          </text>
+        </g>
       </svg>
 
       <div 
         class="chart-container no-drag" 
-        :class="{ 'is-resizing': isHoveringShape || draggingShapeId }"
+        :class="{ 
+          'is-resizing': isHoveringShape || draggingShapeId,
+          'is-hovering-position': isHoveringPositionLine || isDraggingPosition 
+        }"
         ref="chartContainer"
         @pointerdown.stop="onPointerDown"
         @pointermove="onPointerMove"
@@ -263,16 +288,15 @@ const showNotification = (msg: string) => {
 };
 
 // ==========================================
-// 🌟 1. 快捷双击下单状态与滚轮防爆仓修改逻辑
+// 🌟 1. 快捷双击下单状态与逻辑
 // ==========================================
 const isQuickTradeEnabled = ref(true);
-const quickTradeAmount = ref(5); // 固定保证金 5U
-const localLeverage = ref(20); // 🌟 新增：独立杠杆状态
+const quickTradeAmount = ref(5); 
+const localLeverage = ref(20); 
 const quickTradeType = ref<'MARKET' | 'LIMIT'>('MARKET');
 const quickTradeSide = ref<'BUY' | 'SELL'>('BUY');
 const isPlacingOrder = ref(false);
 
-// 🌟 新增：监听全局杠杆更新
 watch(() => marketStore.symbolConfigs[props.symbol], (config) => {
   if (config && config.leverage) {
     localLeverage.value = config.leverage;
@@ -282,7 +306,6 @@ watch(() => marketStore.symbolConfigs[props.symbol], (config) => {
 const handleAmountScroll = (e: WheelEvent) => {
   const step = 5; 
   const maxBalance = Math.floor(marketStore.dynamicUsdtBalance || 0);
-
   if (e.deltaY < 0) {
     let nextVal = quickTradeAmount.value + step;
     if (maxBalance > 0 && nextVal > maxBalance) nextVal = maxBalance;
@@ -292,7 +315,6 @@ const handleAmountScroll = (e: WheelEvent) => {
   }
 };
 
-// 🌟 新增：滚动调节杠杆（附带防抖发往后端）
 let leverageTimer: any = null;
 const handleLeverageScroll = (e: WheelEvent) => {
   const step = 1;
@@ -319,11 +341,10 @@ const handleLeverageScroll = (e: WheelEvent) => {
   }, 800);
 };
 
-// 🌟 修复：防抖节流锁与名义价值 5U 底线补齐
 let lastOrderTime = 0;
 const executeQuickTrade = async (clickedPrice: number) => {
   const now = Date.now();
-  if (now - lastOrderTime < 1000) return; // 🌟 1000ms 绝对防抖，防止手抖连点
+  if (now - lastOrderTime < 1000) return; 
   if (isPlacingOrder.value) return;
 
   const currentPrice = marketStore.marketTickers[props.symbol]?.lastPrice || clickedPrice;
@@ -335,15 +356,12 @@ const executeQuickTrade = async (clickedPrice: number) => {
   let formattedQtyStr = formatByStep(rawQuantity, rule.stepSize);
   let quantity = parseFloat(formattedQtyStr);
 
-  // 🌟 核心修复：防止报错 -4164，确保名义价值必须 >= 5.01
   if (quantity * calcPrice < 5.01) {
     const minRequiredQty = 5.01 / calcPrice;
     const step = parseFloat(rule.stepSize);
-    // 强制向上取整，跨过 5U 及格线
     quantity = Math.ceil(minRequiredQty / step) * step;
     quantity = parseFloat(quantity.toFixed(step.toString().includes('.') ? step.toString().split('.')[1].length : 0));
     
-    // 如果补齐后的保证金超出了用户真实可用余额，拦截
     if ((quantity * calcPrice) / localLeverage.value > marketStore.dynamicUsdtBalance) {
        showNotification(`❌ 余额不足以满足币安最低下单限制(5U)`);
        return;
@@ -374,6 +392,8 @@ const executeQuickTrade = async (clickedPrice: number) => {
     if (!res.ok || data.error) throw new Error(data.error?.msg || '下单被拒');
     
     showNotification(`✅ [快捷下单成功] ${quickTradeSide.value === 'BUY' ? '做多' : '做空'} ${quantity} 个`);
+    // 🌟 修复点 1：下单成功后刷新挂单列表
+    await marketStore.fetchOpenOrders();
   } catch(e: any) {
     showNotification(`❌ 快捷下单失败: ${e.message}`);
   } finally {
@@ -383,7 +403,7 @@ const executeQuickTrade = async (clickedPrice: number) => {
 
 
 // ==========================================
-// 🌟 2. 平仓逻辑 (包含 75% 与 100%)
+// 🌟 2. 平仓逻辑
 // ==========================================
 const isClosing = ref(false);
 let lastCloseTime = 0;
@@ -406,7 +426,7 @@ const formatByStep = (value: number, stepStr: string) => {
 
 const closePosition = async (percent: number) => {
   const now = Date.now();
-  if (now - lastCloseTime < 1000) return; // 🌟 防抖
+  if (now - lastCloseTime < 1000) return; 
   
   const pos = currentPosition.value;
   if (!pos || isClosing.value) return;
@@ -442,6 +462,8 @@ const closePosition = async (percent: number) => {
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error?.msg || '平仓失败');
     showNotification(`✅ [${props.symbol}] ${percent}% 平仓成功!`);
+    // 🌟 修复点 2：平仓成功后刷新挂单列表（如果是部分平仓且有止损，止损需要更新）
+    await marketStore.fetchOpenOrders();
   } catch(e: any) {
     showNotification(`❌ 平仓失败: ${e.message}`);
   } finally {
@@ -451,7 +473,7 @@ const closePosition = async (percent: number) => {
 
 
 // ==========================================
-// 3. 仓位渲染引擎 (挂单可视化)
+// 3. 仓位/挂单渲染引擎
 // ==========================================
 const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
 
@@ -512,16 +534,21 @@ const updateOpenOrderLines = () => {
   });
   openOrderLines = [];
 
-  const orders = marketStore.positions?.filter((o: any) => o.symbol === props.symbol) || [];
+  // 🌟 关键：从真正的 openOrders 中获取
+  const orders = marketStore.openOrders?.filter((o: any) => o.symbol === props.symbol) || [];
   
   orders.forEach((order: any) => {
+    // 兼容限价单(price)和止盈止损单(stopPrice)
+    const targetPrice = parseFloat(order.price) > 0 ? parseFloat(order.price) : parseFloat(order.stopPrice);
+    if (!targetPrice) return;
+
     const line = candleSeries.createPriceLine({
-      price: order.entryPrice,
+      price: targetPrice,
       color: order.side === 'BUY' ? '#2ea043' : '#f85149',
       lineWidth: 1 as any,
       lineStyle: LineStyle.Dotted, 
       axisLabelVisible: true,
-      title: `挂单 ${order.side === 'BUY' ? '买' : '卖'} ${order.amount}`
+      title: `挂单 ${order.side === 'BUY' ? '买' : '卖'} ${order.origQty || order.amount}`
     });
     openOrderLines.push(line);
   });
@@ -572,18 +599,8 @@ watch(() => marketStore.symbolRules[props.symbol], (rule) => {
 }, { deep: true });
 
 
-watch(
-  () => marketStore.wsStatus,
-  async (newStatus, oldStatus) => {
-    if (newStatus === 'CONNECTED' && oldStatus !== 'CONNECTED') {
-      showNotification(`[${props.symbol}] 网络恢复，正在填补 K 线断层...`);
-      await loadHistory(props.symbol, currentTf.value);
-    }
-  }
-);
-
 // ==========================================
-// 绘图引擎与数据逻辑
+// 4. 绘图引擎与数据逻辑 (含持仓拖拽止盈止损)
 // ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
@@ -593,7 +610,15 @@ const customShapes = ref<Shape[]>([]);
 const svgShapes = ref<any[]>([]); 
 const selectedShapeId = ref<string | null>(null);
 const draggingShapeId = ref<string | null>(null);
+
 const isHoveringShape = ref(false);
+const isHoveringPositionLine = ref(false);
+const isDraggingPosition = ref(false);
+const dragPositionY = ref(0);
+const dragPositionPrice = ref<number | null>(null);
+const dragPositionType = ref<'TP' | 'SL'>('TP');
+const dragPositionPnl = ref(0);
+
 let dragOffsets: { dl: number, dp: number }[] = [];
 const selectedShapeColor = computed(() => {
   const shape = customShapes.value.find(s => s.id === selectedShapeId.value);
@@ -602,47 +627,49 @@ const selectedShapeColor = computed(() => {
 const onDrawModeChange = () => { drawStep.value = 0; if (currentDrawMode.value !== 'none') deselectShape(); };
 const deselectShape = () => { selectedShapeId.value = null; };
 
-let animationFrameId: number;
-const renderSvgLoop = () => {
-  if (chart && candleSeries && chartContainer.value) {
-    containerWidth.value = chartContainer.value.clientWidth;
-    const mapped = [];
-    for (const shape of customShapes.value) {
-      const pts = shape.points.map(p => {
-        const x = chart!.timeScale().logicalToCoordinate(p.logical as any);
-        const y = candleSeries.priceToCoordinate(p.price);
-        return { x: x as any, y: y as any };
+// 🌟 核心修复：拖拽挂单完成后强制刷新
+const placeDragOrder = async (targetPrice: number, tpSlType: 'TP' | 'SL') => {
+  const pos = currentPosition.value;
+  if (!pos) return;
+  const side = pos.side === 'LONG' ? 'SELL' : 'BUY';
+  const rule = marketStore.symbolRules[props.symbol] || { stepSize: '0.001', tickSize: '0.1' };
+  const formattedPrice = parseFloat(formatByStep(targetPrice, rule.tickSize));
+  const quantity = Math.abs(pos.amount);
+
+  const orderType = tpSlType === 'TP' ? 'LIMIT' : 'STOP_MARKET';
+  
+  const payload: any = {
+      symbol: props.symbol,
+      side: side,
+      type: orderType,
+      quantity: quantity,
+      reduceOnly: true 
+  };
+  
+  if (orderType === 'LIMIT') payload.price = formattedPrice;
+  if (orderType === 'STOP_MARKET') payload.stopPrice = formattedPrice;
+
+  try {
+      showNotification(`⌛ 正在挂载 ${tpSlType === 'TP' ? '止盈' : '止损'} 订单...`);
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
       });
-      if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) { pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x) as any, y: pts[2].y + (pts[1].y - pts[0].y) }; }
-      if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
-        const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y;
-        if (dx !== 0 || dy !== 0) { pts[2] = { x: pts[1].x + dx * 10000 as any, y: pts[1].y + dy * 10000 }; } else { pts[2] = { ...pts[1] }; }
-      }
-      let angleStr = '';
-      if (shape.type === 'angle' && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
-        const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y; 
-        angleStr = (Math.atan2(-dy, dx) * (180 / Math.PI)).toFixed(1) + '°';
-      }
-      if (pts.every(p => p.x !== null && p.y !== null)) { mapped.push({ ...shape, pts, angleStr }); }
-    }
-    svgShapes.value = mapped;
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error?.msg || '挂单失败');
+      showNotification(`✅ 成功设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 挂单 (触发价: ${formattedPrice})`);
+      
+      // 🌟 修复点 3：止盈止损挂单成功后刷新挂单列表
+      await marketStore.fetchOpenOrders();
+  } catch(e: any) {
+      showNotification(`❌ 设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 失败: ${e.message}`);
   }
-  animationFrameId = requestAnimationFrame(renderSvgLoop);
 };
 
-const distToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
-  const l2 = (x1 - x2)**2 + (y1 - y2)**2; if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
-  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; t = Math.max(0, Math.min(1, t)); 
-  return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
-};
-
-const distToRay = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
-  const l2 = (x1 - x2)**2 + (y1 - y2)**2; if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
-  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; t = Math.max(0, t); 
-  return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
-};
 
 let activeShapeIdForDraw: string | null = null;
+
 const onPointerDown = (e: PointerEvent) => {
   if (!chart || !candleSeries || !chartContainer.value) return;
   const rect = chartContainer.value.getBoundingClientRect();
@@ -650,6 +677,12 @@ const onPointerDown = (e: PointerEvent) => {
   const logical = chart.timeScale().coordinateToLogical(x as any);
   const price = candleSeries.coordinateToPrice(y);
   if (logical === null || price === null) return;
+
+  if (currentDrawMode.value === 'none' && isHoveringPositionLine.value && !isHoveringShape.value) {
+      isDraggingPosition.value = true;
+      chart.applyOptions({ handleScroll: false, handleScale: false });
+      return;
+  }
 
   if (currentDrawMode.value !== 'none') {
     if (currentDrawMode.value === 'hline') {
@@ -711,6 +744,20 @@ const onPointerMove = (e: PointerEvent) => {
   const price = candleSeries.coordinateToPrice(y);
   if (logical === null || price === null) return;
 
+  if (isDraggingPosition.value && currentPosition.value) {
+      dragPositionPrice.value = price;
+      dragPositionY.value = y;
+      const isLong = currentPosition.value.side === 'LONG';
+      if (isLong) {
+          dragPositionType.value = price > currentPosition.value.entryPrice ? 'TP' : 'SL';
+          dragPositionPnl.value = (price - currentPosition.value.entryPrice) * Math.abs(currentPosition.value.amount);
+      } else {
+          dragPositionType.value = price < currentPosition.value.entryPrice ? 'TP' : 'SL';
+          dragPositionPnl.value = (currentPosition.value.entryPrice - price) * Math.abs(currentPosition.value.amount);
+      }
+      return;
+  }
+
   if (currentDrawMode.value !== 'none' && drawStep.value > 0 && activeShapeIdForDraw) {
     const shape = customShapes.value.find(s => s.id === activeShapeIdForDraw);
     if (shape) {
@@ -744,14 +791,75 @@ const onPointerMove = (e: PointerEvent) => {
     if (hit) break;
   }
   isHoveringShape.value = hit;
+
+  if (!hit && currentDrawMode.value === 'none' && !draggingShapeId.value && currentPosition.value && candleSeries) {
+      const posY = candleSeries.priceToCoordinate(currentPosition.value.entryPrice);
+      if (posY !== null && Math.abs(y - posY) < 10) {
+          isHoveringPositionLine.value = true;
+      } else {
+          isHoveringPositionLine.value = false;
+      }
+  } else {
+      isHoveringPositionLine.value = false;
+  }
 };
 
 const onPointerUp = () => {
+  if (isDraggingPosition.value) {
+      isDraggingPosition.value = false;
+      chart?.applyOptions({ handleScroll: true, handleScale: true });
+      if (dragPositionPrice.value !== null) {
+          placeDragOrder(dragPositionPrice.value, dragPositionType.value);
+      }
+      dragPositionPrice.value = null;
+      return;
+  }
+
   if (draggingShapeId.value) {
     chart?.applyOptions({ handleScroll: true, handleScale: true }); 
     broadcastSync({ action: 'move', shape: customShapes.value.find(s => s.id === draggingShapeId.value) });
     draggingShapeId.value = null;
   }
+};
+
+let animationFrameId: number;
+const renderSvgLoop = () => {
+  if (chart && candleSeries && chartContainer.value) {
+    containerWidth.value = chartContainer.value.clientWidth;
+    const mapped = [];
+    for (const shape of customShapes.value) {
+      const pts = shape.points.map(p => {
+        const x = chart!.timeScale().logicalToCoordinate(p.logical as any);
+        const y = candleSeries.priceToCoordinate(p.price);
+        return { x: x as any, y: y as any };
+      });
+      if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) { pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x) as any, y: pts[2].y + (pts[1].y - pts[0].y) }; }
+      if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
+        const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y;
+        if (dx !== 0 || dy !== 0) { pts[2] = { x: pts[1].x + dx * 10000 as any, y: pts[1].y + dy * 10000 }; } else { pts[2] = { ...pts[1] }; }
+      }
+      let angleStr = '';
+      if (shape.type === 'angle' && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
+        const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y; 
+        angleStr = (Math.atan2(-dy, dx) * (180 / Math.PI)).toFixed(1) + '°';
+      }
+      if (pts.every(p => p.x !== null && p.y !== null)) { mapped.push({ ...shape, pts, angleStr }); }
+    }
+    svgShapes.value = mapped;
+  }
+  animationFrameId = requestAnimationFrame(renderSvgLoop);
+};
+
+const distToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
+  const l2 = (x1 - x2)**2 + (y1 - y2)**2; if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; t = Math.max(0, Math.min(1, t)); 
+  return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
+};
+
+const distToRay = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
+  const l2 = (x1 - x2)**2 + (y1 - y2)**2; if (l2 === 0) return Math.sqrt((px - x1)**2 + (py - y1)**2);
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; t = Math.max(0, t); 
+  return Math.sqrt((px - (x1 + t * (x2 - x1)))**2 + (py - (y1 + t * (y2 - y1)))**2);
 };
 
 const broadcastSync = (detail: any) => {
@@ -867,7 +975,7 @@ const applyDataToSeries = (data: any[]) => {
 
 const loadHistory = async (symbol: string, interval: string) => {
   try {
-    const history = await MarketAPI.getHistoricalKlines(symbol, interval, 500);
+    const history = await MarketAPI.getHistoricalKlines(symbol, interval, 200);
     if (!history || history.length === 0) return;
     currentChartData.value = history;
     applyDataToSeries(currentChartData.value);
@@ -884,7 +992,7 @@ const loadMoreHistory = async () => {
   const targetEndTimeMs = (oldestTimeSec - (parseInt(currentTf.value) * (currentTf.value.endsWith('m') ? 60 : 3600))) * 1000;
 
   try {
-    const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 500, targetEndTimeMs);
+    const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 200, targetEndTimeMs);
     if (olderHistory && olderHistory.length > 0) {
       const safeNewData = olderHistory.filter(( item : any) => {
         const itemTime = Number(item.time) > 9999999999 ? Math.floor(Number(item.time) / 1000) : Number(item.time);
@@ -1110,7 +1218,7 @@ watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol
   updatePositionLines();
 }, { deep: true });
 
-watch(() => marketStore.positions, () => {
+watch(() => marketStore.openOrders, () => {
   updateOpenOrderLines();
 }, { deep: true });
 
@@ -1239,7 +1347,9 @@ onUnmounted(() => {
 .chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; transition: box-shadow 0.2s; }
 .is-drawing-mode { box-shadow: inset 0 0 15px rgba(88, 166, 255, 0.2); cursor: crosshair; }
 .chart-container { flex: 1; width: 100%; position: relative; z-index: 1; }
+
 .is-resizing { cursor: move !important; }
+.is-hovering-position { cursor: ns-resize !important; }
 
 .drawing-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 

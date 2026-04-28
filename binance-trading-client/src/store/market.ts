@@ -40,6 +40,35 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
+  // 1. 在 state 定义区 (比如 const positions = ref([]) 附近) 增加挂单数组
+  const openOrders = ref<any[]>([]);
+
+  // 2. 新增一个拉取当前挂单的方法
+  const fetchOpenOrders = async (symbol?: string) => {
+    try {
+      let url = `${import.meta.env.VITE_API_BASE_URL}/api/order/openOrders`;
+      if (symbol) url += `?symbol=${symbol}`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (res.ok) {
+        const rawOrders = Array.isArray(data) ? data : (data.data || []);
+
+        // 🌟 核心抹平逻辑：将币安的奇葩 algo 字段统一映射回标准名称！
+        openOrders.value = rawOrders.map(o => ({
+          ...o,
+          orderId: o.algoId || o.orderId || o.clientOrderId, // 归一化 ID
+          type: o.orderType || o.type,                       // 归一化 类型
+          stopPrice: o.triggerPrice || o.stopPrice,          // 归一化 触发价
+          origQty: o.origQty || o.quantity                   // 归一化 数量
+        }));
+      }
+    } catch (error) {
+      console.error('获取挂单失败:', error);
+    }
+  };
+
   const isInitialized = ref(false); // 标记是否完成首次强制同步
 
   const isReady = computed(() => {
@@ -396,6 +425,7 @@ export const useMarketStore = defineStore('market', () => {
     lastOverlayEvent, broadcastOverlay, wsStatus, globalCrosshairTime, updateGlobalCrosshair,
     positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory,
     dataSource, switchDataSource, symbolConfigs, dynamicUsdtBalance, backendLatency, isReady,
-    isInitialized
+    isInitialized, openOrders,
+    fetchOpenOrders,
   }
 })

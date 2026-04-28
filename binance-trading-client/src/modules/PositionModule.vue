@@ -5,6 +5,9 @@
         <button :class="{ active: activeTab === 'ACTIVE' }" @click="activeTab = 'ACTIVE'">
           当前持仓 ({{ filteredPositions.length }})
         </button>
+        <button :class="{ active: activeTab === 'OPEN_ORDERS' }" @click="switchToOpenOrders">
+          当前挂单 ({{ filteredOpenOrders.length }})
+        </button>
         <button :class="{ active: activeTab === 'HISTORY' }" @click="switchToHistory">
           历史记录
         </button>
@@ -29,7 +32,6 @@
             <th @click="setSort('time')" class="sortable">开仓时间 {{ getSortIcon('time') }}</th>
             <th @click="setSort('symbol')" class="sortable">合约 {{ getSortIcon('symbol') }}</th>
             <th @click="setSort('side')" class="sortable">方向/杠杆 {{ getSortIcon('side') }}</th>
-            
             <th @click="setSort('amount')" class="sortable amount-th">
               <div class="th-stacked">
                 <span>持仓量 {{ getSortIcon('amount') }}</span>
@@ -38,9 +40,7 @@
                 </button>
               </div>
             </th>
-
             <th @click="setSort('entryPrice')" class="sortable">均价 / 最新 / 强平</th>
-            
             <th title="保证金占用 = 名义价值 / 杠杆">占用保证金</th>
             <th @click="setSort('pnl')" class="sortable">未实现盈亏(ROE%) {{ getSortIcon('pnl') }}</th>
             <th>操作</th>
@@ -54,9 +54,7 @@
             :class="{ 'active-row': marketStore.currentSymbol === pos.symbol }"
           >
             <td class="font-mono text-muted">{{ formatDateTime(pos.updateTime) }}</td>
-            
             <td><strong>{{ pos.symbol }}</strong></td>
-            
             <td>
               <div class="side-col">
                 <span :class="pos.side === 'LONG' ? 'text-green' : 'text-red'" class="side-badge">
@@ -68,9 +66,7 @@
                 </span>
               </div>
             </td>
-
             <td class="font-mono">{{ getDisplayAmount(pos) }}</td>
-
             <td class="font-mono price-col">
               <span class="entry-price" title="开仓均价">均: {{ pos.entryPrice.toFixed(getTickDecimals(pos.symbol)) }}</span>
               <span :class="getPriceColor(pos.symbol)" class="current-price" title="最新价">
@@ -80,22 +76,66 @@
                 平: {{ getLiqPrice(pos) > 0 ? getLiqPrice(pos).toFixed(getTickDecimals(pos.symbol)) : '--' }}
               </span>
             </td>
-
-            <td class="font-mono">
-              {{ getUsedMargin(pos) }} U
-            </td>
-
+            <td class="font-mono">{{ getUsedMargin(pos) }} U</td>
             <td class="font-mono pnl-col" :class="getPnlClass(getRealtimePnl(pos))">
               <span class="pnl-value">{{ getRealtimePnl(pos) > 0 ? '+' : '' }}{{ getRealtimePnl(pos).toFixed(2) }}</span>
               <span class="pnl-roe">({{ getRoe(pos) > 0 ? '+' : '' }}{{ getRoe(pos).toFixed(2) }}%)</span>
             </td>
-
             <td>
               <button class="btn-close" @click.stop="closePosition(pos)">市价平仓</button>
             </td>
           </tr>
           <tr v-if="sortedActivePositions.length === 0">
             <td colspan="8" class="empty-state">没有符合条件的持仓</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table v-if="activeTab === 'OPEN_ORDERS'">
+        <thead>
+          <tr>
+            <th>挂单时间</th>
+            <th>合约</th>
+            <th>类型</th>
+            <th>方向</th>
+            <th>价格 / 触发价</th>
+            <th>数量 (执行/总计)</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr 
+            v-for="order in filteredOpenOrders" 
+            :key="order.orderId || order.clientOrderId"
+            @click="marketStore.setCurrentSymbol(order.symbol)"
+            :class="{ 'active-row': marketStore.currentSymbol === order.symbol }"
+          >
+            <td class="font-mono text-muted">{{ formatDateTime(order.time || order.updateTime) }}</td>
+            <td><strong>{{ order.symbol }}</strong></td>
+            <td>
+              <div class="side-col">
+                <span class="text-muted" style="font-weight: bold;">{{ getOrderTypeLabel(order.type) }}</span>
+                <span v-if="order.reduceOnly" class="margin-badge reduce-only-badge">只减仓</span>
+              </div>
+            </td>
+            <td>
+              <span :class="order.side === 'BUY' ? 'text-green' : 'text-red'" class="side-badge">
+                {{ order.side === 'BUY' ? '买入' : '卖出' }}
+              </span>
+            </td>
+            <td class="font-mono price-col">
+              <span v-if="parseFloat(order.price) > 0" class="current-price">挂单: {{ parseFloat(order.price) }}</span>
+  <span v-if="parseFloat(order.stopPrice) > 0" class="liq-price trigger-price">触发: {{ parseFloat(order.stopPrice) }}</span>
+            </td>
+            <td class="font-mono">
+              <span class="text-muted">{{ parseFloat(order.executedQty || 0) }}</span> / {{ parseFloat(order.origQty || order.amount) }}
+            </td>
+            <td>
+              <button class="btn-close" @click.stop="cancelOrder(order)">撤单</button>
+            </td>
+          </tr>
+          <tr v-if="filteredOpenOrders.length === 0">
+            <td colspan="7" class="empty-state">当前没有活跃挂单</td>
           </tr>
         </tbody>
       </table>
@@ -121,20 +161,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useMarketStore } from '@/store/market';
 import { useToast } from '@/utils/useToast';
-import { calculateLiquidationPrice } from '@/utils/tradeUtils'; // 🌟 引入强平计算引擎
+import { calculateLiquidationPrice } from '@/utils/tradeUtils';
 
 const marketStore = useMarketStore();
 const toast = useToast();
 
-const activeTab = ref<'ACTIVE' | 'HISTORY'>('ACTIVE');
+const activeTab = ref<'ACTIVE' | 'OPEN_ORDERS' | 'HISTORY'>('ACTIVE');
 const displayMode = ref<'TOKEN' | 'USDT'>('TOKEN');
 const toggleDisplayMode = () => { displayMode.value = displayMode.value === 'TOKEN' ? 'USDT' : 'TOKEN'; };
 
 const searchQuery = ref('');
 const showCurrentOnly = ref(false);
+
+// 🌟 初始化生命周期
+onMounted(() => {
+  marketStore.fetchOpenOrders();
+});
+
+// ==========================================
+// 核心切换与数据拉取
+// ==========================================
+const switchToOpenOrders = () => {
+  activeTab.value = 'OPEN_ORDERS';
+  marketStore.fetchOpenOrders(showCurrentOnly.value ? marketStore.currentSymbol : undefined);
+};
 
 const switchToHistory = () => {
   activeTab.value = 'HISTORY';
@@ -142,25 +195,8 @@ const switchToHistory = () => {
 };
 
 // ==========================================
-// 排序与过滤机制
+// 过滤与解析逻辑
 // ==========================================
-const sortKey = ref('time'); 
-const sortDesc = ref(true);
-
-const setSort = (key: string) => {
-  if (sortKey.value === key) {
-    sortDesc.value = !sortDesc.value;
-  } else {
-    sortKey.value = key;
-    sortDesc.value = true;
-  }
-};
-
-const getSortIcon = (key: string) => {
-  if (sortKey.value !== key) return '⇕';
-  return sortDesc.value ? '⬇' : '⬆';
-};
-
 const filteredPositions = computed(() => {
   let result = marketStore.positions;
   if (showCurrentOnly.value) result = result.filter(pos => pos.symbol === marketStore.currentSymbol);
@@ -171,10 +207,52 @@ const filteredPositions = computed(() => {
   return result;
 });
 
+const filteredOpenOrders = computed(() => {
+  let result = marketStore.openOrders || [];
+  
+  // 🌟 核心防御：通过 ID 存在性过滤掉混入的持仓脏数据
+  result = result.filter((o: any) => o.orderId || o.clientOrderId);
+
+  if (showCurrentOnly.value) result = result.filter((o: any) => o.symbol === marketStore.currentSymbol);
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.trim().toUpperCase();
+    result = result.filter((o: any) => o.symbol.includes(q));
+  }
+  return result.sort((a: any, b: any) => (b.time || b.updateTime) - (a.time || a.updateTime));
+});
+
+const getOrderTypeLabel = (type: string) => {
+  switch (type) {
+    case 'LIMIT': return '限价单';
+    case 'MARKET': return '市价单';
+    case 'STOP_MARKET': return '市价止损';
+    case 'TAKE_PROFIT_MARKET': return '市价止盈';
+    case 'STOP': return '限价止损';
+    case 'TAKE_PROFIT': return '限价止盈';
+    default: return type;
+  }
+};
+
+// ==========================================
+// 排序机制
+// ==========================================
+const sortKey = ref('time'); 
+const sortDesc = ref(true);
+
+const setSort = (key: string) => {
+  if (sortKey.value === key) sortDesc.value = !sortDesc.value;
+  else { sortKey.value = key; sortDesc.value = true; }
+};
+
+const getSortIcon = (key: string) => {
+  if (sortKey.value !== key) return '⇕';
+  return sortDesc.value ? '⬇' : '⬆';
+};
+
 const sortedActivePositions = computed(() => {
   const arr = [...filteredPositions.value];
   return arr.sort((a, b) => {
-    let valA, valB;
+    let valA: any, valB: any;
     switch (sortKey.value) {
       case 'time': valA = a.updateTime || 0; valB = b.updateTime || 0; break;
       case 'symbol': valA = a.symbol; valB = b.symbol; break;
@@ -184,16 +262,13 @@ const sortedActivePositions = computed(() => {
       case 'pnl': valA = getRealtimePnl(a); valB = getRealtimePnl(b); break;
       default: valA = 0; valB = 0;
     }
-    
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return sortDesc.value ? valB.localeCompare(valA) : valA.localeCompare(valB);
-    }
+    if (typeof valA === 'string' && typeof valB === 'string') return sortDesc.value ? valB.localeCompare(valA) : valA.localeCompare(valB);
     return sortDesc.value ? valB - valA : valA - valB;
   });
 });
 
 // ==========================================
-// 价格、盈亏、保证金、强平计算
+// 价格、计算助手
 // ==========================================
 const getCurrentPrice = (symbol: string) => marketStore.marketTickers[symbol]?.lastPrice || 0;
 const getPriceColor = (symbol: string) => (marketStore.marketTickers[symbol]?.priceChangePercent || 0) >= 0 ? 'text-green' : 'text-red';
@@ -204,7 +279,6 @@ const getTickDecimals = (symbol: string) => {
   return match ? match[1].length + 1 : 0;
 };
 
-// 🌟 强平价推演核心逻辑 (包含全仓护城河计算)
 const getLiqPrice = (pos: any) => {
   const otherCrossPositions = marketStore.positions
     .filter(p => p.symbol !== pos.symbol && p.marginType === 'cross')
@@ -275,7 +349,7 @@ const formatDateTime = (timestamp: number) => {
 const closePosition = async (pos: any) => {
   try {
     toast.info(`正在平仓 ${pos.symbol}...`);
-    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place`, {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -286,10 +360,43 @@ const closePosition = async (pos: any) => {
         reduceOnly: true
       })
     });
-    if (res.ok) toast.success(`${pos.symbol} 平仓指令已发送`);
-    else { const data = await res.json(); throw new Error(data.message || '平仓拒绝'); }
+    const data = await res.json();
+    if (res.ok && !data.error) toast.success(`${pos.symbol} 平仓指令已发送`);
+    else throw new Error(data.error?.msg || '平仓拒绝');
   } catch (e: any) {
     toast.error('平仓失败: ' + e.message);
+  }
+};
+
+// 🌟 修正：撤销挂单逻辑，增加成功后的刷新
+const cancelOrder = async (order: any) => {
+  const orderId = order.orderId || order.clientOrderId;
+
+  if (!orderId) {
+    toast.error('❌ 撤单失败: 无效的订单ID，数据源异常');
+    return;
+  }
+
+  try {
+    toast.info(`正在撤销挂单 ${order.symbol}...`);
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/cancel-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        symbol: order.symbol, 
+        orderId: orderId.toString() 
+      })
+    });
+    const data = await res.json();
+    if (res.ok && !data.error) {
+      toast.success(`撤单成功`);
+      // 🌟 关键修复：撤单成功后立刻刷新 Store 中的挂单列表
+      await marketStore.fetchOpenOrders(); 
+    } else {
+      throw new Error(data.error?.msg || '撤单指令被拒');
+    }
+  } catch (e: any) {
+    toast.error('撤单失败: ' + e.message);
   }
 };
 </script>
@@ -297,26 +404,23 @@ const closePosition = async (pos: any) => {
 <style scoped>
 .position-module { height: 100%; background: #0d1117; display: flex; flex-direction: column; border: 1px solid #30363d; border-radius: 6px; }
 
-/* 头部设计 */
-.module-header { display: flex; justify-content: space-between; align-items: center; background: #161b22; border-bottom: 1px solid #30363d; padding-right: 15px; }
+.module-header { display: flex; justify-content: space-between; align-items: center; background: #161b22; border-bottom: 1px solid #30363d; padding-right: 15px; flex-shrink: 0; }
 .tabs { display: flex; }
-.tabs button { background: transparent; border: none; color: #8b949e; padding: 10px 16px; font-size: 13px; font-weight: bold; cursor: pointer; border-bottom: 2px solid transparent; }
+.tabs button { background: transparent; border: none; color: #8b949e; padding: 10px 16px; font-size: 13px; font-weight: bold; cursor: pointer; border-bottom: 2px solid transparent; transition: 0.2s; }
 .tabs button.active { color: #58a6ff; border-bottom-color: #58a6ff; background: rgba(88, 166, 255, 0.05); }
+.tabs button:hover:not(.active) { color: #c9d1d9; }
 .balance-info { font-size: 12px; color: #8b949e; }
 
-/* 工具栏 */
-.toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; }
+.toolbar { display: flex; align-items: center; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; flex-shrink: 0; }
 .filter-group { display: flex; align-items: center; gap: 12px; }
 .search-input { background: #010409; border: 1px solid #30363d; color: #c9d1d9; padding: 3px 8px; border-radius: 4px; font-size: 12px; width: 140px; outline: none; }
 .checkbox-label { font-size: 12px; color: #c9d1d9; display: flex; align-items: center; gap: 4px; cursor: pointer; }
 
-/* 表格主体 (优化紧凑行高) */
 .position-table { flex: 1; overflow-y: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 800px;}
 th { text-align: left; padding: 6px 12px; color: #8b949e; background: #0d1117; position: sticky; top: 0; border-bottom: 1px solid #21262d; font-weight: normal; z-index: 1; }
 td { padding: 6px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; cursor: pointer; }
 
-/* 表头切换按钮 */
 .th-stacked { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .mini-toggle { background: #21262d; border: 1px solid #30363d; color: #8b949e; font-size: 10px; padding: 1px 4px; border-radius: 3px; cursor: pointer; }
 .mini-toggle:hover { color: #58a6ff; border-color: #58a6ff; }
@@ -329,14 +433,15 @@ tr:hover td { background: rgba(139, 148, 158, 0.05); }
 .text-muted { color: #8b949e; }
 .side-col { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
 .margin-badge { font-size: 10px; background: #21262d; color: #8b949e; padding: 1px 4px; border-radius: 3px; display: inline-flex; gap: 4px; }
+.reduce-only-badge { color: #d29922; border: 1px solid rgba(210, 153, 34, 0.3); }
 .leverage-text { color: #e6edf3; font-weight: bold; }
 .side-badge { font-weight: bold; }
 
-/* 🌟 价格堆叠列样式优化 */
 .price-col { display: flex; flex-direction: column; gap: 2px; }
 .entry-price { font-size: 11px; color: #8b949e; }
 .current-price { font-size: 13px; font-weight: bold; }
 .liq-price { font-size: 11px; color: #d29922; border-top: 1px dashed rgba(48, 54, 61, 0.5); padding-top: 2px; }
+.trigger-price { color: #58a6ff; }
 
 .text-green { color: #2ea043 !important; }
 .text-red { color: #f85149 !important; }
@@ -346,7 +451,7 @@ tr:hover td { background: rgba(139, 148, 158, 0.05); }
 .pnl-value { font-size: 13px; font-weight: bold; }
 .pnl-roe { font-size: 11px; opacity: 0.8; }
 
-.btn-close { background: transparent; border: 1px solid #30363d; color: #c9d1d9; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.btn-close { background: transparent; border: 1px solid #30363d; color: #c9d1d9; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: 0.2s; }
 .btn-close:hover { background: #f85149; border-color: #f85149; color: white; }
 .empty-state { text-align: center; color: #8b949e; padding: 40px 0; font-style: italic; }
 </style>
