@@ -56,7 +56,7 @@ export const useMarketStore = defineStore('market', () => {
         const rawOrders = Array.isArray(data) ? data : (data.data || []);
 
         // 🌟 核心抹平逻辑：将币安的奇葩 algo 字段统一映射回标准名称！
-        openOrders.value = rawOrders.map(o => ({
+        openOrders.value = rawOrders.map((o :any) => ({
           ...o,
           orderId: o.algoId || o.orderId || o.clientOrderId, // 归一化 ID
           type: o.orderType || o.type,                       // 归一化 类型
@@ -174,9 +174,9 @@ export const useMarketStore = defineStore('market', () => {
     worker.port.onmessage = (event) => {
       const { type, payload } = event.data;
       if (type === 'TICKERS_DATA') handleTickersData(payload);
-      if (type === 'KLINE_DATA') handleKlineData(payload);
-      if (type === 'ACCOUNT_DATA') handleAccountData(payload);
-      if (type === 'BACKEND_LATENCY') backendLatency.value = payload;
+      else if (type === 'KLINE_DATA') handleKlineData(payload);
+      else if (type === 'ACCOUNT_DATA') handleAccountData(payload);
+      else if (type === 'BACKEND_LATENCY') backendLatency.value = payload;
     };
 
     worker.port.start();
@@ -297,6 +297,7 @@ export const useMarketStore = defineStore('market', () => {
         if (usdtAsset) usdtBalance.value = parseFloat(usdtAsset.cw || usdtAsset.wb || '0');
       }
       refreshAccountBalance();
+      fetchOpenOrders();
       const posData = payload.a?.P;
       if (posData) {
         posData.forEach((p: any) => {

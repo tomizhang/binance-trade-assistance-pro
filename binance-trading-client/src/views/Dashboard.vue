@@ -86,6 +86,7 @@
                 :is="getComponentByType(item.type)" 
                 :symbol="item.symbol" 
                 @duplicate="addKlinePanel" 
+                @openChart="handleOpenChart"
               />
             </div>
           </div>
@@ -109,7 +110,7 @@ import FourierModule from '@/modules/FourierModule.vue';
 const marketStore = useMarketStore()
 const isSidebarVisible = ref(true)
 
-const isFocused = (symbol :any) =>{console.log(symbol) ;return marketStore.currentSymbol === symbol} 
+const isFocused = (symbol: any) => { return marketStore.currentSymbol === symbol } 
 
 // 计算加载进度
 const bootProgress = computed(() => {
@@ -148,6 +149,18 @@ const layout = ref<LayoutItem[]>([
 const addKlinePanel = (symbol: string) => {
   const newId = `kline-${symbol}-${Date.now()}`
   layout.value.push({ x: 0, y: 0, w: 12, h: 12, i: newId, type: 'kline', symbol: symbol, title: `${symbol} 永续` })
+}
+
+// 🌟 核心方法：处理从 PositionModule 双击传来的打开图表指令
+const handleOpenChart = (symbol: string) => {
+  // 判断当前面板中是否已经打开了该币种的 K线图
+  const chartExists = layout.value.some(item => item.symbol === symbol && item.type === 'kline');
+  
+  if (!chartExists) {
+    // 如果没有打开过，则直接新建一个面板
+    addKlinePanel(symbol);
+  }
+  // 如果已经打开过，PositionModule 里触发的 marketStore.setCurrentSymbol 已经将焦点切过去了，无需多余操作
 }
 
 const removePanel = (id: string) => { layout.value = layout.value.filter(item => item.i !== id) }

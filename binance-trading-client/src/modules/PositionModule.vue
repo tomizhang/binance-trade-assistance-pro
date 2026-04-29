@@ -51,7 +51,9 @@
             v-for="pos in sortedActivePositions" 
             :key="pos.symbol"
             @click="marketStore.setCurrentSymbol(pos.symbol)"
+            @dblclick="openKlineChart(pos.symbol)"
             :class="{ 'active-row': marketStore.currentSymbol === pos.symbol }"
+            title="双击打开/聚焦 K线图表"
           >
             <td class="font-mono text-muted">{{ formatDateTime(pos.updateTime) }}</td>
             <td><strong>{{ pos.symbol }}</strong></td>
@@ -108,7 +110,9 @@
             v-for="order in filteredOpenOrders" 
             :key="order.orderId || order.clientOrderId"
             @click="marketStore.setCurrentSymbol(order.symbol)"
+            @dblclick="openKlineChart(order.symbol)"
             :class="{ 'active-row': marketStore.currentSymbol === order.symbol }"
+            title="双击打开/聚焦 K线图表"
           >
             <td class="font-mono text-muted">{{ formatDateTime(order.time || order.updateTime) }}</td>
             <td><strong>{{ order.symbol }}</strong></td>
@@ -125,7 +129,7 @@
             </td>
             <td class="font-mono price-col">
               <span v-if="parseFloat(order.price) > 0" class="current-price">挂单: {{ parseFloat(order.price) }}</span>
-  <span v-if="parseFloat(order.stopPrice) > 0" class="liq-price trigger-price">触发: {{ parseFloat(order.stopPrice) }}</span>
+              <span v-if="parseFloat(order.stopPrice) > 0" class="liq-price trigger-price">触发: {{ parseFloat(order.stopPrice) }}</span>
             </td>
             <td class="font-mono">
               <span class="text-muted">{{ parseFloat(order.executedQty || 0) }}</span> / {{ parseFloat(order.origQty || order.amount) }}
@@ -144,7 +148,14 @@
         <thead><tr><th>时间</th><th>合约</th><th>方向</th><th>成交价</th><th>成交量</th><th>已实现盈亏</th></tr></thead>
         <tbody>
           <tr v-if="marketStore.isLoadingHistory"><td colspan="6" class="empty-state">⏳ 正在加载...</td></tr>
-          <tr v-else v-for="trade in marketStore.positionHistory" :key="trade.id" @click="marketStore.setCurrentSymbol(trade.symbol)">
+          <tr 
+            v-else 
+            v-for="trade in marketStore.positionHistory" 
+            :key="trade.id" 
+            @click="marketStore.setCurrentSymbol(trade.symbol)"
+            @dblclick="openKlineChart(trade.symbol)"
+            title="双击打开/聚焦 K线图表"
+          >
             <td class="font-mono text-muted">{{ formatDateTime(trade.time) }}</td>
             <td><strong>{{ trade.symbol }}</strong></td>
             <td><span :class="trade.side === 'BUY' ? 'text-green' : 'text-red'">{{ trade.side === 'BUY' ? '买入' : '卖出' }}</span></td>
@@ -169,6 +180,9 @@ import { calculateLiquidationPrice } from '@/utils/tradeUtils';
 const marketStore = useMarketStore();
 const toast = useToast();
 
+// 🌟 注册向父组件抛出的事件
+const emit = defineEmits(['openChart']);
+
 const activeTab = ref<'ACTIVE' | 'OPEN_ORDERS' | 'HISTORY'>('ACTIVE');
 const displayMode = ref<'TOKEN' | 'USDT'>('TOKEN');
 const toggleDisplayMode = () => { displayMode.value = displayMode.value === 'TOKEN' ? 'USDT' : 'TOKEN'; };
@@ -180,6 +194,16 @@ const showCurrentOnly = ref(false);
 onMounted(() => {
   marketStore.fetchOpenOrders();
 });
+
+// ==========================================
+// 🌟 交互：双击行打开/聚焦 K线图表
+// ==========================================
+const openKlineChart = (symbol: string) => {
+  // 1. 设置全局当前选中币种
+  marketStore.setCurrentSymbol(symbol);
+  // 2. 抛出事件通知父组件(Dashboard)进行布局更新或跳转
+  emit('openChart', symbol);
+};
 
 // ==========================================
 // 核心切换与数据拉取
@@ -210,7 +234,6 @@ const filteredPositions = computed(() => {
 const filteredOpenOrders = computed(() => {
   let result = marketStore.openOrders || [];
   
-  // 🌟 核心防御：通过 ID 存在性过滤掉混入的持仓脏数据
   result = result.filter((o: any) => o.orderId || o.clientOrderId);
 
   if (showCurrentOnly.value) result = result.filter((o: any) => o.symbol === marketStore.currentSymbol);
@@ -368,7 +391,6 @@ const closePosition = async (pos: any) => {
   }
 };
 
-// 🌟 修正：撤销挂单逻辑，增加成功后的刷新
 const cancelOrder = async (order: any) => {
   const orderId = order.orderId || order.clientOrderId;
 
@@ -390,7 +412,6 @@ const cancelOrder = async (order: any) => {
     const data = await res.json();
     if (res.ok && !data.error) {
       toast.success(`撤单成功`);
-      // 🌟 关键修复：撤单成功后立刻刷新 Store 中的挂单列表
       await marketStore.fetchOpenOrders(); 
     } else {
       throw new Error(data.error?.msg || '撤单指令被拒');
