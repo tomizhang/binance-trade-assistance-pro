@@ -1,5 +1,5 @@
 <template>
-  <div class="kline-module"  @click="takeFocus">
+  <div class="kline-module" @click="takeFocus">
     <div class="kline-toolbar">
       <div class="intervals">
         <button 
@@ -84,6 +84,16 @@
         <button class="sync-btn" :class="{ active: marketStore.isSyncEnabled }" @click="marketStore.toggleSync()" title="跨屏同步">
           🔗 同步
         </button>
+
+        <span class="divider" v-if="activeOpenOrders.length > 0">|</span>
+        <button 
+          v-if="activeOpenOrders.length > 0"
+          class="sync-btn cancel-all-btn" 
+          @click="cancelAllOrders" 
+          title="一键撤销当前图表币种的所有挂单"
+        >
+          🗑️ 一键撤单 ({{ activeOpenOrders.length }})
+        </button>
       </div>
 
       <div class="quick-order-pill">
@@ -155,29 +165,61 @@
         <button class="action-btn" @click="deselectShape">❌ 取消</button>
       </div>
 
-      <svg class="drawing-layer" ref="drawingSvg">
+      <div class="open-orders-layer" v-if="candleSeries" @click="editingOrderId = null">
+        <div 
+          v-for="order in activeOpenOrders" 
+          :key="order.algoId || order.orderId || order.clientOrderId"
+          class="open-order-tag"
+          :class="order.side === 'BUY' ? 'tag-buy' : 'tag-sell'"
+          :style="{ top: `${order.y}px`, display: order.y === null || order.y < 0 ? 'none' : 'flex' }"
+        >
+          <div class="tag-content" @click.stop="openEditOrder(order)" title="点击修改金额或价格">
+            {{ order.side === 'BUY' ? '买' : '卖' }} {{ order.origQty || order.amount }}
+            <span class="edit-icon">✏️</span>
+          </div>
+          <button class="tag-cancel-btn" @click.stop="cancelSingleOrder(order)" title="直接撤销该单">✕</button>
+          
+          <div class="edit-popover" v-if="editingOrderId === (order.algoId || order.orderId || order.clientOrderId)" @click.stop>
+            <div class="edit-header">修改订单参数</div>
+            <div class="edit-row">
+              <span>价格</span>
+              <input type="number" step="any" v-model="editOrderForm.price" />
+            </div>
+            <div class="edit-row">
+              <span>数量</span>
+              <input type="number" step="any" v-model="editOrderForm.qty" />
+            </div>
+            <div class="edit-actions">
+              <button class="btn-confirm" @click="submitEditOrder(order)">确认修改</button>
+              <button class="btn-cancel" @click="editingOrderId = null">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <svg class="drawing-layer" ref="drawingSvg" style="pointer-events: none;">
         <g v-for="s in svgShapes" :key="s.id">
           <template v-if="s.type === 'trend' && s.pts.length >= 2">
-            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[1].x" :y2="s.pts[1].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" />
+            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[1].x" :y2="s.pts[1].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" pointer-events="auto" />
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[0].x" :cy="s.pts[0].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[1].x" :cy="s.pts[1].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
           </template>
 
           <template v-if="s.type === 'ray' && s.pts.length >= 3">
-            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[2].x" :y2="s.pts[2].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" />
+            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[2].x" :y2="s.pts[2].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" pointer-events="auto"/>
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[0].x" :cy="s.pts[0].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[1].x" :cy="s.pts[1].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
           </template>
 
           <template v-if="s.type === 'alert_ray' && s.pts.length >= 3">
-            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[2].x" :y2="s.pts[2].y" :stroke="s.triggered ? '#484f58' : s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" :stroke-dasharray="s.triggered ? 'none' : '6 4'" />
+            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[2].x" :y2="s.pts[2].y" :stroke="s.triggered ? '#484f58' : s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" :stroke-dasharray="s.triggered ? 'none' : '6 4'" pointer-events="auto" />
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[0].x" :cy="s.pts[0].y" r="5" fill="white" :stroke="s.triggered ? '#484f58' : s.color" stroke-width="2"/>
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[1].x" :cy="s.pts[1].y" r="5" fill="white" :stroke="s.triggered ? '#484f58' : s.color" stroke-width="2"/>
             <text :x="s.pts[0].x - 15" :y="s.pts[0].y - 10" font-size="14" :opacity="s.triggered ? 0.3 : 1">🔔</text>
           </template>
 
           <template v-if="s.type === 'angle' && s.pts.length >= 2">
-            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[1].x" :y2="s.pts[1].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" />
+            <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[1].x" :y2="s.pts[1].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 4 : 2" pointer-events="auto" />
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[0].x" :cy="s.pts[0].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
             <circle v-if="s.id === selectedShapeId" :cx="s.pts[1].x" :cy="s.pts[1].y" r="5" fill="white" :stroke="s.color" stroke-width="2"/>
             <line v-if="s.id === selectedShapeId" :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[0].x + 100" :y2="s.pts[0].y" :stroke="s.color" stroke-dasharray="4 4" stroke-width="1" />
@@ -186,14 +228,14 @@
           </template>
           
           <template v-if="s.type === 'channel' && s.pts.length >= 4">
-            <polygon :points="`${s.pts[0].x},${s.pts[0].y} ${s.pts[1].x},${s.pts[1].y} ${s.pts[3].x},${s.pts[3].y} ${s.pts[2].x},${s.pts[2].y}`" :fill="s.color" fill-opacity="0.15" />
+            <polygon :points="`${s.pts[0].x},${s.pts[0].y} ${s.pts[1].x},${s.pts[1].y} ${s.pts[3].x},${s.pts[3].y} ${s.pts[2].x},${s.pts[2].y}`" :fill="s.color" fill-opacity="0.15" pointer-events="auto" />
             <line :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[1].x" :y2="s.pts[1].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 3 : 2" />
             <line :x1="s.pts[2].x" :y1="s.pts[2].y" :x2="s.pts[3].x" :y2="s.pts[3].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 3 : 2" :stroke-dasharray="s.id === selectedShapeId ? 'none' : '4 4'" />
             <line v-if="s.id === selectedShapeId" :x1="s.pts[0].x" :y1="s.pts[0].y" :x2="s.pts[2].x" :y2="s.pts[2].y" :stroke="s.color" stroke-width="1" stroke-dasharray="2 2" />
           </template>
           
           <template v-if="s.type === 'hline' && s.pts.length >= 1">
-            <line x1="0" :y1="s.pts[0].y" :x2="containerWidth" :y2="s.pts[0].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 3 : 2" />
+            <line x1="0" :y1="s.pts[0].y" :x2="containerWidth" :y2="s.pts[0].y" :stroke="s.color" :stroke-width="s.id === selectedShapeId ? 3 : 2" pointer-events="auto" />
             <rect v-if="s.id === selectedShapeId" x="10" :y="s.pts[0].y - 12" width="60" height="24" fill="rgba(22,27,34,0.9)" rx="4" border="1px solid #30363d"/>
             <text v-if="s.id === selectedShapeId" x="40" :y="s.pts[0].y + 4" fill="#c9d1d9" font-size="12" font-family="Arial" text-anchor="middle">{{ s.points[0].price.toFixed(getPrecisionConfig().precision) }}</text>
           </template>
@@ -276,6 +318,11 @@ let positionLineId: any = null;
 let breakEvenLineId: any = null; 
 let openOrderLines: any[] = []; 
 
+// 🌟 用于渲染可交互 HTML 标签的挂单数组
+const activeOpenOrders = ref<any[]>([]);
+const editingOrderId = ref<string | null>(null);
+const editOrderForm = ref({ price: 0, qty: 0 });
+
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
@@ -288,7 +335,126 @@ const showNotification = (msg: string) => {
 };
 
 // ==========================================
-// 🌟 1. 快捷双击下单状态与逻辑
+// 🌟 新增：挂单的一键撤销、编辑与重发
+// ==========================================
+
+// 一键撤销当前标的的所有挂单
+const cancelAllOrders = async () => {
+  const orders = activeOpenOrders.value;
+  if (orders.length === 0) return;
+  
+  showNotification(`⌛ 正在一键撤销 ${orders.length} 个挂单...`);
+  try {
+    await Promise.all(orders.map(order => {
+      const orderId = order.algoId || order.orderId || order.clientOrderId;
+      return fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/cancel-ws`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          symbol: props.symbol, 
+          orderId: orderId.toString(),
+          isAlgo: !!order.algoId
+        })
+      });
+    }));
+    showNotification(`✅ 一键撤单执行完成`);
+    await marketStore.fetchOpenOrders();
+  } catch (e: any) {
+    showNotification(`❌ 一键撤单遇到错误`);
+  }
+};
+
+// 撤销单笔挂单 (图表 ✕ 按钮)
+const cancelSingleOrder = async (order: any) => {
+  const orderId = order.algoId || order.orderId || order.clientOrderId;
+  if (!orderId) return;
+  try {
+    showNotification(`⌛ 正在撤销挂单...`);
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/cancel-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: props.symbol, orderId: orderId.toString(), isAlgo: !!order.algoId })
+    });
+    const data = await res.json();
+    if (res.ok && !data.error) {
+      showNotification(`✅ 撤单成功`);
+      editingOrderId.value = null;
+      await marketStore.fetchOpenOrders();
+    } else throw new Error(data.error?.msg || '撤单被拒');
+  } catch (e: any) {
+    showNotification(`❌ 撤单失败: ${e.message}`);
+  }
+};
+
+// 打开编辑面板，初始化数据
+const openEditOrder = (order: any) => {
+  const orderId = order.algoId || order.orderId || order.clientOrderId;
+  editingOrderId.value = orderId;
+  const targetPrice = parseFloat(order.price) > 0 ? parseFloat(order.price) : parseFloat(order.triggerPrice || order.stopPrice);
+  
+  editOrderForm.value = {
+    price: targetPrice,
+    qty: parseFloat(order.origQty || order.amount)
+  };
+};
+
+// 提交编辑 (原子操作：撤销旧单 + 发送新单)
+const submitEditOrder = async (order: any) => {
+  const oldOrderId = order.algoId || order.orderId || order.clientOrderId;
+  const { price, qty } = editOrderForm.value;
+  
+  if (!price || !qty) return showNotification('❌ 价格和数量必须大于0');
+  
+  try {
+    showNotification(`⌛ 正在修改订单参数...`);
+    
+    // 1. 发送撤单请求
+    await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/cancel-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: props.symbol, orderId: oldOrderId.toString(), isAlgo: !!order.algoId })
+    });
+
+    // 2. 组装新单 Payload
+    const isAlgo = ['STOP_MARKET', 'TAKE_PROFIT_MARKET', 'STOP', 'TAKE_PROFIT'].includes(order.type);
+    const newPayload: any = {
+      symbol: props.symbol,
+      side: order.side,
+      type: order.type,
+      quantity: qty,
+      reduceOnly: order.reduceOnly || false
+    };
+    
+    if (isAlgo) {
+      newPayload.stopPrice = price; // 后端 Service 负责转化为 triggerPrice
+      if (order.type === 'STOP' || order.type === 'TAKE_PROFIT') {
+        newPayload.price = price; // 限价止损需要价格
+      }
+    } else {
+      newPayload.price = price;
+    }
+
+    // 3. 发送新单请求
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newPayload)
+    });
+    
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.msg || '新参数下单被拒');
+
+    showNotification(`✅ 订单修改成功`);
+    editingOrderId.value = null;
+    await marketStore.fetchOpenOrders();
+  } catch (e: any) {
+    showNotification(`❌ 修改失败: ${e.message}`);
+  }
+};
+
+
+// ==========================================
+// 1. 快捷双击下单状态与逻辑
 // ==========================================
 const isQuickTradeEnabled = ref(true);
 const quickTradeAmount = ref(5); 
@@ -333,7 +499,7 @@ const handleLeverageScroll = (e: WheelEvent) => {
         body: JSON.stringify({ symbol: props.symbol, leverage: localLeverage.value })
       });
       if (!res.ok) throw new Error();
-      showNotification(`⚙️ [${props.symbol}] 杠杆已自动同步为 ${localLeverage.value}x`);
+      showNotification(`⚙️ [${props.symbol}] 杠杆已同步为 ${localLeverage.value}x`);
     } catch (e) {
       showNotification(`❌ 杠杆同步失败，已回退`);
       localLeverage.value = marketStore.symbolConfigs[props.symbol]?.leverage || 20;
@@ -363,10 +529,10 @@ const executeQuickTrade = async (clickedPrice: number) => {
     quantity = parseFloat(quantity.toFixed(step.toString().includes('.') ? step.toString().split('.')[1].length : 0));
     
     if ((quantity * calcPrice) / localLeverage.value > marketStore.dynamicUsdtBalance) {
-       showNotification(`❌ 余额不足以满足币安最低下单限制(5U)`);
+       showNotification(`❌ 余额不足以满足最低限制(5U)`);
        return;
     }
-    showNotification(`⚠️ 已自动补足数量至币安最低要求(约5U)`);
+    showNotification(`⚠️ 已自动补足至最低要求(约5U)`);
   }
 
   const formattedPrice = parseFloat(formatByStep(clickedPrice, rule.tickSize));
@@ -392,7 +558,6 @@ const executeQuickTrade = async (clickedPrice: number) => {
     if (!res.ok || data.error) throw new Error(data.error?.msg || '下单被拒');
     
     showNotification(`✅ [快捷下单成功] ${quickTradeSide.value === 'BUY' ? '做多' : '做空'} ${quantity} 个`);
-    // 🌟 修复点 1：下单成功后刷新挂单列表
     await marketStore.fetchOpenOrders();
   } catch(e: any) {
     showNotification(`❌ 快捷下单失败: ${e.message}`);
@@ -403,7 +568,7 @@ const executeQuickTrade = async (clickedPrice: number) => {
 
 
 // ==========================================
-// 🌟 2. 平仓逻辑
+// 2. 平仓逻辑
 // ==========================================
 const isClosing = ref(false);
 let lastCloseTime = 0;
@@ -438,10 +603,7 @@ const closePosition = async (percent: number) => {
   const formattedQtyStr = formatByStep(amountToClose, rule.stepSize);
   const quantity = parseFloat(formattedQtyStr);
   
-  if (quantity <= 0) {
-    showNotification(`[警告] 计算后的平仓数量过小`);
-    return;
-  }
+  if (quantity <= 0) return showNotification(`[警告] 平仓数量过小`);
 
   const side = pos.side === 'LONG' ? 'SELL' : 'BUY';
 
@@ -451,18 +613,12 @@ const closePosition = async (percent: number) => {
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        symbol: props.symbol,
-        side: side,
-        type: 'MARKET',
-        quantity: quantity
-      })
+      body: JSON.stringify({ symbol: props.symbol, side: side, type: 'MARKET', quantity: quantity })
     });
     
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error?.msg || '平仓失败');
     showNotification(`✅ [${props.symbol}] ${percent}% 平仓成功!`);
-    // 🌟 修复点 2：平仓成功后刷新挂单列表（如果是部分平仓且有止损，止损需要更新）
     await marketStore.fetchOpenOrders();
   } catch(e: any) {
     showNotification(`❌ 平仓失败: ${e.message}`);
@@ -499,11 +655,8 @@ const updatePositionLines = (currentPriceOverride?: number) => {
     title: `${pos.side === 'LONG' ? '多' : '空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
   };
 
-  if (!positionLineId) {
-    positionLineId = candleSeries.createPriceLine(positionLineOptions);
-  } else {
-    positionLineId.applyOptions(positionLineOptions);
-  }
+  if (!positionLineId) { positionLineId = candleSeries.createPriceLine(positionLineOptions); } 
+  else { positionLineId.applyOptions(positionLineOptions); }
 
   const FEE_RATE = 0.0005;
   const breakEvenPrice = pos.side === 'LONG'
@@ -511,35 +664,26 @@ const updatePositionLines = (currentPriceOverride?: number) => {
     : pos.entryPrice * (1 - FEE_RATE) / (1 + FEE_RATE);
 
   const breakEvenOptions = {
-    price: breakEvenPrice,
-    color: '#d29922', 
-    lineWidth: 1 as any,
-    lineStyle: LineStyle.Solid, 
-    axisLabelVisible: true,
-    title: '保本价',
+    price: breakEvenPrice, color: '#d29922', lineWidth: 1 as any, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: '保本价',
   };
 
-  if (!breakEvenLineId) {
-    breakEvenLineId = candleSeries.createPriceLine(breakEvenOptions);
-  } else {
-    breakEvenLineId.applyOptions(breakEvenOptions);
-  }
+  if (!breakEvenLineId) { breakEvenLineId = candleSeries.createPriceLine(breakEvenOptions); } 
+  else { breakEvenLineId.applyOptions(breakEvenOptions); }
 };
 
 const updateOpenOrderLines = () => {
   if (!candleSeries) return;
   
-  openOrderLines.forEach(line => {
-    try { candleSeries.removePriceLine(line); } catch (e) {}
-  });
+  openOrderLines.forEach(line => { try { candleSeries.removePriceLine(line); } catch (e) {} });
   openOrderLines = [];
 
-  // 🌟 关键：从真正的 openOrders 中获取
   const orders = marketStore.openOrders?.filter((o: any) => o.symbol === props.symbol) || [];
   
+  // 更新到 HTML 响应式数组，渲染交互标签
+  activeOpenOrders.value = orders.map((o: any) => ({ ...o, y: -999 })); 
+  
   orders.forEach((order: any) => {
-    // 兼容限价单(price)和止盈止损单(stopPrice)
-    const targetPrice = parseFloat(order.price) > 0 ? parseFloat(order.price) : parseFloat(order.stopPrice);
+    const targetPrice = parseFloat(order.price) > 0 ? parseFloat(order.price) : parseFloat(order.triggerPrice || order.stopPrice);
     if (!targetPrice) return;
 
     const line = candleSeries.createPriceLine({
@@ -548,7 +692,7 @@ const updateOpenOrderLines = () => {
       lineWidth: 1 as any,
       lineStyle: LineStyle.Dotted, 
       axisLabelVisible: true,
-      title: `挂单 ${order.side === 'BUY' ? '买' : '卖'} ${order.origQty || order.amount}`
+      title: '' // 清空 Title，把视觉展示完全交给我们的 HTML 图层
     });
     openOrderLines.push(line);
   });
@@ -574,27 +718,17 @@ const getPrecisionConfig = (lastPrice?: number) => {
       if (str.includes('e')) {
         const match = str.match(/e-(\d+)/);
         if (match) dec = parseInt(match[1], 10);
-      } else {
-        dec = str.split('.')[1]?.length || 2;
-      }
+      } else { dec = str.split('.')[1]?.length || 2; }
     } else { dec = 0; }
     return { precision: dec, minMove: minM };
   }
-
-  const p = lastPrice || marketStore.marketTickers[props.symbol]?.lastPrice || 100;
-  if (p < 0.000001) return { precision: 8, minMove: 0.00000001 };
-  if (p < 0.001) return { precision: 6, minMove: 0.000001 };
-  if (p < 0.1) return { precision: 4, minMove: 0.0001 };
-  if (p < 10) return { precision: 3, minMove: 0.001 };
   return { precision: 2, minMove: 0.01 };
 };
 
 watch(() => marketStore.symbolRules[props.symbol], (rule) => {
   if (rule && candleSeries) {
     const config = getPrecisionConfig();
-    candleSeries.applyOptions({
-      priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
-    });
+    candleSeries.applyOptions({ priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove } });
   }
 }, { deep: true });
 
@@ -627,7 +761,6 @@ const selectedShapeColor = computed(() => {
 const onDrawModeChange = () => { drawStep.value = 0; if (currentDrawMode.value !== 'none') deselectShape(); };
 const deselectShape = () => { selectedShapeId.value = null; };
 
-// 🌟 核心修复：拖拽挂单完成后强制刷新
 const placeDragOrder = async (targetPrice: number, tpSlType: 'TP' | 'SL') => {
   const pos = currentPosition.value;
   if (!pos) return;
@@ -637,14 +770,7 @@ const placeDragOrder = async (targetPrice: number, tpSlType: 'TP' | 'SL') => {
   const quantity = Math.abs(pos.amount);
 
   const orderType = tpSlType === 'TP' ? 'LIMIT' : 'STOP_MARKET';
-  
-  const payload: any = {
-      symbol: props.symbol,
-      side: side,
-      type: orderType,
-      quantity: quantity,
-      reduceOnly: true 
-  };
+  const payload: any = { symbol: props.symbol, side: side, type: orderType, quantity: quantity, reduceOnly: true };
   
   if (orderType === 'LIMIT') payload.price = formattedPrice;
   if (orderType === 'STOP_MARKET') payload.stopPrice = formattedPrice;
@@ -652,15 +778,11 @@ const placeDragOrder = async (targetPrice: number, tpSlType: 'TP' | 'SL') => {
   try {
       showNotification(`⌛ 正在挂载 ${tpSlType === 'TP' ? '止盈' : '止损'} 订单...`);
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error?.msg || '挂单失败');
-      showNotification(`✅ 成功设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 挂单 (触发价: ${formattedPrice})`);
-      
-      // 🌟 修复点 3：止盈止损挂单成功后刷新挂单列表
+      showNotification(`✅ 成功设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 挂单`);
       await marketStore.fetchOpenOrders();
   } catch(e: any) {
       showNotification(`❌ 设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 失败: ${e.message}`);
@@ -794,23 +916,16 @@ const onPointerMove = (e: PointerEvent) => {
 
   if (!hit && currentDrawMode.value === 'none' && !draggingShapeId.value && currentPosition.value && candleSeries) {
       const posY = candleSeries.priceToCoordinate(currentPosition.value.entryPrice);
-      if (posY !== null && Math.abs(y - posY) < 10) {
-          isHoveringPositionLine.value = true;
-      } else {
-          isHoveringPositionLine.value = false;
-      }
-  } else {
-      isHoveringPositionLine.value = false;
-  }
+      if (posY !== null && Math.abs(y - posY) < 10) { isHoveringPositionLine.value = true; } 
+      else { isHoveringPositionLine.value = false; }
+  } else { isHoveringPositionLine.value = false; }
 };
 
 const onPointerUp = () => {
   if (isDraggingPosition.value) {
       isDraggingPosition.value = false;
       chart?.applyOptions({ handleScroll: true, handleScale: true });
-      if (dragPositionPrice.value !== null) {
-          placeDragOrder(dragPositionPrice.value, dragPositionType.value);
-      }
+      if (dragPositionPrice.value !== null) placeDragOrder(dragPositionPrice.value, dragPositionType.value);
       dragPositionPrice.value = null;
       return;
   }
@@ -846,6 +961,14 @@ const renderSvgLoop = () => {
       if (pts.every(p => p.x !== null && p.y !== null)) { mapped.push({ ...shape, pts, angleStr }); }
     }
     svgShapes.value = mapped;
+
+    // 🌟 计算所有挂单在当前 K 线图上的实际 Y 坐标 (跟随缩放滑动实时更新)
+    activeOpenOrders.value.forEach(o => {
+      const targetPrice = parseFloat(o.price) > 0 ? parseFloat(o.price) : parseFloat(o.triggerPrice || o.stopPrice);
+      if (targetPrice > 0) {
+        o.y = candleSeries.priceToCoordinate(targetPrice);
+      }
+    });
   }
   animationFrameId = requestAnimationFrame(renderSvgLoop);
 };
@@ -1298,6 +1421,8 @@ onUnmounted(() => {
 .draw-select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 3px 6px; font-size: 12px; outline: none; cursor: pointer; }
 .sync-btn { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
 .sync-btn.active { background: #1f6feb; color: white; border-color: #1f6feb; }
+.cancel-all-btn { color: #f85149; border-color: rgba(248, 81, 73, 0.4); background: rgba(248, 81, 73, 0.1); }
+.cancel-all-btn:hover { background: #f85149; color: white; }
 .clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
 .divider { color: #30363d; margin: 0 4px; }
 
@@ -1350,6 +1475,45 @@ onUnmounted(() => {
 
 .is-resizing { cursor: move !important; }
 .is-hovering-position { cursor: ns-resize !important; }
+
+/* 🌟 图内挂单交互层样式 */
+.open-orders-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; }
+.open-order-tag {
+  position: absolute; left: 10px; transform: translateY(-50%); display: flex; align-items: stretch; gap: 0;
+  border-radius: 4px; font-size: 11px; font-weight: bold; pointer-events: auto;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: top 0.1s linear; user-select: none;
+}
+.tag-buy { background: rgba(46, 160, 67, 0.85); color: white; border: 1px solid #2ea043; }
+.tag-sell { background: rgba(248, 81, 73, 0.85); color: white; border: 1px solid #f85149; }
+.tag-content { padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s; border-radius: 3px 0 0 3px; }
+.tag-content:hover { background: rgba(255,255,255,0.15); }
+.edit-icon { font-size: 9px; opacity: 0.8; }
+.tag-cancel-btn {
+  background: rgba(0,0,0,0.15); border: none; color: white; width: 22px; 
+  display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer;
+  border-radius: 0 3px 3px 0; border-left: 1px solid rgba(255,255,255,0.2); transition: 0.2s;
+}
+.tag-cancel-btn:hover { background: #f85149; }
+
+/* 🌟 图内编辑面板样式 */
+.edit-popover {
+  position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 8px;
+  background: rgba(22, 27, 34, 0.95); border: 1px solid #30363d; border-radius: 6px; padding: 8px;
+  width: 150px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 8px;
+  cursor: default; z-index: 20; color: #c9d1d9; backdrop-filter: blur(4px);
+}
+.edit-header { font-size: 12px; font-weight: bold; color: #8b949e; border-bottom: 1px solid #30363d; padding-bottom: 4px; text-align: center; }
+.edit-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; }
+.edit-row span { width: 32px; color: #8b949e; }
+.edit-row input { flex: 1; width: 0; background: #010409; border: 1px solid #30363d; color: #c9d1d9; padding: 3px 6px; border-radius: 4px; outline: none; font-family: monospace; }
+.edit-row input:focus { border-color: #58a6ff; }
+.edit-actions { display: flex; gap: 6px; margin-top: 2px; }
+.edit-actions button { flex: 1; padding: 4px; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; transition: 0.2s; }
+.btn-confirm { background: #2ea043; color: white; }
+.btn-confirm:hover { background: #238636; }
+.btn-cancel { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+.btn-cancel:hover { background: #30363d; }
+
 
 .drawing-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
