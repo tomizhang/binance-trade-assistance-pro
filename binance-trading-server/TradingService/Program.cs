@@ -18,7 +18,7 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning) // 过滤掉微软底层的一堆废话日志
     .Enrich.FromLogContext()
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
-    .WriteTo.File("Logs/trading_log_.txt",
+    .WriteTo.File("Logs/trading_log_.log",
         rollingInterval: RollingInterval.Day, // 每天自动生成一个新的日志文件
         retainedFileCountLimit: 30)           // 最多保留 30 天的日志
     .CreateLogger();

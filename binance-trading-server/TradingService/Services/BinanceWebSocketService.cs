@@ -33,13 +33,17 @@ namespace TradingTerminal.Services
             _apiKey = config["BinanceConfig:ApiKey"];
             _apiSecret = config["BinanceConfig:ApiSecret"];
             // 1. 创建代理对象 (推荐 SOCKS5)
+#if DEBUG
             WebProxy proxy = new WebProxy("socks5://127.0.0.1:10808");
+#endif
             // var proxy = new WebProxy("http://127.0.0.1:10809"); // 如果只有 HTTP 代理
 
             // 2. 配置高性能的底层的 SocketsHttpHandler
             SocketsHttpHandler handler = new SocketsHttpHandler
             {
+#if DEBUG
                 Proxy = proxy,
+#endif
                 UseProxy = true, // 明确开启代理
 
                 // 👇 高频交易场景下的性能优化项：
@@ -74,7 +78,9 @@ namespace TradingTerminal.Services
                 {
                     _publicWs?.Dispose();
                     _publicWs = new ClientWebSocket();
+#if DEBUG
                     _publicWs.Options.Proxy = new WebProxy("socks5://127.0.0.1:10808");
+#endif
                     // 🌟 核心修复：自动处理 Ping/Pong 心跳，防止被币安强踢
                     _publicWs.Options.KeepAliveInterval = TimeSpan.FromMinutes(2);
 
@@ -120,7 +126,9 @@ namespace TradingTerminal.Services
                 {
                     _tradeWs?.Dispose();
                     _tradeWs = new ClientWebSocket();
+#if DEBUG
                     _tradeWs.Options.Proxy = new WebProxy("socks5://127.0.0.1:10808");
+#endif
                     // 🌟 核心修复：自动处理 Ping/Pong 心跳
                     _tradeWs.Options.KeepAliveInterval = TimeSpan.FromMinutes(2);
 

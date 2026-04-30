@@ -7,7 +7,6 @@
             <span class="pulse-icon">⚡</span>
             <span class="title">SYSTEM BOOT SEQUENCE</span>
           </div>
-          
           <div class="status-list">
             <div class="status-item" :class="{ 'done': marketStore.wsStatus === 'CONNECTED' }">
               <span class="dot"></span> 建立行情数据中枢 (WebSocket) ... {{ marketStore.wsStatus === 'CONNECTED' ? '[完成]' : '[同步中]' }}
@@ -22,7 +21,6 @@
               <span class="dot"></span> 校验全仓可用保证金 (Margin Check) ... {{ marketStore.dynamicUsdtBalance > 0 ? '[OK]' : '[等待数据]' }}
             </div>
           </div>
-          
           <div class="boot-bar">
             <div class="boot-fill" :style="{ width: bootProgress + '%' }"></div>
           </div>
@@ -38,16 +36,16 @@
       />
     </aside>
 
-    <main class="grid-workspace">
-      <button 
-        v-if="!isSidebarVisible" 
-        class="expand-sidebar-btn" 
-        @click="handleExpand"
-        title="展开行情列表"
-      >
-        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
-      </button>
+    <button 
+      v-if="!isSidebarVisible" 
+      class="expand-sidebar-btn" 
+      @click="handleExpand"
+      title="展开行情列表"
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+    </button>
 
+    <main class="grid-workspace">
       <GridLayout
         v-model:layout="layout"
         :col-num="24"
@@ -70,8 +68,8 @@
               <div class="panel-actions">
                 <button v-if="isFocused(item.symbol)" class="action-icon-btn">🟢</button>
                 <button class="action-icon-btn" @click="duplicatePanel(item.i)" title="复制面板">📋</button>
-                <button class="action-icon-btn" @click="updateGridWidth(item.i, 12)" :class="{ active: item.w === 12 }" title="50% 宽度">🌓</button>
-                <button class="action-icon-btn" @click="updateGridWidth(item.i, 24)" :class="{ active: item.w === 24 }" title="100% 宽度">🌕</button>
+                <button class="action-icon-btn" @click="updateGridWidth(item.i, 11)" :class="{ active: item.w === 11 }" title="50% 宽度">🌓</button>
+                <button class="action-icon-btn" @click="updateGridWidth(item.i, 22)" :class="{ active: item.w === 22 }" title="100% 宽度">🌕</button>
                 <span class="action-divider">|</span>
                 <button class="close-btn" @click="removePanel(item.i)" title="关闭面板">✕</button>
               </div>
@@ -112,7 +110,6 @@ const isSidebarVisible = ref(true)
 
 const isFocused = (symbol: any) => { return marketStore.currentSymbol === symbol } 
 
-// 计算加载进度
 const bootProgress = computed(() => {
   let p = 0;
   if (marketStore.wsStatus === 'CONNECTED') p += 25;
@@ -148,19 +145,14 @@ const layout = ref<LayoutItem[]>([
 
 const addKlinePanel = (symbol: string) => {
   const newId = `kline-${symbol}-${Date.now()}`
-  layout.value.push({ x: 0, y: 0, w: 12, h: 12, i: newId, type: 'kline', symbol: symbol, title: `${symbol} 永续` })
+  layout.value.push({ x: 0, y: 0, w: 11, h: 12, i: newId, type: 'kline', symbol: symbol, title: `${symbol} 永续` })
 }
 
-// 🌟 核心方法：处理从 PositionModule 双击传来的打开图表指令
 const handleOpenChart = (symbol: string) => {
-  // 判断当前面板中是否已经打开了该币种的 K线图
   const chartExists = layout.value.some(item => item.symbol === symbol && item.type === 'kline');
-  
   if (!chartExists) {
-    // 如果没有打开过，则直接新建一个面板
     addKlinePanel(symbol);
   }
-  // 如果已经打开过，PositionModule 里触发的 marketStore.setCurrentSymbol 已经将焦点切过去了，无需多余操作
 }
 
 const removePanel = (id: string) => { layout.value = layout.value.filter(item => item.i !== id) }
@@ -194,52 +186,72 @@ const handleGlobalAddPanel = (e: any) => {
   triggerGridResize();
 };
 
-onMounted(() => { window.addEventListener('add-panel', handleGlobalAddPanel); });
-onUnmounted(() => { window.removeEventListener('add-panel', handleGlobalAddPanel); });
+onMounted(() => { 
+  window.addEventListener('add-panel', handleGlobalAddPanel); 
+});
+
+onUnmounted(() => { 
+  window.removeEventListener('add-panel', handleGlobalAddPanel); 
+});
 </script>
 
 <style scoped>
-/* 🌟 初始化遮罩层样式 */
+/* 初始化遮罩层样式 */
 .initialization-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: #0d1117;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #c9d1d9;
-  font-family: 'Courier New', Courier, monospace;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #0d1117; z-index: 9999;
+  display: flex; align-items: center; justify-content: center; color: #c9d1d9; font-family: 'Courier New', Courier, monospace;
 }
-
 .loader-content { width: 450px; }
-
-.terminal-header {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 30px;
-  border-bottom: 1px solid #30363d; padding-bottom: 10px;
-}
+.terminal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
 .pulse-icon { color: #58a6ff; font-size: 20px; animation: blink 1s infinite; }
 .terminal-header .title { font-size: 16px; font-weight: bold; letter-spacing: 2px; color: #58a6ff; }
-
 .status-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 30px; }
 .status-item { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #8b949e; transition: color 0.3s; }
 .status-item.done { color: #2ea043; }
 .status-item .dot { width: 6px; height: 6px; border-radius: 50%; background: #30363d; }
 .status-item.done .dot { background: #2ea043; box-shadow: 0 0 8px #2ea043; }
-
 .boot-bar { height: 4px; background: #21262d; border-radius: 2px; overflow: hidden; margin-bottom: 15px; }
 .boot-fill { height: 100%; background: linear-gradient(90deg, #1f6feb, #58a6ff); transition: width 0.4s ease; }
-
 .loading-hint { font-size: 11px; color: #484f58; text-align: center; }
-
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .fade-leave-active { transition: opacity 0.8s ease; }
 .fade-leave-to { opacity: 0; }
 
-/* 基础面板样式保持不变 */
-.trading-dashboard { display: flex; height: 100vh; width: 100vw; background-color: #0d1117; overflow: hidden; }
+/* 🌟 基础架构样式 */
+.trading-dashboard { 
+  display: flex; height: 100vh; width: 100vw; background-color: #0d1117; 
+  overflow: hidden; 
+  position: relative; /* 为子元素的绝对定位提供基准 */
+}
 .sidebar-left { width: 320px; flex-shrink: 0; background-color: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; }
 .grid-workspace { flex: 1; position: relative; overflow-y: auto; padding: 10px; }
+
+/* 🌟 展开按钮的悬浮固定样式 */
+.expand-sidebar-btn {
+  position: absolute;
+  left: 0;
+  top: 15px; /* 吸附在左侧顶部偏下的位置 */
+  z-index: 100; /* 必须高于网格内容 */
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-left: none; /* 贴边更自然 */
+  color: #8b949e;
+  padding: 8px 6px 8px 10px;
+  border-radius: 0 6px 6px 0; /* 右侧圆角 */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 4px 0 12px rgba(0,0,0,0.5); /* 增加悬浮阴影感 */
+  transition: all 0.2s ease;
+}
+.expand-sidebar-btn:hover {
+  background: #30363d;
+  color: #58a6ff;
+  border-color: #58a6ff;
+}
+
+/* 面板通用样式 */
 .panel-container { background-color: #161b22; border: 1px solid #30363d; border-radius: 4px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .panel-header { height: 30px; background-color: #21262d; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; cursor: move; flex-shrink: 0; }
 .panel-title { font-size: 13px; font-weight: bold; }

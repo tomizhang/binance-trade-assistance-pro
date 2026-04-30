@@ -613,7 +613,7 @@ const closePosition = async (percent: number) => {
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol: props.symbol, side: side, type: 'MARKET', quantity: quantity })
+      body: JSON.stringify({ symbol: props.symbol, side: side, type: 'MARKET', quantity: quantity ,reduceOnly: true})
     });
     
     const data = await res.json();
