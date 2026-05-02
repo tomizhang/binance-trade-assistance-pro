@@ -219,7 +219,7 @@ export const useMarketStore = defineStore('market', () => {
         });
 
         // 可选：同样弹出一个 Toast 提示
-        toast.warning(`📡 趋势反转: ${payload.symbol} ${payload.timeframe} 级别 HA 反转!`, 6000);
+        // toast.warning(`📡 趋势反转: ${payload.symbol} ${payload.timeframe} 级别 HA 反转!`, 6000);
       }
     };
 
