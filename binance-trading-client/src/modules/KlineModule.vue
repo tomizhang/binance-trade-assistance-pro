@@ -50,6 +50,7 @@
         <div class="chart-type-selector">
           <button :class="{ active: localChartType === 'standard' }" @click="changeChartType('standard')">标准</button>
           <button :class="{ active: localChartType === 'heikinAshi' }" @click="changeChartType('heikinAshi')">平均(HA)</button>
+          <button class="action-btn"  @click="togglePeaks" :class="{ active: isShowingPeaks }" >{{ isShowingPeaks ? '清除高低点' : '📡 标记高低点' }}</button>
         </div>
         
         <span class="divider">|</span>
@@ -290,7 +291,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
-import { createChart, CandlestickSeries, HistogramSeries, CrosshairMode, LineStyle, IChartApi } from 'lightweight-charts';
+import { createChart, CrosshairMode, LineStyle, IChartApi } from 'lightweight-charts';
 import { useMarketStore } from '@/store/market';
 import { MarketAPI } from '@/api/market'; 
 
@@ -325,6 +326,92 @@ const editOrderForm = ref({ price: 0, qty: 0 });
 
 const hoverData = ref<any>(null);
 const containerWidth = ref(0);
+
+const isShowingPeaks = ref(false);
+
+// 🌟 切换高低点显示/隐藏
+// 🌟 切换高低点显示/隐藏
+const togglePeaks = async () => {
+  if (!candleSeries) {
+    showNotification("❌ 图表尚未初始化完成");
+    return;
+  }
+
+  // 1. 如果当前已经显示，则清除标记
+  if (isShowingPeaks.value) {
+    candleSeries.setMarkers([]); 
+    isShowingPeaks.value = false;
+    return;
+  }
+
+  // 2. 直接从你现有的 currentChartData 提取纯净数据，避开图表实例内部提取的坑
+  if (!currentChartData.value || currentChartData.value.length === 0) {
+    showNotification("⚠️ 暂无 K 线数据可供计算");
+    return;
+  }
+
+  showNotification("⌛ 正在计算顶底分型...");
+
+  // 提取对应数组 (注意：这里的时间必须和交给 Lightweight Charts 的时间字段严格一致)
+  const times = currentChartData.value.map(d => d.parsedTime !== undefined ? d.parsedTime : Number(d.time));
+  const highs = currentChartData.value.map(d => Number(d.high));
+  const lows = currentChartData.value.map(d => Number(d.low));
+
+  try {
+    // 3. 调用 C# 新增的计算接口
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/analysis/peaks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        times, 
+        highs, 
+        lows, 
+        leftLen: 5, // 左侧对比 K 线数量
+        rightLen: 5 // 右侧对比 K 线数量
+      })
+    });
+    
+    if (!res.ok) throw new Error('API 请求失败');
+    const data = await res.json();
+
+    const markers: any[] = [];
+
+    // 4. 组装 Lightweight Charts 格式的 Markers
+    data.peaks.forEach((p: any) => {
+      markers.push({ 
+        time: p.time, 
+        position: 'aboveBar', 
+        color: '#e91e63', 
+        shape: 'arrowDown', 
+        text: 'Peak', 
+        size: 1 
+      });
+    });
+
+    data.valleys.forEach((v: any) => {
+      markers.push({ 
+        time: v.time, 
+        position: 'belowBar', 
+        color: '#2ea043', 
+        shape: 'arrowUp', 
+        text: 'Valley', 
+        size: 1 
+      });
+    });
+
+    // 🌟 TradingView 强制要求：标记点必须严格按照时间升序排列
+    markers.sort((a, b) => a.time - b.time);
+
+    // 5. 渲染至图表
+    candleSeries.setMarkers(markers);
+    isShowingPeaks.value = true;
+    showNotification(`✅ 成功绘制了 ${data.peaks.length} 个高点和 ${data.valleys.length} 个低点`);
+
+  } catch (err) {
+    console.error('❌ 获取高低点失败:', err);
+    showNotification("❌ 计算或绘制高低点发生错误");
+  }
+};
 
 const notifications = ref<{id: number, msg: string}[]>([]);
 let notifIdCounter = 0;
@@ -1160,13 +1247,20 @@ const initCharts = () => {
   });
 
   const config = getPrecisionConfig();
-  candleSeries = chart.addSeries(CandlestickSeries, { 
-    upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
-    priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
-  });
-  
-  volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', visible: showVolume.value });
-  volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  candleSeries = chart.addCandlestickSeries({ 
+  upColor: '#2ea043', 
+  downColor: '#f85149', 
+  borderVisible: false, 
+  wickUpColor: '#2ea043', 
+  wickDownColor: '#f85149',
+  priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
+});
+volumeSeries = chart.addHistogramSeries({ 
+  priceFormat: { type: 'volume' }, 
+  priceScaleId: '', 
+  visible: showVolume.value 
+});
+volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
     if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) loadMoreHistory();

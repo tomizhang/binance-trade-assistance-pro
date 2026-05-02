@@ -1,5 +1,8 @@
 import * as signalR from '@microsoft/signalr';
 
+// ==========================================
+// 1. 状态管理与连接池
+// ==========================================
 const connectedPorts = new Set<MessagePort>();
 
 let publicWs: WebSocket | null = null;
@@ -9,10 +12,95 @@ let currentListenKey: string | null = null;
 
 let currentDataSource: 'binance' | 'backend' = 'backend';
 
-// 🌟 这里记录所有存活的流
+// 记录所有存活的流
 const activeSubscriptions = new Set<string>();
 const defaultStreams = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
+// ==========================================
+// 2. 纯函数计算逻辑 (来自原 peak.worker.js)
+// ==========================================
+function calculateMeanAndStdDev(data: number[]) {
+  const n = data.length;
+  if (n === 0) return { mean: 0, stdDev: 0 };
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += data[i];
+  const mean = sum / n;
+  let sumSqDiff = 0;
+  for (let i = 0; i < n; i++) {
+    const diff = data[i] - mean;
+    sumSqDiff += diff * diff;
+  }
+  const stdDev = Math.sqrt(sumSqDiff / n);
+  return { mean, stdDev };
+}
+
+function calculatePeaks(times: any[], highs: number[], lows: number[], leftLen = 5, rightLen = 5) {
+  const peaks = [];
+  const valleys = [];
+  for (let i = leftLen; i < times.length - rightLen; i++) {
+    let isPeak = true;
+    let isValley = true;
+    for (let j = i - leftLen; j <= i + rightLen; j++) {
+      if (j === i) continue;
+      if (highs[j] >= highs[i]) { isPeak = false; break; }
+    }
+    for (let j = i - leftLen; j <= i + rightLen; j++) {
+      if (j === i) continue;
+      if (lows[j] <= lows[i]) { isValley = false; break; }
+    }
+    if (isPeak) peaks.push(i);
+    if (isValley) valleys.push(i);
+  }
+  return { peaks, valleys };
+}
+
+function calculateTrendLines(peaks: number[], valleys: number[], times: any[], highs: number[], lows: number[]) {
+  const lines = [];
+  if (peaks.length >= 2) {
+    const p1 = peaks[peaks.length - 2];
+    const p2 = peaks[peaks.length - 1];
+    lines.push({ type: 'resistance', data: [{ time: times[p1], value: highs[p1] }, { time: times[p2], value: highs[p2] }] });
+  }
+  if (valleys.length >= 2) {
+    const v1 = valleys[valleys.length - 2];
+    const v2 = valleys[valleys.length - 1];
+    lines.push({ type: 'support', data: [{ time: times[v1], value: lows[v1] }, { time: times[v2], value: lows[v2] }] });
+  }
+  return lines;
+}
+
+function calculateVolReversal(times: any[], opens: number[], closes: number[], volumes: number[], config: any) {
+  const { period, mode, threshold } = config; 
+  const markers = [];
+  for (let i = period; i < times.length; i++) {
+    const currentVol = volumes[i]; const open = opens[i]; const close = closes[i]; const time = times[i];
+    const historyVols = volumes.slice(i - period, i);
+    let isSpike = false; let debugText = "";
+
+    if (mode === 'dynamic') {
+      const { mean, stdDev } = calculateMeanAndStdDev(historyVols);
+      if (stdDev < 0.000001) { isSpike = currentVol > mean * 2; } 
+      else {
+        const zScore = (currentVol - mean) / stdDev;
+        isSpike = zScore >= threshold; 
+      }
+    } else {
+      const { mean } = calculateMeanAndStdDev(historyVols);
+      if (mean > 0) isSpike = currentVol >= (mean * threshold);
+    }
+
+    if (isSpike) {
+      if (close > open) markers.push({ time: time, position: 'aboveBar', color: '#e91e63', shape: 'arrowDown', text: 'V-Short' + debugText, size: 1 });
+      else if (close < open) markers.push({ time: time, position: 'belowBar', color: '#2196F3', shape: 'arrowUp', text: 'V-Long' + debugText, size: 1 });
+    }
+  }
+  return markers;
+}
+
+
+// ==========================================
+// 3. 通信与广播逻辑
+// ==========================================
 function broadcastToPorts(type: string, payload: any) {
   connectedPorts.forEach((port) => port.postMessage({ type, payload }));
 }
@@ -49,15 +137,21 @@ async function connectPublicStream() {
       try { processMarketData(JSON.parse(rawJson)); } catch (e) { }
     });
 
-    // 🌟 新增：接收后端到币安的真实延迟并向所有窗口广播
     signalRConnection.on("ReceiveBackendLatency", (ms: number) => {
       broadcastToPorts('BACKEND_LATENCY', ms);
     });
 
+    signalRConnection.on("ReceiveStrategyAlert", (alertData: any) => {
+      broadcastToPorts('STRATEGY_ALERT', alertData);
+    });
+
+    // 🌟 新增：拦截 Heikin-Ashi 反转信号报警
+    signalRConnection.on("ReceiveHaAlert", (alertData: any) => {
+      broadcastToPorts('HA_ALERT', alertData);
+    });
+
     signalRConnection.onreconnected(() => {
-      // 🌟 修复断层：重连后，动态获取当前最新的订阅列表发送给 C#
       console.log('🔄 Worker: SignalR 重连成功，延迟2秒后恢复订阅...');
-      // 🌟 延迟 2 秒，等 C# 底层彻底连上币安后再发，防止丢包
       setTimeout(() => {
         const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
         currentStreams.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
@@ -67,7 +161,6 @@ async function connectPublicStream() {
     try {
       await signalRConnection.start();
       console.log('🚀 Worker: C# 后端 SignalR 连接成功');
-      // 🌟 修复并发丢失：必须在 start 成功后，去获取实时的 activeSubscriptions
       const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
       currentStreams.forEach(s => signalRConnection?.invoke("Subscribe", s).catch(console.error));
     } catch (err) {
@@ -75,12 +168,10 @@ async function connectPublicStream() {
     }
   }
   else {
-    // 🌟 币安新规前缀 /market
     publicWs = new WebSocket('wss://fstream.binance.com/market/stream');
 
     publicWs.onopen = () => {
       console.log('🌐 Worker: 币安直连 /market 成功');
-      // 🌟 动态获取，确保不会错过 Vue 发来的早期订阅
       const currentStreams = [...defaultStreams, ...Array.from(activeSubscriptions)];
       if (currentStreams.length > 0) {
         publicWs?.send(JSON.stringify({ method: 'SUBSCRIBE', params: currentStreams, id: Date.now() }));
@@ -99,7 +190,6 @@ function connectUserDataStream() {
   if (!currentListenKey) return;
   if (userDataWs) { userDataWs.onclose = null; userDataWs.close(); }
 
-  // 🌟 币安新规前缀 /private
   userDataWs = new WebSocket(`wss://fstream.binance.com/private/ws/${currentListenKey}`);
 
   userDataWs.onopen = () => console.log('🔐 Worker: 账户私有流直连成功');
@@ -109,6 +199,9 @@ function connectUserDataStream() {
   userDataWs.onclose = () => setTimeout(connectUserDataStream, 5000);
 }
 
+// ==========================================
+// 4. SharedWorker 消息入口
+// ==========================================
 (self as any).onconnect = (e: MessageEvent) => {
   const port = e.ports[0];
   connectedPorts.add(port);
@@ -117,9 +210,11 @@ function connectUserDataStream() {
   if (!signalRConnection && !publicWs) connectPublicStream();
 
   port.onmessage = (event) => {
-    const { type, stream, listenKey, source } = event.data;
+    // 🌟 核心：解析传入的 type 和可选的 msgId
+    const { type, stream, listenKey, source, payload, msgId } = event.data;
 
     switch (type) {
+      // --- 行情与订阅指令 ---
       case 'SWITCH_SOURCE':
         if (source && source !== currentDataSource) {
           currentDataSource = source;
@@ -130,7 +225,6 @@ function connectUserDataStream() {
       case 'SUBSCRIBE':
         if (stream && !activeSubscriptions.has(stream)) {
           activeSubscriptions.add(stream);
-          // 如果网络已经通了，直接发；如果没通，刚才写在 onopen 的动态获取逻辑会兜底把它发出去！
           if (currentDataSource === 'backend' && signalRConnection?.state === signalR.HubConnectionState.Connected) {
             signalRConnection.invoke("Subscribe", stream).catch(console.error);
           } else if (currentDataSource === 'binance' && publicWs?.readyState === WebSocket.OPEN) {
@@ -164,6 +258,29 @@ function connectUserDataStream() {
           if (signalRConnection) { signalRConnection.stop(); signalRConnection = null; }
           if (userDataWs) { userDataWs.onclose = null; userDataWs.close(); userDataWs = null; }
           activeSubscriptions.clear();
+        }
+        break;
+
+      // --- 🌟 繁重计算指令 (带 msgId 原路返回) ---
+      case 'CALCULATE_PEAKS':
+        try {
+          const { times, highs, lows, leftLen = 5, rightLen = 5 } = payload;
+          const { peaks, valleys } = calculatePeaks(times, highs, lows, leftLen, rightLen);
+          const lines = calculateTrendLines(peaks, valleys, times, highs, lows);
+          // 仅向发起请求的 port 发送 SUCCESS 和对应的 msgId
+          port.postMessage({ type: 'SUCCESS', msgId, payload: { peaks, valleys, lines } });
+        } catch (err: any) {
+          port.postMessage({ type: 'ERROR', msgId, payload: err.message });
+        }
+        break;
+
+      case 'CALCULATE_VOL_REVERSAL':
+        try {
+          const { times, opens, closes, volumes, config } = payload;
+          const markers = calculateVolReversal(times, opens, closes, volumes, config);
+          port.postMessage({ type: 'SUCCESS', msgId, payload: { markers } });
+        } catch (err: any) {
+          port.postMessage({ type: 'ERROR', msgId, payload: err.message });
         }
         break;
     }

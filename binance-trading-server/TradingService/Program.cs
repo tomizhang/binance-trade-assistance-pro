@@ -50,7 +50,13 @@ try
 
     // 🌟 2. 再将其作为后台宿主服务启动，触发 ExecuteAsync
     //builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
+    builder.Services.AddSingleton<OrderFlowAnalyzer>();
+    builder.Services.AddSingleton<HeikinAshiEngine>();
 
+    builder.Services.AddHostedService(provider =>
+    provider.GetRequiredService<OrderFlowAnalyzer>());
+    // 1. 注册核心数据总线为单例 (所有人共享一条总线)
+    builder.Services.AddSingleton<MarketEventBus>();
     // 🌟 步骤 1：先把引擎注册为单例，这样 MarketHub 才能在构造函数里拿到它！
     builder.Services.AddSingleton<TradingTerminal.Services.BinanceWebSocketService>();
 
@@ -59,6 +65,23 @@ try
         provider.GetRequiredService<TradingTerminal.Services.BinanceWebSocketService>());
     // 2. 注册后台 WebSocket 转发服务
     //builder.Services.AddHostedService<BinanceDataForwarderService>();
+
+    // 1. 注册 OI 采集引擎为单例
+    //builder.Services.AddSingleton<BinanceOpenInterestService>();
+
+    //// 2. 将其作为托管服务运行
+    //builder.Services.AddHostedService(provider =>
+    //    provider.GetRequiredService<BinanceOpenInterestService>());
+
+
+    //平均k线
+    // 1. 注册 OI 采集引擎为单例
+    builder.Services.AddSingleton<HeikinAshiService>();
+
+    // 2. 将其作为托管服务运行
+    builder.Services.AddHostedService(provider =>
+        provider.GetRequiredService<HeikinAshiService>());
+
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)
     builder.Services.AddCors(options =>
     {

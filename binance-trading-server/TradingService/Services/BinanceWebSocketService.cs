@@ -15,6 +15,7 @@ namespace TradingTerminal.Services
     {
         private readonly IHubContext<MarketHub> _hubContext;
         private readonly ILogger<BinanceWebSocketService> _logger;
+        private readonly MarketEventBus _eventBus;
         private readonly string _apiKey;
         private readonly string _apiSecret;
 
@@ -26,7 +27,7 @@ namespace TradingTerminal.Services
         // 用于 WS API 下单的异步回调字典
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
 
-        public BinanceWebSocketService(IHubContext<MarketHub> hubContext, IConfiguration config, ILogger<BinanceWebSocketService> logger)
+        public BinanceWebSocketService(IHubContext<MarketHub> hubContext, IConfiguration config, ILogger<BinanceWebSocketService> logger, MarketEventBus eventBus)
         {
             _hubContext = hubContext;
             _logger = logger;
@@ -51,6 +52,7 @@ namespace TradingTerminal.Services
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5)
             };
             _httpClient = new HttpClient(handler);
+            _eventBus = eventBus;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -102,6 +104,7 @@ namespace TradingTerminal.Services
 
                         var rawJson = Encoding.UTF8.GetString(buffer, 0, result.Count);
                         // 原封不动通过 SignalR 转发给前端
+                        ProcessKlineData(rawJson);
                         await _hubContext.Clients.All.SendAsync("ReceiveMarketData", rawJson, stoppingToken);
                     }
                 }
@@ -111,6 +114,38 @@ namespace TradingTerminal.Services
                     await Task.Delay(5000, stoppingToken);
                 }
             }
+        }
+        private void ProcessKlineData(string jsonMessage)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(jsonMessage);
+                if (doc.RootElement.TryGetProperty("stream", out var streamElement))
+                {
+                    string streamName = streamElement.GetString();
+                    if (streamName.EndsWith("@kline_1m"))
+                    {
+                        var dataNode = doc.RootElement.GetProperty("data");
+                        string symbol = dataNode.GetProperty("s").GetString().ToUpper();
+                        var kNode = dataNode.GetProperty("k");
+                        var msg = new KlineMessage
+                        {
+                            Symbol = kNode.GetProperty("s").GetString().ToUpper(),
+                            Interval = kNode.GetProperty("i").GetString(),
+                            IsClosed = kNode.GetProperty("x").GetBoolean(),
+                            Open = decimal.Parse(kNode.GetProperty("o").GetString()),
+                            Close = decimal.Parse(kNode.GetProperty("c").GetString()),
+                            High = decimal.Parse(kNode.GetProperty("h").GetString()),
+                            Low = decimal.Parse(kNode.GetProperty("l").GetString()),
+                            Volume = decimal.Parse(kNode.GetProperty("v").GetString()),
+                            OpenTime = kNode.GetProperty("t").GetInt64()
+                        };
+
+                        _eventBus.PublishKline(msg); // 统一丢到总线
+                    }
+                }
+            }
+            catch { /* 忽略非标 JSON */ }
         }
 
         // ==========================================
@@ -189,6 +224,7 @@ namespace TradingTerminal.Services
             }
         }
 
+        //[Obsolete]
         public async Task UnsubscribeStreamAsync(string streamName)
         {
             _activeStreams.Remove(streamName); // 从小本本划掉
@@ -283,6 +319,88 @@ namespace TradingTerminal.Services
                 catch { }
                 await Task.Delay(2000, stoppingToken); // 每2秒测一次
             }
+        }
+
+        public async Task SubscribeStreamsAsync(IEnumerable<string> streams)
+        {
+            if (_publicWs == null || _publicWs.State != WebSocketState.Open || !streams.Any()) return;
+
+            var payload = new
+            {
+                method = "SUBSCRIBE",
+                @params = streams,
+                id = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            await _publicWs.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
+            _logger.LogInformation($"📡 [统一网关] 动态追加订阅: {string.Join(", ", streams)}");
+        }
+
+        public async Task UnsubscribeStreamsAsync(IEnumerable<string> streams)
+        {
+            if (_publicWs == null || _publicWs.State != WebSocketState.Open || !streams.Any()) return;
+
+            var payload = new
+            {
+                method = "UNSUBSCRIBE",
+                @params = streams,
+                id = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            await _publicWs.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
+            _logger.LogInformation($"🗑️ [统一网关] 动态取消订阅: {string.Join(", ", streams)}");
+        }
+
+
+        public async Task<List<string>> RefreshTopSymbolsAsync(CancellationToken stoppingToken)
+        {
+            try 
+            {
+                var response = await _httpClient.GetAsync("https://fapi.binance.com/fapi/v1/ticker/24hr", stoppingToken);
+                if (!response.IsSuccessStatusCode) return null;
+
+                var json = await response.Content.ReadAsStringAsync(stoppingToken);
+                using var doc = JsonDocument.Parse(json);
+
+                // 过滤出正常的 USDT 本位合约 (排除交割和其他结算币种)
+                var validTickers = doc.RootElement.EnumerateArray()
+                    .Where(x => x.GetProperty("symbol").GetString().EndsWith("USDT"))
+                    .ToList();
+
+                // 1. 获取成交额 (quoteVolume) 前 10 名
+                var topVolume = validTickers
+                    .OrderByDescending(x => decimal.Parse(x.GetProperty("quoteVolume").GetString()))
+                    .Take(10)
+                    .Select(x => x.GetProperty("symbol").GetString().ToUpper());
+
+                // 2. 获取涨幅 (priceChangePercent) 前 10 名
+                var topGainers = validTickers
+                    .OrderByDescending(x => decimal.Parse(x.GetProperty("priceChangePercent").GetString()))
+                    .Take(10)
+                    .Select(x => x.GetProperty("symbol").GetString().ToUpper());
+
+               
+                try
+                {
+                    // 3. 合并去重 (如果某币既是成交量前10又是涨幅前10，HashSet 会自动去重)
+                   
+
+                    var list =  new HashSet<string>(topVolume.Concat(topGainers)).ToList();
+                    _logger.LogInformation($"🔥 [雷达更新] 最新锁定的资金战场 (共 {list.Count} 个): {string.Join(", ", list)}");
+                    return list;
+                }
+                finally
+                {
+                 
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ 刷新热门币种名单失败: {ex.Message}");
+            }
+            return null;
         }
     }
 }

@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
-import { createChart, LineSeries, HistogramSeries, CrosshairMode, LineStyle, IChartApi } from 'lightweight-charts';
+import { createChart, CrosshairMode, LineStyle, IChartApi } from 'lightweight-charts';
 import { MarketAPI } from '@/api/market';
 import { useMarketStore } from '@/store/market';
 

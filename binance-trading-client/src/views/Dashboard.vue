@@ -21,28 +21,25 @@
               <span class="dot"></span> 校验全仓可用保证金 (Margin Check) ... {{ marketStore.dynamicUsdtBalance > 0 ? '[OK]' : '[等待数据]' }}
             </div>
           </div>
-          <div class="boot-bar">
-            <div class="boot-fill" :style="{ width: bootProgress + '%' }"></div>
-          </div>
+          <div class="boot-bar"><div class="boot-fill" :style="{ width: bootProgress + '%' }"></div></div>
           <p class="loading-hint">正在验证加密签名并初始化交易指令集...</p>
         </div>
       </div>
     </transition>
 
     <aside class="sidebar-left" v-show="isSidebarVisible">
-      <MarketListModule 
-        @add-kline="addKlinePanel" 
-        @collapse="handleCollapse" 
-      />
+      <MarketListModule @add-kline="addKlinePanel" @collapse="handleCollapse" />
     </aside>
 
-    <button 
-      v-if="!isSidebarVisible" 
-      class="expand-sidebar-btn" 
-      @click="handleExpand"
-      title="展开行情列表"
-    >
+    <button v-if="!isSidebarVisible" class="expand-sidebar-btn" @click="handleExpand" title="展开行情列表">
       <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+    </button>
+
+    <!-- 🌟 修改了这里：点击铃铛按钮时，触发 Store 的抽屉控制方法 -->
+    <button class="notification-toggle-btn" @click="notificationStore.toggleSidebar()" :class="{ 'has-unread': hasNewAlerts }">
+      <span class="icon">🔔</span>
+      <!-- 🌟 修改了这里：角标数量读取 NotificationStore 里的未读数 -->
+      <span v-if="notificationStore.unreadCount > 0" class="badge">{{ notificationStore.unreadCount }}</span>
     </button>
 
     <main class="grid-workspace">
@@ -57,11 +54,7 @@
         drag-allow-from=".drag-handle, .panel-header"
         drag-ignore-from=".no-drag, .custom-slider, button, input, select, textarea, .chart-wrapper"
       >
-        <GridItem
-          v-for="item in layout"
-          :key="item.i"
-          :x="item.x" :y="item.y" :w="item.w" :h="item.h" :i="item.i"
-        >
+        <GridItem v-for="item in layout" :key="item.i" :x="item.x" :y="item.y" :w="item.w" :h="item.h" :i="item.i">
           <div class="panel-container">
             <div class="panel-header drag-handle">
               <span class="panel-title">{{ item.title }}</span>
@@ -74,39 +67,52 @@
                 <button class="close-btn" @click="removePanel(item.i)" title="关闭面板">✕</button>
               </div>
             </div>
-            
-            <div class="panel-content no-drag"
-            @mousedown.stop
-            @touchstart.stop
-            @pointerdown.stop
-            >
+            <div class="panel-content no-drag" @mousedown.stop @touchstart.stop @pointerdown.stop>
               <component 
                 :is="getComponentByType(item.type)" 
                 :symbol="item.symbol" 
                 @duplicate="addKlinePanel" 
-                @openChart="handleOpenChart"
+                @openChart="handleOpenChart" 
               />
             </div>
           </div>
         </GridItem>
       </GridLayout>
     </main>
+
+    <!-- 🌟 完全去除了 :visible 传参，由 NotificationSidebar 内部使用 Store 进行状态管理 -->
+    <NotificationSidebar  @openChart="handleOpenChart" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { GridLayout, GridItem } from 'grid-layout-plus'
 import { useMarketStore } from '@/store/market'
+// 🌟 引入通知 Store
+import { useNotificationStore } from '@/store/notification'
 
 import KlineModule from '@/modules/KlineModule.vue'
 import OrderModule from '@/modules/OrderModule.vue'
 import PositionModule from '@/modules/PositionModule.vue'
 import MarketListModule from '@/modules/MarketListModule.vue'
-import FourierModule from '@/modules/FourierModule.vue';
+import FourierModule from '@/modules/FourierModule.vue'
+
+import NotificationSidebar from '@/modules/NotificationSidebar.vue'
 
 const marketStore = useMarketStore()
+const notificationStore = useNotificationStore() // 🌟 初始化 Store
+
 const isSidebarVisible = ref(true)
+const hasNewAlerts = ref(false)
+
+// 🌟 监听全局 Store 里的未读消息数，使铃铛按钮闪烁
+watch(() => notificationStore.unreadCount, (newVal, oldVal) => {
+  if (newVal > oldVal) {
+    hasNewAlerts.value = true;
+    setTimeout(() => { hasNewAlerts.value = false; }, 2000);
+  }
+});
 
 const isFocused = (symbol: any) => { return marketStore.currentSymbol === symbol } 
 
@@ -153,6 +159,7 @@ const handleOpenChart = (symbol: string) => {
   if (!chartExists) {
     addKlinePanel(symbol);
   }
+  marketStore.setCurrentSymbol(symbol);
 }
 
 const removePanel = (id: string) => { layout.value = layout.value.filter(item => item.i !== id) }
@@ -188,10 +195,16 @@ const handleGlobalAddPanel = (e: any) => {
 
 onMounted(() => { 
   window.addEventListener('add-panel', handleGlobalAddPanel); 
+  if (typeof marketStore.initAccountSignalR === 'function') {
+    marketStore.initAccountSignalR();
+  }
 });
 
 onUnmounted(() => { 
   window.removeEventListener('add-panel', handleGlobalAddPanel); 
+  if (typeof marketStore.closeAccountSignalR === 'function') {
+    marketStore.closeAccountSignalR();
+  }
 });
 </script>
 
@@ -220,42 +233,50 @@ onUnmounted(() => {
 /* 🌟 基础架构样式 */
 .trading-dashboard { 
   display: flex; height: 100vh; width: 100vw; background-color: #0d1117; 
-  overflow: hidden; 
-  position: relative; /* 为子元素的绝对定位提供基准 */
+  overflow: hidden; position: relative; 
 }
 .sidebar-left { width: 320px; flex-shrink: 0; background-color: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; }
 .grid-workspace { flex: 1; position: relative; overflow-y: auto; padding: 10px; }
 
-/* 🌟 展开按钮的悬浮固定样式 */
+/* 🌟 展开行情按钮 */
 .expand-sidebar-btn {
-  position: absolute;
-  left: 0;
-  top: 15px; /* 吸附在左侧顶部偏下的位置 */
-  z-index: 100; /* 必须高于网格内容 */
-  background: #21262d;
-  border: 1px solid #30363d;
-  border-left: none; /* 贴边更自然 */
-  color: #8b949e;
-  padding: 8px 6px 8px 10px;
-  border-radius: 0 6px 6px 0; /* 右侧圆角 */
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 4px 0 12px rgba(0,0,0,0.5); /* 增加悬浮阴影感 */
-  transition: all 0.2s ease;
+  position: absolute; left: 0; top: 15px; z-index: 100;
+  background: #21262d; border: 1px solid #30363d; border-left: none; color: #8b949e;
+  padding: 8px 6px 8px 10px; border-radius: 0 6px 6px 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 4px 0 12px rgba(0,0,0,0.5); transition: all 0.2s ease;
 }
-.expand-sidebar-btn:hover {
-  background: #30363d;
-  color: #58a6ff;
-  border-color: #58a6ff;
+.expand-sidebar-btn:hover { background: #30363d; color: #58a6ff; border-color: #58a6ff; }
+
+/* 🌟 右侧通知铃铛按钮 */
+.notification-toggle-btn {
+  position: absolute; right: 20px; top: 10px; z-index: 110;
+  background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+  padding: 8px 12px; border-radius: 6px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.notification-toggle-btn:hover { background: #30363d; border-color: #58a6ff; }
+.notification-toggle-btn.has-unread { animation: shake 0.5s ease-in-out; border-color: #f85149; }
+.notification-toggle-btn .badge {
+  background: #f85149; color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: bold;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
 }
 
 /* 面板通用样式 */
 .panel-container { background-color: #161b22; border: 1px solid #30363d; border-radius: 4px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .panel-header { height: 30px; background-color: #21262d; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; cursor: move; flex-shrink: 0; }
-.panel-title { font-size: 13px; font-weight: bold; }
+.panel-title { font-size: 13px; font-weight: bold; color: #8b949e; }
 .action-icon-btn { background: transparent; border: none; color: #8b949e; padding: 2px 4px; font-size: 12px; cursor: pointer; border-radius: 4px; }
 .action-icon-btn.active { color: #58a6ff; background: rgba(88, 166, 255, 0.1); }
+.action-icon-btn:hover { color: #c9d1d9; }
+.close-btn { background: transparent; border: none; color: #8b949e; padding: 2px 4px; font-size: 12px; cursor: pointer; border-radius: 4px; }
+.close-btn:hover { color: #f85149; }
+.action-divider { color: #30363d; margin: 0 4px; }
 .panel-content { flex: 1; overflow: hidden; position: relative; }
 </style>

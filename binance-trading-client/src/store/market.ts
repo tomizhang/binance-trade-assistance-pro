@@ -1,12 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref, reactive, computed } from 'vue'
+import { useToast } from '@/utils/useToast'; 
+// 🌟 1. 引入全局通知 Store
+import { useNotificationStore } from '@/store/notification'; 
 
 export const useMarketStore = defineStore('market', () => {
+  const toast = useToast();
+
   const marketTickers = reactive<Record<string, any>>({});
   const latestKlines = reactive<Record<string, any>>({});
   const symbolConfigs = ref<Record<string, { leverage: number, marginType: string }>>({});
-  const backendLatency = ref(0); // 🌟 新增：后端到币安的延迟
-
+  const backendLatency = ref(0); 
   const currentSymbol = ref('BTCUSDT');
   const setCurrentSymbol = (symbol: string) => {
     if (currentSymbol.value === symbol) return;
@@ -15,7 +19,7 @@ export const useMarketStore = defineStore('market', () => {
 
   const usdtBalance = ref(0.00);
   const dataSource = ref<'binance' | 'backend'>('backend');
-  const positions = ref<any[]>([]); // 持仓列
+  const positions = ref<any[]>([]); 
 
   const symbolRules = ref<Record<string, { tickSize: string, stepSize: string }>>({});
   const fetchExchangeInfo = async () => {
@@ -40,10 +44,8 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
-  // 1. 在 state 定义区 (比如 const positions = ref([]) 附近) 增加挂单数组
   const openOrders = ref<any[]>([]);
 
-  // 2. 新增一个拉取当前挂单的方法
   const fetchOpenOrders = async (symbol?: string) => {
     try {
       let url = `${import.meta.env.VITE_API_BASE_URL}/api/order/openOrders`;
@@ -55,13 +57,12 @@ export const useMarketStore = defineStore('market', () => {
       if (res.ok) {
         const rawOrders = Array.isArray(data) ? data : (data.data || []);
 
-        // 🌟 核心抹平逻辑：将币安的奇葩 algo 字段统一映射回标准名称！
-        openOrders.value = rawOrders.map((o :any) => ({
+        openOrders.value = rawOrders.map((o: any) => ({
           ...o,
-          orderId: o.algoId || o.orderId || o.clientOrderId, // 归一化 ID
-          type: o.orderType || o.type,                       // 归一化 类型
-          stopPrice: o.triggerPrice || o.stopPrice,          // 归一化 触发价
-          origQty: o.origQty || o.quantity                   // 归一化 数量
+          orderId: o.algoId || o.orderId || o.clientOrderId, 
+          type: o.orderType || o.type,                       
+          stopPrice: o.triggerPrice || o.stopPrice,          
+          origQty: o.origQty || o.quantity                   
         }));
       }
     } catch (error) {
@@ -69,13 +70,12 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
-  const isInitialized = ref(false); // 标记是否完成首次强制同步
+  const isInitialized = ref(false); 
 
   const isReady = computed(() => {
-    // 必须满足：1. WS已连接 2. 交易规则已加载 3. 杠杆配置已加载 4. 余额已获取
     const hasRules = Object.keys(symbolRules.value).length > 0;
     const hasConfigs = Object.keys(symbolConfigs.value).length > 0;
-    const hasBalance = usdtBalance.value !== 0; // 假设非 0 余额为加载完成
+    const hasBalance = usdtBalance.value !== 0; 
     const isConnected = wsStatus.value === 'CONNECTED';
 
     return hasRules && hasConfigs && isConnected;
@@ -83,13 +83,11 @@ export const useMarketStore = defineStore('market', () => {
 
   const fetchInitialPositions = async () => {
     try {
-      // 调用后端我们之前补全的 positionRisk 接口
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/positionRisk`);
       if (!res.ok) return;
 
       const riskData = await res.json();
 
-      // 过滤出所有持仓量不为 0 的项目
       const activePositions = riskData
         .filter((r: any) => parseFloat(r.positionAmt) !== 0)
         .map((r: any) => {
@@ -105,7 +103,6 @@ export const useMarketStore = defineStore('market', () => {
           };
         });
 
-      // 🌟 将拉取到的全量数据存入响应式数组
       positions.value = activePositions;
       console.log(`✅ 已同步初始仓位: ${activePositions.length} 个`);
     } catch (e) {
@@ -113,20 +110,17 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
-  // 在 market.ts 中：
   const fetchInitialRiskConfig = async () => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/positionRisk`);
       const riskData = await res.json();
 
-      // 把拉取到的所有币种杠杆存进字典
       riskData.forEach((r: any) => {
         symbolConfigs.value[r.symbol] = {
           leverage: parseInt(r.leverage),
           marginType: r.marginType === 'cross' ? 'cross' : 'isolated'
         };
 
-        // 如果有持仓，顺便给持仓也附加上杠杆
         const pos = positions.value.find(p => p.symbol === r.symbol && p.side === (parseFloat(r.positionAmt) > 0 ? 'LONG' : 'SHORT'));
         if (pos) pos.leverage = parseInt(r.leverage);
       });
@@ -152,12 +146,10 @@ export const useMarketStore = defineStore('market', () => {
   const globalChartType = reactive<Record<string, { type: string, sourceId: string }>>({});
   const setGlobalChartType = (symbol: string, type: string, sourceId: string) => { globalChartType[symbol] = { type, sourceId }; };
 
-  // ==========================================
-  // 🌟 核心升级：Worker 调度与引用计数
-  // ==========================================
+  const strategyAlerts = ref<any[]>([]);
+
   let worker: SharedWorker | null = null;
 
-  // 使用 Map 记录流的订阅次数
   const mySubscriptions = new Map<string, number>();
   const wsStatus = ref<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
   let lastDataTimestamp = 0;
@@ -173,10 +165,62 @@ export const useMarketStore = defineStore('market', () => {
 
     worker.port.onmessage = (event) => {
       const { type, payload } = event.data;
+      
+      // 🌟 在这里动态获取通知 Store，避免 Pinia 的提前初始化问题
+      const notificationStore = useNotificationStore();
+
       if (type === 'TICKERS_DATA') handleTickersData(payload);
       else if (type === 'KLINE_DATA') handleKlineData(payload);
       else if (type === 'ACCOUNT_DATA') handleAccountData(payload);
       else if (type === 'BACKEND_LATENCY') backendLatency.value = payload;
+      else if (type === 'STRATEGY_ALERT') {
+        console.log('🚨 [前端雷达] 捕获主力异动:', payload);
+
+        // 原有逻辑：存入历史记录
+        strategyAlerts.value.unshift(payload);
+        if (strategyAlerts.value.length > 50) strategyAlerts.value.pop();
+
+        // 原有逻辑：触发全局极速弹窗 Toast
+        const symbol = payload.symbol;
+        const signalType = payload.signalType; 
+        const volX = payload.volMultiplier.toFixed(1);
+        const oiPct = payload.oiChange.toFixed(2);
+
+        if (signalType === 'StrongLong') {
+          toast.success(`🔥 狙击提醒: ${symbol} 主力爆量做多! (量:${volX}x, OI:+${oiPct}%)`, 8000);
+        } else if (signalType === 'StrongShort') {
+          toast.error(`🩸 狙击提醒: ${symbol} 主力爆量砸盘! (量:${volX}x, OI:+${oiPct}%)`, 8000);
+        } else if (signalType === 'ShortCovering') {
+          toast.info(`⚠️ 注意反转: ${symbol} 空头被动平仓拉升 (量:${volX}x, OI:${oiPct}%)`, 5000);
+        } else if (signalType === 'LongLiquidation') {
+          toast.info(`⚠️ 注意反转: ${symbol} 多头连环踩踏下跌 (量:${volX}x, OI:${oiPct}%)`, 5000 );
+        }
+
+        // 🌟 新增逻辑：同步写入右侧全局通知抽屉
+        notificationStore.addAlert({
+          type: 'STRATEGY_ALERT',
+          title: `🚨 主力异动: ${symbol}`,
+          content: `检测到 ${signalType}，量能放大 ${volX} 倍！`,
+          timestamp: payload.timestamp || Date.now(),
+          symbol: symbol
+        });
+      }
+      else if (type === 'HA_ALERT') {
+        // 🌟 新增 HA_ALERT 处理逻辑
+        console.log(`%c 🚨 [HA反转警报] ${payload.symbol} ${payload.timeframe}`, 'color: #d29922; font-weight: bold;');
+
+        // 写入右侧全局通知抽屉
+        notificationStore.addAlert({
+          type: 'HA_REVERSAL',
+          title: `📡 HA 趋势反转: ${payload.symbol}`,
+          content: `${payload.symbol} 在 ${payload.timeframe} 级别发生了平均 K 线方向反转，请留意波段机会！`,
+          timestamp: payload.timestamp || Date.now(),
+          symbol: payload.symbol
+        });
+
+        // 可选：同样弹出一个 Toast 提示
+        toast.warning(`📡 趋势反转: ${payload.symbol} ${payload.timeframe} 级别 HA 反转!`, 6000);
+      }
     };
 
     worker.port.start();
@@ -190,7 +234,6 @@ export const useMarketStore = defineStore('market', () => {
     }, 2000);
 
     window.addEventListener('beforeunload', () => {
-      // 页面关闭时，只清理有计数的订阅
       mySubscriptions.forEach((count, stream) => {
         if (count > 0) worker?.port.postMessage({ type: 'UNSUBSCRIBE', stream });
       });
@@ -319,20 +362,17 @@ export const useMarketStore = defineStore('market', () => {
   const positionHistory = ref<any[]>([]);
   const isLoadingHistory = ref(false);
   const fetchPositionHistory = async (symbol?: string, limit: number = 50) => {
-    // 🚨 应对币安限制：如果没有明确指定币种，强制使用全局当前币种
     const targetSymbol = symbol || currentSymbol.value;
 
     if (!targetSymbol) return;
 
     isLoadingHistory.value = true;
     try {
-      // 必须带上 symbol 才能成功请求后端
       const url = `${import.meta.env.VITE_API_BASE_URL}/api/account/trades?limit=${limit}&symbol=${targetSymbol}`;
 
       const res = await fetch(url, { method: 'GET' });
       if (res.ok) {
         const data = await res.json();
-        // 币安返回的直接就是历史成交数组
         positionHistory.value = data;
       } else {
         console.error('后端返回错误:', await res.text());
@@ -347,7 +387,6 @@ export const useMarketStore = defineStore('market', () => {
   const connectAllTickers = () => initWorker();
   const connectWs = () => initWorker();
 
-  // 🌟 核心升级：基于 Map 的订阅逻辑
   const subscribeKline = (symbol: string, interval: string) => {
     initWorker();
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
@@ -355,13 +394,11 @@ export const useMarketStore = defineStore('market', () => {
 
     mySubscriptions.set(streamName, currentCount + 1);
 
-    // 只有第一个窗口订阅时，才真正发送网络请求
     if (currentCount === 0) {
       worker?.port.postMessage({ type: 'SUBSCRIBE', stream: streamName });
     }
   };
 
-  // 🌟 核心升级：基于 Map 的退订逻辑
   const unsubscribeKline = (symbol: string, interval: string) => {
     if (!worker) return;
     const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
@@ -370,7 +407,6 @@ export const useMarketStore = defineStore('market', () => {
     if (currentCount > 0) {
       const newCount = currentCount - 1;
       if (newCount === 0) {
-        // 最后一个窗口关闭时，才真正发起退订
         mySubscriptions.delete(streamName);
         worker.port.postMessage({ type: 'UNSUBSCRIBE', stream: streamName });
       } else {
@@ -379,11 +415,9 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
-  // 1. 记录从 REST API 获取时的基础状态
-  const baseAvailableBalance = ref(0); // 接口拉取那一刻的“静态可用余额”
-  const baseTotalUnrealizedPnl = ref(0); // 接口拉取那一刻的“全仓总未实现盈亏”
+  const baseAvailableBalance = ref(0); 
+  const baseTotalUnrealizedPnl = ref(0); 
 
-  // 2. 获取接口数据的逻辑 (refreshAccountBalance)
   const refreshAccountBalance = async () => {
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/info`);
     const accountData = await res.json();
@@ -395,9 +429,7 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
-  // 3. 🌟 创造一个动态计算的可用余额 (暴露给 OrderModule.vue 使用)
   const dynamicUsdtBalance = computed(() => {
-    // 算出当前的实时全仓总盈亏
     let currentTotalCrossPnl = 0;
     positions.value.forEach(pos => {
       if (pos.marginType === 'cross') {
@@ -410,10 +442,8 @@ export const useMarketStore = defineStore('market', () => {
       }
     });
 
-    // 实时可用余额 = 基础可用余额 + (当前实时盈亏 - 基础盈亏)
     const realTimeBalance = baseAvailableBalance.value + (currentTotalCrossPnl - baseTotalUnrealizedPnl.value);
 
-    // 余额不能小于 0
     return Math.max(0, realTimeBalance);
   });
 
@@ -427,6 +457,6 @@ export const useMarketStore = defineStore('market', () => {
     positions, connectUserDataStream, positionHistory, isLoadingHistory, fetchPositionHistory,
     dataSource, switchDataSource, symbolConfigs, dynamicUsdtBalance, backendLatency, isReady,
     isInitialized, openOrders,
-    fetchOpenOrders,
+    fetchOpenOrders,strategyAlerts
   }
 })
