@@ -36,8 +36,6 @@ namespace TradingTerminal.Services
             _eventBus = eventBus;
             _wsService = wsService;
 
-            // 🌟 删除了内部的 HttpClient，完全依赖注入的 _wsService
-
             // 核心：直接挂载到总线，坐等数据喂到嘴里
             _eventBus.OnKlineReceived += HandleKlineReceived;
         }
@@ -65,7 +63,7 @@ namespace TradingTerminal.Services
             if (toRemove.Any())
             {
                 var streamsToRemove = toRemove.SelectMany(sym => _timeframes.Select(tf => $"{sym.ToLower()}@kline_{tf}")).ToList();
-                await _wsService.UnsubscribeBackendAsync(streamsToRemove); // 🌟 命令网关取消后端订阅
+                await _wsService.UnsubscribeBackendAsync(streamsToRemove); // 命令网关取消后端订阅
             }
 
             // 2. 新增需要监控的币种
@@ -77,7 +75,7 @@ namespace TradingTerminal.Services
                 await SyncHistoricalDataAsync(toAdd, CancellationToken.None);
 
                 var streamsToAdd = toAdd.SelectMany(sym => _timeframes.Select(tf => $"{sym.ToLower()}@kline_{tf}")).ToList();
-                await _wsService.SubscribeBackendAsync(streamsToAdd); // 🌟 命令网关追加后端订阅
+                await _wsService.SubscribeBackendAsync(streamsToAdd); // 命令网关追加后端订阅
             }
         }
 
@@ -98,12 +96,19 @@ namespace TradingTerminal.Services
 
             if (isReversed)
             {
+                // 🌟 核心优化：获取反转后的最新方向
+                bool isBullish = _engine.GetCurrentDirection(msg.Symbol, msg.Interval);
+
                 var alert = new
                 {
                     symbol = msg.Symbol,
                     timeframe = msg.Interval,
                     timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    type = "HA_REVERSAL"
+                    type = "HA_REVERSAL",
+                    // 🌟 新增字段：明确说明当前趋势和做单动作
+                    direction = isBullish ? "多头" : "空头",
+                    action = isBullish ? "做多 ↗" : "做空 ↘",
+                    isBullish = isBullish // 传给前端，方便前端用绿色/红色做高亮渲染
                 };
 
                 _hubContext.Clients.All.SendAsync("ReceiveHaAlert", alert);
@@ -145,9 +150,6 @@ namespace TradingTerminal.Services
                 {
                     try
                     {
-                        // 🌟 核心重构：调用网关的统一接口
-                        // 即使传 2m, 4m，网关也会替我们去币安取 1m 并计算合并，最后返回完美对接的 JSON！
-                        // 抓取最新的 1000 根直接初始化，保证 HA 的平滑度绝对精准。
                         string json = await _wsService.GetHistoricalKlinesAsync(sym, tf, 1000);
 
                         using var doc = JsonDocument.Parse(json);

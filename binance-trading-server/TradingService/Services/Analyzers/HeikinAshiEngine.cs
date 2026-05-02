@@ -170,5 +170,12 @@ namespace TradingTerminal.Services
             string key = $"{symbol.ToUpper()}_{timeframe}";
             return _lastClosedStates.TryGetValue(key, out var state) ? state.OpenTime : 0;
         }
+
+        // 获取指定币种和周期当前的趋势方向 (true 为多头，false 为空头)
+        public bool GetCurrentDirection(string symbol, string timeframe)
+        {
+            string key = $"{symbol.ToUpper()}_{timeframe}";
+            return _lastClosedStates.TryGetValue(key, out var state) && state.IsBullish;
+        }
     }
 }

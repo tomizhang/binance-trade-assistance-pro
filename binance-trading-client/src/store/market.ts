@@ -213,7 +213,7 @@ export const useMarketStore = defineStore('market', () => {
         notificationStore.addAlert({
           type: 'HA_REVERSAL',
           title: `📡 HA 趋势反转: ${payload.symbol}`,
-          content: `${payload.symbol} 在 ${payload.timeframe} 级别发生了平均 K 线方向反转，请留意波段机会！`,
+          content: `${payload.symbol} 在 ${payload.timeframe} 级别发生了平均 K 线方向反转，请留意波段机会！\n 📡 趋势反转: ${payload.symbol} ${payload.timeframe} 级别转为${payload.direction}，建议 ${payload.action} !`,
           timestamp: payload.timestamp || Date.now(),
           symbol: payload.symbol
         });
