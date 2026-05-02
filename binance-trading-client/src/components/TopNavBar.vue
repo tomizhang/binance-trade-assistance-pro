@@ -87,16 +87,31 @@
       <div class="user-profile">
         <div class="avatar">admin</div>
       </div>
+    <button class="notification-toggle-btn" @click="notificationStore.toggleSidebar()" :class="{ 'has-unread': hasNewAlerts }">
+      <span class="icon">🔔</span>
+      <!-- 🌟 修改了这里：角标数量读取 NotificationStore 里的未读数 -->
+      <span v-if="notificationStore.unreadCount > 0" class="badge">{{ notificationStore.unreadCount }}</span>
+    </button>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted ,watch} from 'vue';
 import { useMarketStore } from '@/store/market';
+import { useNotificationStore } from '@/store/notification'
 
 const marketStore = useMarketStore();
 const showAddMenu = ref(false);
+const notificationStore = useNotificationStore() // 🌟 初始化 Store
+const hasNewAlerts = ref(false)
+
+watch(() => notificationStore.unreadCount, (newVal, oldVal) => {
+  if (newVal > oldVal) {
+    hasNewAlerts.value = true;
+    setTimeout(() => { hasNewAlerts.value = false; }, 2000);
+  }
+});
 
 const statusClass = computed(() => {
   switch (marketStore.wsStatus) {

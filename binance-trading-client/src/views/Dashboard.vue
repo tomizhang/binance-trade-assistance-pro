@@ -36,11 +36,7 @@
     </button>
 
     <!-- 🌟 修改了这里：点击铃铛按钮时，触发 Store 的抽屉控制方法 -->
-    <button class="notification-toggle-btn" @click="notificationStore.toggleSidebar()" :class="{ 'has-unread': hasNewAlerts }">
-      <span class="icon">🔔</span>
-      <!-- 🌟 修改了这里：角标数量读取 NotificationStore 里的未读数 -->
-      <span v-if="notificationStore.unreadCount > 0" class="badge">{{ notificationStore.unreadCount }}</span>
-    </button>
+
 
     <main class="grid-workspace">
       <GridLayout
