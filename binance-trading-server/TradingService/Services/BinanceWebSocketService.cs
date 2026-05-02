@@ -7,7 +7,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using TradingTerminal.Hubs; // 请确保这里的命名空间与你的项目匹配
+using TradingTerminal.Hubs;
 
 namespace TradingTerminal.Services
 {
@@ -19,20 +19,23 @@ namespace TradingTerminal.Services
         private readonly string _apiKey;
         private readonly string _apiSecret;
 
-        // 🌟 双轨制 WebSocket 实例
+        // 🌟 新增：注入我们的自定义 K 线聚合器
+        private readonly CustomKlineAggregator _aggregator = new();
+
         private ClientWebSocket _publicWs = new ClientWebSocket();
         private ClientWebSocket _tradeWs = new ClientWebSocket();
-
         private readonly HttpClient _httpClient;
-        // 用于 WS API 下单的异步回调字典
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
 
         // ==========================================
-        // 🌟 核心升级：引用计数与精准路由引擎
+        // 🌟 核心升级：双账本管理系统
         // ==========================================
-        // 记录所有前端+后端对某个流的需求总数
+        // 账本A：记录前端真实要什么 (例如要 2m, 4m)
         private readonly ConcurrentDictionary<string, int> _masterStreamCounts = new();
-        // 记录每个前端网页 (ConnectionId) 对应订阅了哪些流
+
+        // 账本B：记录我们实际向币安要什么 (把 2m 降级翻译成 1m 的计费总数)
+        private readonly ConcurrentDictionary<string, int> _binanceStreamCounts = new();
+
         private readonly ConcurrentDictionary<string, HashSet<string>> _clientSubs = new();
 
         public BinanceWebSocketService(IHubContext<MarketHub> hubContext, IConfiguration config, ILogger<BinanceWebSocketService> logger, MarketEventBus eventBus)
@@ -42,11 +45,9 @@ namespace TradingTerminal.Services
             _apiKey = config["BinanceConfig:ApiKey"];
             _apiSecret = config["BinanceConfig:ApiSecret"];
 
-            // 1. 创建代理对象 (推荐 SOCKS5)
 #if DEBUG
             WebProxy proxy = new WebProxy("socks5://127.0.0.1:10808");
 #endif
-            // 2. 配置高性能的底层的 SocketsHttpHandler
             SocketsHttpHandler handler = new SocketsHttpHandler
             {
 #if DEBUG
@@ -62,12 +63,9 @@ namespace TradingTerminal.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("🚀 [统一引擎] 币安双轨 WebSocket 服务启动...");
-            // 🌟 启动独立线程：专门测量 C# 到币安的真实延迟
             _ = Task.Run(() => MeasureBackendToBinanceLatency(stoppingToken), stoppingToken);
-
             var publicStreamTask = MaintainPublicStreamAsync(stoppingToken);
             var tradeStreamTask = MaintainTradeStreamAsync(stoppingToken);
-
             await Task.WhenAll(publicStreamTask, tradeStreamTask);
         }
 
@@ -76,7 +74,7 @@ namespace TradingTerminal.Services
         // ==========================================
         private async Task MaintainPublicStreamAsync(CancellationToken stoppingToken)
         {
-            var buffer = new byte[1024 * 128]; // 128KB 缓冲区
+            var buffer = new byte[1024 * 128];
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -89,16 +87,15 @@ namespace TradingTerminal.Services
 #endif
                     _publicWs.Options.KeepAliveInterval = TimeSpan.FromMinutes(2);
 
-                    // 依然保留默认的全局基础数据订阅
                     await _publicWs.ConnectAsync(new Uri("wss://fstream.binance.com/market/stream?streams=!miniTicker@arr/!markPrice@arr@1s"), stoppingToken);
                     _logger.LogInformation("✅ [公共行情轨] 已连接");
 
-                    // 🌟 断网重连防御：恢复活跃计数 > 0 的流
-                    var activeStreams = _masterStreamCounts.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
+                    // 🌟 断网重连：根据向币安的翻译账本进行恢复
+                    var activeStreams = _binanceStreamCounts.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
                     if (activeStreams.Any())
                     {
                         await SendWsCommandAsync(activeStreams, "SUBSCRIBE");
-                        _logger.LogInformation($"🔄 自动恢复了 {activeStreams.Count} 个因断网丢失的订阅流");
+                        _logger.LogInformation($"🔄 自动恢复了 {activeStreams.Count} 个底层依赖订阅流");
                     }
 
                     while (_publicWs.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
@@ -118,7 +115,7 @@ namespace TradingTerminal.Services
             }
         }
 
-        // 🌟 智能数据分流与拦截核心
+        // 🌟 智能数据分流与聚合器拦截核心
         private async void ProcessAndRouteMarketData(string jsonMessage, CancellationToken stoppingToken)
         {
             try
@@ -128,24 +125,18 @@ namespace TradingTerminal.Services
                 {
                     string streamName = streamElement.GetString();
 
-                    // 🎯 分流器：如果是大盘基础数据，全局广播；如果是 K 线，精确路由！
                     if (streamName.Contains("miniTicker") || streamName.Contains("markPrice"))
                     {
                         await _hubContext.Clients.All.SendAsync("ReceiveMarketData", jsonMessage, stoppingToken);
                     }
-                    else
+                    else if (streamName.Contains("@kline_"))
                     {
-                        // 路由到指定组：前端只有调用过 Subscribe 并加入 Group 的人才能收到
-                        await _hubContext.Clients.Group(streamName).SendAsync("ReceiveMarketData", jsonMessage, stoppingToken);
-                    }
-
-                    // 统一解析 K 线并扔给后端总线，供 HA 等策略引擎使用
-                    if (streamName.EndsWith("@kline_1m") || streamName.Contains("@kline_"))
-                    {
+                        // 1. 解析实体
+                        KlineMessage msg = null;
                         if (doc.RootElement.TryGetProperty("data", out var dataNode))
                         {
                             var kNode = dataNode.GetProperty("k");
-                            var msg = new KlineMessage
+                            msg = new KlineMessage
                             {
                                 Symbol = kNode.GetProperty("s").GetString().ToUpper(),
                                 Interval = kNode.GetProperty("i").GetString(),
@@ -157,7 +148,46 @@ namespace TradingTerminal.Services
                                 Volume = decimal.Parse(kNode.GetProperty("v").GetString()),
                                 OpenTime = kNode.GetProperty("t").GetInt64()
                             };
-                            _eventBus.PublishKline(msg);
+                        }
+
+                        // 2. 🌟 如果这是 1m 基础流，喂给加工厂！
+                        if (streamName.EndsWith("@kline_1m") && msg != null)
+                        {
+                            // 如果前端确实有人在看原生 1m，推送原包
+                            if (_masterStreamCounts.TryGetValue(streamName, out int c1) && c1 > 0)
+                            {
+                                await _hubContext.Clients.Group(streamName).SendAsync("ReceiveMarketData", jsonMessage, stoppingToken);
+                            }
+                            _eventBus.PublishKline(msg); // 1m 进总线
+
+                            // 🚨 寻找当前激活的自定义加工任务
+                            string symbolLower = msg.Symbol.ToLower();
+                            var activeCustomIntervals = CustomKlineAggregator.SupportedCustomIntervals.Keys
+                                .Where(interval => _masterStreamCounts.TryGetValue($"{symbolLower}@kline_{interval}", out int c) && c > 0)
+                                .ToList();
+
+                            if (activeCustomIntervals.Any())
+                            {
+                                // 让聚合引擎加工成 2m, 4m...
+                                var syntheticKlines = _aggregator.Process1mKline(msg, activeCustomIntervals);
+                                foreach (var sk in syntheticKlines)
+                                {
+                                    // 把计算出来的包，伪装成币安官方 JSON 推给前端对应的组！
+                                    string syntheticJson = CreateSyntheticKlineJson(sk);
+                                    string targetGroup = $"{symbolLower}@kline_{sk.Interval}";
+
+                                    await _hubContext.Clients.Group(targetGroup).SendAsync("ReceiveMarketData", syntheticJson, stoppingToken);
+
+                                    // 同样把虚拟的 2m 塞入总线，让你之前的 HA 引擎也能完美支持 2m 反转判定！
+                                    _eventBus.PublishKline(sk);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // 如果是 15m, 1h 等原生大周期，直接普通路由
+                            await _hubContext.Clients.Group(streamName).SendAsync("ReceiveMarketData", jsonMessage, stoppingToken);
+                            if (msg != null) _eventBus.PublishKline(msg);
                         }
                     }
                 }
@@ -165,28 +195,78 @@ namespace TradingTerminal.Services
             catch { /* 忽略非标 JSON */ }
         }
 
+        // 🌟 辅助方法：生成高仿币安的 JSON 数据包骗过前端
+        private string CreateSyntheticKlineJson(KlineMessage msg)
+        {
+            var payload = new
+            {
+                stream = $"{msg.Symbol.ToLower()}@kline_{msg.Interval}",
+                data = new
+                {
+                    e = "kline",
+                    E = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    s = msg.Symbol,
+                    k = new
+                    {
+                        t = msg.OpenTime,
+                        o = msg.Open.ToString("0.########"),
+                        c = msg.Close.ToString("0.########"),
+                        h = msg.High.ToString("0.########"),
+                        l = msg.Low.ToString("0.########"),
+                        v = msg.Volume.ToString("0.########"),
+                        i = msg.Interval,
+                        x = msg.IsClosed
+                    }
+                }
+            };
+            return JsonSerializer.Serialize(payload);
+        }
+
         // ==========================================
-        // 🌟 引用计数与动态订阅管理
+        // 🌟 订阅管理机制 (含降级翻译)
         // ==========================================
+
+        // 翻译方法：如果是 2m，告诉币安我要 1m。如果是 15m，就按原样去要。
+        private string GetBinanceStreamName(string stream)
+        {
+            if (stream.Contains("@kline_"))
+            {
+                var parts = stream.Split("@kline_");
+                if (_aggregator.IsCustomInterval(parts[1]))
+                {
+                    return $"{parts[0]}@kline_1m"; // 降级到 1m
+                }
+            }
+            return stream;
+        }
+
         private async Task ChangeStreamSubscriptionAsync(string stream, int delta)
         {
-            // 更新计数器
-            var newCount = _masterStreamCounts.AddOrUpdate(
+            // 记下前端真实想要的 (2m)
+            _masterStreamCounts.AddOrUpdate(
                 stream,
+                addValueFactory: key => delta > 0 ? delta : 0,
+                updateValueFactory: (key, old) => Math.Max(0, old + delta)
+            );
+
+            // 翻译成币安底层依赖 (1m)
+            string binanceStream = GetBinanceStreamName(stream);
+            var newBinanceCount = _binanceStreamCounts.AddOrUpdate(
+                binanceStream,
                 addValueFactory: key => delta > 0 ? delta : 0,
                 updateValueFactory: (key, old) => Math.Max(0, old + delta)
             );
 
             if (_publicWs == null || _publicWs.State != WebSocketState.Open) return;
 
-            // 0 变 1 发起真实订阅，X 变 0 发起真实退订
-            if (delta > 0 && newCount == 1)
+            // 真正发号施令只认底层依赖账本
+            if (delta > 0 && newBinanceCount == 1)
             {
-                await SendWsCommandAsync(new[] { stream }, "SUBSCRIBE");
+                await SendWsCommandAsync(new[] { binanceStream }, "SUBSCRIBE");
             }
-            else if (delta < 0 && newCount == 0)
+            else if (delta < 0 && newBinanceCount == 0)
             {
-                await SendWsCommandAsync(new[] { stream }, "UNSUBSCRIBE");
+                await SendWsCommandAsync(new[] { binanceStream }, "UNSUBSCRIBE");
             }
         }
 
@@ -227,9 +307,6 @@ namespace TradingTerminal.Services
             }
         }
 
-        // ------------------------------------------
-        // 供后端服务 (HA, 策略引擎) 调用的纯享 API
-        // ------------------------------------------
         public async Task SubscribeBackendAsync(IEnumerable<string> streams)
         {
             foreach (var s in streams) await ChangeStreamSubscriptionAsync(s, 1);
@@ -240,18 +317,8 @@ namespace TradingTerminal.Services
             foreach (var s in streams) await ChangeStreamSubscriptionAsync(s, -1);
         }
 
-        // ==========================================
-        // 为了兼容你旧代码中直接传入 List 的批量订阅方法
-        // ==========================================
-        public async Task SubscribeStreamsAsync(IEnumerable<string> streams)
-        {
-            await SubscribeBackendAsync(streams);
-        }
-
-        public async Task UnsubscribeStreamsAsync(IEnumerable<string> streams)
-        {
-            await UnsubscribeBackendAsync(streams);
-        }
+        public async Task SubscribeStreamsAsync(IEnumerable<string> streams) => await SubscribeBackendAsync(streams);
+        public async Task UnsubscribeStreamsAsync(IEnumerable<string> streams) => await UnsubscribeBackendAsync(streams);
 
         // ==========================================
         // 轨 2：交易 API 专线 (专门用来极速下单 - 保持不变)

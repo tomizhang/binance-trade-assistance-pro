@@ -3,6 +3,7 @@ using System;
 using System.Net.Http;
 using System.Threading.Tasks;
 using TradingService.Services;
+using TradingTerminal.Services; // 🌟 引入自定义 K 线聚合器所在的命名空间 (请根据实际情况调整)
 
 namespace TradingService.Controllers
 {
@@ -12,10 +13,12 @@ namespace TradingService.Controllers
     {
         private readonly BinanceTradeService _tradeService;
         private readonly IHttpClientFactory _httpClientFactory;
-        public MarketController(BinanceTradeService tradeService, IHttpClientFactory httpClientFactory)
+        private readonly ILogger<BinanceTradeService> _logger;
+        public MarketController(BinanceTradeService tradeService, IHttpClientFactory httpClientFactory, ILogger<BinanceTradeService> logger )
         {
             _tradeService = tradeService;
             _httpClientFactory = httpClientFactory;
+            _logger = logger;
         }
 
         /// <summary>
@@ -59,14 +62,20 @@ namespace TradingService.Controllers
             }
         }
 
-
         // 🌟 GET: api/market/klines
         [HttpGet("klines")]
         public async Task<IActionResult> GetHistoricalKlines([FromQuery] string symbol, [FromQuery] string interval, [FromQuery] int limit = 1000, [FromQuery] long? endTime = null)
         {
             var client = _httpClientFactory.CreateClient();
 
-            var url = $"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}";
+            // 🌟 实例化我们的聚合引擎帮助类
+            var aggregator = new CustomKlineAggregator();
+
+            // 🌟 1. 偷梁换柱：向币安隐瞒真实意图。如果是 2m，这里会替换成 1m，并计算出安全的 neededLimit
+            var (baseInterval, neededLimit) = aggregator.GetBaseHistoryRequestParams(interval, limit);
+
+            // 2. 正常去币安拉取数据（使用替换后的底层参数）
+            var url = $"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={baseInterval}&limit={neededLimit}";
 
             if (endTime.HasValue)
             {
@@ -75,12 +84,20 @@ namespace TradingService.Controllers
 
             try
             {
-                // 作为中继，直接请求币安并原样返回给前端
+                // 作为中继，请求币安数据
                 var response = await client.GetAsync(url);
-                var content = await response.Content.ReadAsStringAsync();
+                var rawContent = await response.Content.ReadAsStringAsync();
 
-                // 直接透传币安的 JSON 数组结构
-                return Content(content, "application/json");
+                if (!response.IsSuccessStatusCode)
+                {
+                    return StatusCode((int)response.StatusCode, new { msg = "币安接口返回错误", error = rawContent });
+                }
+
+                // 🌟 3. 瞒天过海：加工并伪装数据。如果是自定义周期，这一步会将 1m 的 rawContent 揉捏成 2m/4m 等周期的 JSON
+                string finalJson = aggregator.AggregateHistoricalJson(rawContent, interval);
+
+                // 直接透传处理后的 JSON 数组结构给前端
+                return Content(finalJson, "application/json");
             }
             catch (Exception ex)
             {

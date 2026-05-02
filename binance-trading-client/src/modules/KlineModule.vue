@@ -4,11 +4,11 @@
       <div class="intervals">
         <button 
           v-for="tf in timeframes" 
-          :key="tf" 
-          :class="{ active: tf === currentTf }" 
-          @click="changeInterval(tf)"
+          :key="tf.value" 
+          :class="{ active: tf.value === currentTf }" 
+          @click="changeInterval(tf.value)"
         >
-          {{ tf }}
+          {{ tf.label }}
         </button>
       </div>
 
@@ -304,7 +304,31 @@ const instanceId = Math.random().toString(36).substring(2, 10);
 const isFocused = computed(() => marketStore.currentSymbol === props.symbol);
 const takeFocus = () => { if (!isFocused.value) marketStore.setCurrentSymbol(props.symbol); };
 
-const timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M'];
+// 修改为对象数组以便于显示和值的对应
+const timeframes = [
+  { label: '1m', value: '1m' },
+  { label: '2m', value: '2m' },
+  { label: '3m', value: '3m' },
+  { label: '4m', value: '4m' },
+  { label: '5m', value: '5m' },
+  { label: '6m', value: '6m' },
+  { label: '8m', value: '8m' },
+  { label: '10m', value: '10m' },
+  { label: '15m', value: '15m' },
+  { label: '20m', value: '20m' },
+  { label: '30m', value: '30m' },
+  { label: '40m', value: '40m' },
+  { label: '1h', value: '1h' },
+  { label: '2h', value: '2h' },
+  { label: '4h', value: '4h' },
+  { label: '6h', value: '6h' },
+  { label: '8h', value: '8h' },
+  { label: '12h', value: '12h' },
+  { label: '1d', value: '1d' },
+  { label: '3d', value: '3d' },
+  { label: '1w', value: '1w' },
+  { label: '1M', value: '1M' }
+];
 const currentTf = ref('1m'); 
 
 const localChartType = ref('standard'); 
@@ -1199,7 +1223,30 @@ const loadMoreHistory = async () => {
 
   const rawOldest = Number(currentChartData.value[0].time);
   const oldestTimeSec = rawOldest > 9999999999 ? Math.floor(rawOldest / 1000) : rawOldest;
-  const targetEndTimeMs = (oldestTimeSec - (parseInt(currentTf.value) * (currentTf.value.endsWith('m') ? 60 : 3600))) * 1000;
+  
+  // Update logic to handle Custom Intervals calculation for backward loading properly
+  const intervalStr = currentTf.value;
+  let multiplier = 1;
+  let secondsPerUnit = 60; // default to minutes
+  
+  if (intervalStr.endsWith('m')) {
+    multiplier = parseInt(intervalStr);
+    secondsPerUnit = 60;
+  } else if (intervalStr.endsWith('h')) {
+    multiplier = parseInt(intervalStr);
+    secondsPerUnit = 3600;
+  } else if (intervalStr.endsWith('d')) {
+    multiplier = parseInt(intervalStr);
+    secondsPerUnit = 86400;
+  } else if (intervalStr.endsWith('w')) {
+    multiplier = parseInt(intervalStr);
+    secondsPerUnit = 604800;
+  } else if (intervalStr.endsWith('M')) {
+    multiplier = parseInt(intervalStr);
+    secondsPerUnit = 2592000; // approximate 30 days
+  }
+  
+  const targetEndTimeMs = (oldestTimeSec - (multiplier * secondsPerUnit)) * 1000;
 
   try {
     const olderHistory = await MarketAPI.getHistoricalKlines(props.symbol, currentTf.value, 200, targetEndTimeMs);
