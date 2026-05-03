@@ -53,6 +53,9 @@ namespace TradingTerminal.Services
 
         private async Task ProcessOrderAsync(OrderSignal signal)
         {
+            // ==========================================
+            // 🛡️ 1. 风控拦截门
+            // ==========================================
             if (signal.Action == OrderAction.OpenMarket || signal.Action == OrderAction.OpenLimit)
             {
                 if (!_riskManager.CanOpenPosition(signal.Symbol, out string blockReason))
@@ -62,9 +65,13 @@ namespace TradingTerminal.Services
                     return;
                 }
             }
+
             decimal finalQuantity = signal.Quantity;
 
-            // 1. 计算出数量后，用网关的 FormatQuantity 剪裁精度！
+            // ==========================================
+            // 📐 2. 数量与价格精度裁剪
+            // ==========================================
+            // 计算出数量后，用网关的 FormatQuantity 剪裁精度！
             if (signal.IsUsdtMargin)
             {
                 decimal rawQty = await _tradeWsService.ConvertUsdtToQuantityAsync(signal.Symbol, signal.UsdtAmount, signal.Leverage);
@@ -76,16 +83,22 @@ namespace TradingTerminal.Services
                     throw new Exception($"计算出的下单数量过小，已被 {signal.Symbol} 的精度规则截断为 0");
             }
 
-            // 2. 将传入的价格也用 FormatPrice 裁剪一下，防止止损/限价单报错
+            // 将传入的基础价格也用 FormatPrice 裁剪一下，主要防止独立触发的止损/限价单报错
             decimal? finalPrice = signal.Price.HasValue ? _tradeWsService.FormatPrice(signal.Symbol, signal.Price.Value) : null;
             decimal? finalStopPrice = signal.StopPrice.HasValue ? _tradeWsService.FormatPrice(signal.Symbol, signal.StopPrice.Value) : null;
 
-            // 根据不同的动作类型，调用交易网关对应的 API
+
+            // ==========================================
+            // 🚀 3. 核心路由与原子级连招
+            // ==========================================
             switch (signal.Action)
             {
                 case OrderAction.OpenMarket:
-                   await _tradeWsService.OpenMarketPositionAsync(signal.Symbol, signal.Side, finalQuantity);
-                    // 🌟 2. 蓝图落地：瞬间塞入开仓快照任务！
+                    // 【阶段一：执行主开仓】
+                    await _tradeWsService.OpenMarketPositionAsync(signal.Symbol, signal.Side, finalQuantity);
+                    _logger.LogInformation($"✅ 开仓成功！附言: {signal.Message}");
+
+                    // 🌟 瞬间塞入开仓快照任务！
                     _snapshotChannel.TryWrite(new SnapshotTask
                     {
                         Symbol = signal.Symbol,
@@ -93,12 +106,59 @@ namespace TradingTerminal.Services
                         OrderSide = signal.Side,
                         StrategyName = signal.StrategyName
                     });
-                    break;
 
+                    // 【阶段二：连招触发 (如果主开仓报错，这里绝对不会被执行！)】
+                    string positionSide = signal.Side == "BUY" ? "LONG" : "SHORT";
+                    // 🌟 计算反向平仓动作：如果你是 BUY 开仓，那平仓动作就是 SELL
+                    string closeSide = signal.Side == "BUY" ? "SELL" : "BUY";
+
+                    if (signal.StopLossPrice.HasValue || signal.TakeProfitPrice.HasValue)
+                    {
+                        // 稍微等待 500 毫秒，确保币安撮合引擎已生成仓位
+                        await Task.Delay(500);
+                    }
+
+                    // 🛡️ 挂载止损
+                    if (signal.StopLossPrice.HasValue)
+                    {
+                        decimal formattedSl = _tradeWsService.FormatPrice(signal.Symbol, signal.StopLossPrice.Value);
+                        try
+                        {
+                            await _tradeWsService.SetStopLossMarketAsync(signal.Symbol, positionSide, finalQuantity, formattedSl);
+                            _logger.LogInformation($"🛡️ [{signal.Symbol}] 保护性止损成功挂载: {formattedSl}");
+                        }
+                        catch (Exception ex) when (ex.Message.Contains("-2021"))
+                        {
+                            // 🚨 极速插针导致价格已经跌破止损价！不要挂单了，直接跑！
+                            _logger.LogCritical($"🚨 [极速插针断臂] {signal.Symbol} 价格已穿透止损线！立即执行应急市价平仓！");
+                            await _tradeWsService.PlaceOrderWsAsync(signal.Symbol, closeSide, "MARKET", finalQuantity, reduceOnly: true);
+                            return; // 既然已经平仓止损了，下面的止盈就直接跳过不挂了
+                        }
+                    }
+
+                    // 💰 挂载止盈
+                    if (signal.TakeProfitPrice.HasValue)
+                    {
+                        decimal formattedTp = _tradeWsService.FormatPrice(signal.Symbol, signal.TakeProfitPrice.Value);
+                        try
+                        {
+                            await _tradeWsService.SetTakeProfitMarketAsync(signal.Symbol, positionSide, finalQuantity, formattedTp);
+                            _logger.LogInformation($"💰 [{signal.Symbol}] 目标性止盈成功挂载: {formattedTp}");
+                        }
+                        catch (Exception ex) when (ex.Message.Contains("-2021"))
+                        {
+                            // 💰 500毫秒内暴涨穿透了止盈线！这是天降横财，直接市价砸盘落袋为安！
+                            _logger.LogCritical($"🚀 [极速暴涨落袋] {signal.Symbol} 价格已穿透止盈线！立即执行市价平仓收割利润！");
+                            await _tradeWsService.PlaceOrderWsAsync(signal.Symbol, closeSide, "MARKET", finalQuantity, reduceOnly: true);
+                            return;
+                        }
+                    }
+                    break;
                 case OrderAction.OpenLimit:
                     if (!signal.Price.HasValue) throw new Exception("限价单必须提供 Price 参数");
                     await _tradeWsService.OpenLimitPositionAsync(signal.Symbol, signal.Side, finalQuantity, finalPrice.Value);
-                    // 🌟 2. 蓝图落地：瞬间塞入开仓快照任务！
+
+                    // 🌟 瞬间塞入开仓快照任务！
                     _snapshotChannel.TryWrite(new SnapshotTask
                     {
                         Symbol = signal.Symbol,
@@ -109,9 +169,10 @@ namespace TradingTerminal.Services
                     break;
 
                 case OrderAction.StopLossMarket:
+                    // 独立触发的止损单
                     if (!signal.StopPrice.HasValue) throw new Exception("止损单必须提供 StopPrice 参数");
-                    // 注意这里的 Side，传入的是你原本持仓的方向 (如 LONG)，网关底层会自动反转为 SELL 并带上 ReduceOnly
                     await _tradeWsService.SetStopLossMarketAsync(signal.Symbol, signal.Side, finalQuantity, finalStopPrice.Value);
+
                     _snapshotChannel.TryWrite(new SnapshotTask
                     {
                         Symbol = signal.Symbol,
@@ -122,8 +183,10 @@ namespace TradingTerminal.Services
                     break;
 
                 case OrderAction.TakeProfitMarket:
+                    // 独立触发的止盈单
                     if (!signal.StopPrice.HasValue) throw new Exception("止盈单必须提供 StopPrice 参数");
                     await _tradeWsService.SetTakeProfitMarketAsync(signal.Symbol, signal.Side, finalQuantity, finalStopPrice.Value);
+
                     _snapshotChannel.TryWrite(new SnapshotTask
                     {
                         Symbol = signal.Symbol,
@@ -132,16 +195,16 @@ namespace TradingTerminal.Services
                         StrategyName = signal.StrategyName
                     });
                     break;
+
                 case OrderAction.CancelAll:
-                    await _tradeWsService.CancelAllOpenOrdersWsAsync(signal.Symbol);
-                    _logger.LogInformation($"🧹 [战场清理] 已成功撤销 {signal.Symbol} 的所有遗留条件单 (止盈/止损)！");
+                    await _tradeWsService.CancelAllOpenOrdersAsync(signal.Symbol);
+                    _logger.LogInformation($"🧹 [战场清理] 已对 {signal.Symbol} 的双引擎 (普通池/条件池) 进行了深度撤单扫荡！");
                     break;
+
                 default:
                     _logger.LogWarning($"⚠️ 未知的订单指令类型: {signal.Action}");
                     break;
             }
-
-            // TODO: 蓝图第 4 阶段，这里可以加入“快照模块”，记录开仓时的 K 线图
         }
     }
 }

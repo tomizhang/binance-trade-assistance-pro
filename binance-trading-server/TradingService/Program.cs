@@ -90,6 +90,7 @@ try
     //平均k线
     // 1. 注册 OI 采集引擎为单例
     builder.Services.AddSingleton<HeikinAshiService>();
+    builder.Services.AddSingleton<BinanceUserDataWsService>();
 
     // 🌟 注册私有账户数据流 (作为后台守护进程启动)
     builder.Services.AddHostedService<BinanceUserDataWsService>();

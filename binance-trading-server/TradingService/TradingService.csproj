@@ -17,6 +17,7 @@
     <Folder Include="Logs\" />
     <Folder Include="Services\Helper\" />
     <Folder Include="Services\Services\" />
+    <Folder Include="Snapshots\" />
   </ItemGroup>
 
 </Project>

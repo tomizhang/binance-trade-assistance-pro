@@ -77,7 +77,7 @@ namespace TradingTerminal.Services
 #endif
                     ws.Options.KeepAliveInterval = TimeSpan.FromMinutes(2);
 
-                    await ws.ConnectAsync(new Uri($"wss://fstream.binance.com/ws/{_currentListenKey}"), stoppingToken);
+                    await ws.ConnectAsync(new Uri($"wss://fstream.binance.com/private/ws/{_currentListenKey}"), stoppingToken);
                     _logger.LogInformation("🟢 [私有数据流] WS 连接成功！开始监听账户变化...");
 
                     var buffer = new byte[1024 * 16]; // 16KB 缓冲区

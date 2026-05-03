@@ -22,7 +22,8 @@ namespace TradingTerminal.Services
         private readonly OrderChannel _orderChannel; // 🌟 1. 注入我们的订单高速管道
 
         private readonly HashSet<string> _watchList = new();
-        private readonly string[] _timeframes = { "2m", "4m", "6m", "8m", "10m", "1h", "1d" };
+        //private readonly string[] _timeframes = { "2m", "4m", "6m", "8m", "10m", "1h", "1d" };
+        private readonly string[] _timeframes = { "2m",  };
         private readonly SemaphoreSlim _lock = new(1, 1);
 
         public HeikinAshiService(
@@ -80,14 +81,20 @@ namespace TradingTerminal.Services
             if (!_watchList.Contains(msg.Symbol)) return;
             if (!_timeframes.Contains(msg.Interval)) return;
 
+            // 1. 依然把实时的 tick 数据喂给引擎，让引擎保持内部状态最新
             bool isReversed = _engine.ProcessLiveKlineAndCheckReversal(
                 msg.Symbol, msg.Interval, msg.Open, msg.Close, msg.High, msg.Low, msg.OpenTime, msg.IsClosed);
 
-            if (isReversed)
+            // ==========================================
+            // 🌟 核心修复：防重绘拦截器！
+            // 必须且仅当这根 K 线彻底走完 (msg.IsClosed == true) 时，才承认反转信号！
+            // 2分钟就严格等2分钟结束，10分钟就严格等10分钟结束。
+            // ==========================================
+            if (isReversed && msg.IsClosed)
             {
                 bool isBullish = _engine.GetCurrentDirection(msg.Symbol, msg.Interval);
 
-                // 1. 发送前端警报 (原有功能)
+                // 发送前端警报
                 var alert = new
                 {
                     symbol = msg.Symbol,
@@ -100,10 +107,10 @@ namespace TradingTerminal.Services
                 };
                 _hubContext.Clients.All.SendAsync("ReceiveHaAlert", alert);
 
-                // 🌟 2. 蓝图落地：如果是 2m 周期的反转，直接触发自动化实盘交易！
+                // 蓝图落地：确认为 2m 周期收盘级别的反转，触发自动化实盘交易！
                 if (msg.Interval == "2m")
                 {
-                    // ⚠️ 注意：使用 _ = Task.Run() 丢入线程池异步执行，绝对不阻塞当前 K 线解析的主线程！
+                    // 传入的 msg.Close 现在是这根 2分钟 K线的绝对收盘价，绝不含糊！
                     _ = Task.Run(() => ExecuteTradeStrategyAsync(msg.Symbol, isBullish, msg.Close));
                 }
             }
@@ -119,88 +126,44 @@ namespace TradingTerminal.Services
         {
             try
             {
-                _logger.LogInformation($"🤖 [策略触发] 检测到 {symbol} 2m 级别 HA 反转 ({(isBullish ? "多" : "空")})，准备发射订单...");
+                _logger.LogInformation($"🤖 [策略触发] 检测到 {symbol} 2m 级别反转，准备发射组合订单...");
 
                 string side = isBullish ? "BUY" : "SELL";
-                string positionSide = isBullish ? "LONG" : "SHORT";
 
-                // 🌟 统一资金管理参数，防止开平仓数量计算不一致！
-                decimal tradeMarginUsdt = 2m; // 每次下注本金
-                decimal tradeLeverage = 5m;   // 杠杆倍数
+                decimal tradeMarginUsdt = 2m;
+                decimal tradeLeverage = 5m;
 
-                // ==============================
-                // 第一步：计算止损价与止盈价
-                // 采用 1:2 经典盈亏比：1% 止损，2% 止盈
-                // ==============================
-                decimal stopLossPrice = isBullish
-                    ? currentPrice * 0.99m  // 做多：跌 1% 止损
-                    : currentPrice * 1.01m; // 做空：涨 1% 止损
+                // 计算止损价与止盈价
+                decimal stopLossPrice = isBullish ? currentPrice * 0.99m : currentPrice * 1.01m;
+                decimal takeProfitPrice = isBullish ? currentPrice * 1.02m : currentPrice * 0.98m;
 
-                decimal takeProfitPrice = isBullish
-                    ? currentPrice * 1.01m  // 做多：涨 2% 止盈
-                    : currentPrice * 0.99m; // 做空：跌 2% 止盈
-
-                // ==============================
-                // 第二步：将“开仓指令”扔进管道
-                // ==============================
-                var openSignal = new OrderSignal
+                // 🌟 核心重构：将 3 个独立指令，合并为 1 个“连招指令”
+                var comboSignal = new OrderSignal
                 {
                     Symbol = symbol,
-                    Action = OrderAction.OpenMarket,
+                    Action = OrderAction.OpenMarket, // 主动作依然是开仓
                     Side = side,
                     IsUsdtMargin = true,
                     UsdtAmount = tradeMarginUsdt,
                     Leverage = tradeLeverage,
+
+                    // 🌟 把附加的止盈止损价“绑”在主订单上！
+                    StopLossPrice = stopLossPrice,
+                    TakeProfitPrice = takeProfitPrice,
+
                     StrategyName = "HA_2m_Reversal",
-                    Reason = $"2m 级别出现 {(isBullish ? "多" : "空")} 头反转，当前价格 {currentPrice}",
-                    Message = "系统自动执行 2m HA 突破策略"
+                    Reason = $"反转价 {currentPrice}，SL:{stopLossPrice:F4}，TP:{takeProfitPrice:F4}",
+                    Message = "执行开仓，并要求消费者挂载止盈止损"
                 };
-                await _orderChannel.WriteAsync(openSignal);
 
-                // ⚠️ 极其关键的细节：稍微等待 500 毫秒，确保开仓单先被撮合
-                await Task.Delay(500);
+                // 🌟 现在只需往管道里扔 1 次！
+                await _orderChannel.WriteAsync(comboSignal);
 
-                // ==============================
-                // 第三步：将“止损指令”扔进管道 (防爆盾)
-                // ==============================
-                var stopLossSignal = new OrderSignal
-                {
-                    Symbol = symbol,
-                    Action = OrderAction.StopLossMarket,
-                    Side = positionSide,
-                    IsUsdtMargin = true,
-                    UsdtAmount = tradeMarginUsdt, // 保持与开仓一致
-                    Leverage = tradeLeverage,     // 保持与开仓一致
-                    StopPrice = stopLossPrice,
-                    StrategyName = "HA_2m_Reversal_SL",
-                    Reason = $"开仓保护: 止损价设为 {stopLossPrice:F4}",
-                    Message = "系统自动挂载保护性止损"
-                };
-                await _orderChannel.WriteAsync(stopLossSignal);
-
-                // ==============================
-                // 第四步：将“止盈指令”扔进管道 (利润收割机)
-                // ==============================
-                var takeProfitSignal = new OrderSignal
-                {
-                    Symbol = symbol,
-                    Action = OrderAction.TakeProfitMarket,
-                    Side = positionSide,
-                    IsUsdtMargin = true,
-                    UsdtAmount = tradeMarginUsdt, // 保持与开仓一致
-                    Leverage = tradeLeverage,     // 保持与开仓一致
-                    StopPrice = takeProfitPrice,
-                    StrategyName = "HA_2m_Reversal_TP",
-                    Reason = $"利润锁定: 止盈价设为 {takeProfitPrice:F4}",
-                    Message = "系统自动挂载目标止盈"
-                };
-                await _orderChannel.WriteAsync(takeProfitSignal);
-
-                _logger.LogInformation($"✅ [策略执行完毕] {symbol} 开仓+止损+止盈 OCO指令组已全部投递！");
+                // (删掉原来这里的 Task.Delay 和另外两次 WriteAsync)
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ [策略执行失败] {symbol} 自动下单过程中发生错误: {ex.Message}");
+                _logger.LogError($"❌ [策略打包失败] {symbol}: {ex.Message}");
             }
         }
         // ... (ExecuteAsync 和 SyncHistoricalDataAsync 保持不变) ...

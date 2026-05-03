@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -30,7 +31,8 @@ namespace TradingTerminal.Services
             userDataBus.OnOrderTradeUpdated += HandleOrderTradeUpdate;
 
             // 确保本地快照文件夹存在
-            if (!Directory.Exists("Snapshots")) Directory.CreateDirectory("Snapshots");
+            var dir = $"{AppDomain.CurrentDomain.BaseDirectory}/Snapshots";
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
         }
 
         private void HandleOrderTradeUpdate(OrderTradeUpdateEvent tradeEvent)

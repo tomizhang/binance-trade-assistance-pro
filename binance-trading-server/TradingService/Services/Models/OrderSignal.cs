@@ -20,7 +20,8 @@ namespace TradingTerminal.Models
         public string Symbol { get; set; }
         public OrderAction Action { get; set; }
         public string Side { get; set; } // "BUY" 或 "SELL"
-
+        public decimal? StopLossPrice { get; set; }   // 🌟 专门用于携带止损价
+        public decimal? TakeProfitPrice { get; set; } // 🌟 专门用于携带止盈价
         // 🌟 金额策略 (蓝图 2.3 设计)
         public bool IsUsdtMargin { get; set; } = false; // 是否使用 U本位金额下单
         public decimal UsdtAmount { get; set; }         // 如果是 U 本位，传 U 的数量 (例如 100U)

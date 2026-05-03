@@ -205,6 +205,8 @@ namespace TradingTerminal.Services
             if (isAlgoOrder)
             {
                 parameters.Add("algoType", "CONDITIONAL");
+                // 🌟 新增修复：强制条件单跟随“最新成交价(Last Price)”，对齐我们的 HA K线价格！
+                parameters.Add("workingType", "CONTRACT_PRICE");
             }
 
             var queryStr = string.Join("&", parameters.Select(kvp => $"{kvp.Key}={kvp.Value}"));
@@ -260,53 +262,64 @@ namespace TradingTerminal.Services
 
 
         // ==========================================
-        // 🌟 战场清理：一键撤销该币种的所有挂单
+        // 🌟 战场清理：带最强报错侦测的 REST 版本
         // ==========================================
-        public async Task<string> CancelAllOpenOrdersWsAsync(string symbol)
+        public async Task CancelAllOpenOrdersAsync(string symbol)
         {
-            if (_tradeWs.State != WebSocketState.Open) return null;
-
-            string requestId = Guid.NewGuid().ToString("N");
-            long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-            var parameters = new SortedDictionary<string, string>(StringComparer.Ordinal)
+            var endpoints = new[]
             {
-                { "apiKey", _apiKey },
-                { "symbol", symbol },
-                { "timestamp", timestamp.ToString() }
+                "/fapi/v1/allOpenOrders",   // 扫荡普通挂单
+                "/fapi/v1/algoOpenOrders"   // 扫荡条件单 (止盈/止损)
             };
 
-            var queryStr = string.Join("&", parameters.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-            string signature = GenerateSignature(queryStr, _apiSecret);
-            parameters.Add("signature", signature);
-
-            var payload = new
+            foreach (var endpoint in endpoints)
             {
-                id = requestId,
-                method = "allOpenOrders.cancel", // 🌟 币安专用的批量撤单通道
-                @params = parameters
-            };
+                try
+                {
+                    string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+                    string queryString = $"symbol={symbol.ToUpper()}&timestamp={timestamp}";
+                    string signature = GenerateSignature(queryString, _apiSecret);
 
-            string jsonPayload = JsonSerializer.Serialize(payload);
+                    string url = $"https://fapi.binance.com{endpoint}?{queryString}&signature={signature}";
 
-            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingRequests.TryAdd(requestId, tcs);
+                    var request = new HttpRequestMessage(HttpMethod.Delete, url);
+                    request.Headers.Add("X-MBX-APIKEY", _apiKey);
 
-            var bytes = Encoding.UTF8.GetBytes(jsonPayload);
-            await _tradeWs.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                    // ⚠️ 如果你的 HttpClient 没挂代理，这里就会直接爆炸进 catch！
+                    var response = await _httpClient.SendAsync(request);
+                    string json = await response.Content.ReadAsStringAsync();
 
-            var timeoutTask = Task.Delay(5000);
-            var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
-
-            if (completedTask == timeoutTask)
-            {
-                _pendingRequests.TryRemove(requestId, out _);
-                return null;
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("code", out var errCode))
+                        {
+                            int code = errCode.GetInt32();
+                            // -2011 是健康状态：说明该引擎里本来就干干净净，没订单可撤
+                            if (code != -2011)
+                            {
+                                // 🌟 必须是大红色的 Error 级别！把币安真实的骂人话打印出来
+                                _logger.LogError($"❌ [币安拒单] 撤单失败！端点 {endpoint} 返回: {json}");
+                            }
+                            else
+                            {
+                                _logger.LogDebug($"ℹ️ [清理记录] {endpoint} 池子里没有需要撤的单子。");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 🌟 如果真的成功了，把币安的表扬打印出来
+                        _logger.LogInformation($"✅ [撤单成功] 端点 {endpoint} 成功清理！回执: {json}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 🌟 致命错误：如果进了这里，99% 是因为你的 HttpClient 没有配置 socks5 代理！
+                    _logger.LogError($"💥 [网络致命异常] 无法连接到 {endpoint}，请检查你的 HttpClient 是否配置了代理！详细错误: {ex.Message}");
+                }
             }
-
-            return await tcs.Task;
         }
-
         // 🌟 3. 新增：加载全网精度规则
         private async Task LoadExchangeInfoAsync()
         {
