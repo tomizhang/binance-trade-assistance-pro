@@ -58,11 +58,13 @@ try
     // 1. 注册核心数据总线为单例 (所有人共享一条总线)
     builder.Services.AddSingleton<MarketEventBus>();
     // 🌟 步骤 1：先把引擎注册为单例，这样 MarketHub 才能在构造函数里拿到它！
-    builder.Services.AddSingleton<TradingTerminal.Services.BinanceWebSocketService>();
 
-    // 🌟 步骤 2：再把这个单例引擎作为后台任务跑起来
-    builder.Services.AddHostedService(provider =>
-        provider.GetRequiredService<TradingTerminal.Services.BinanceWebSocketService>());
+    builder.Services.AddSingleton<BinanceWebSocketService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWebSocketService>());
+
+    // 2. 交易网关 (负责签名下单，先作为 Singleton，再作为 HostedService 启动)
+    builder.Services.AddSingleton<BinanceTradeWsService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceTradeWsService>());
     // 2. 注册后台 WebSocket 转发服务
     //builder.Services.AddHostedService<BinanceDataForwarderService>();
 
@@ -73,11 +75,38 @@ try
     //builder.Services.AddHostedService(provider =>
     //    provider.GetRequiredService<BinanceOpenInterestService>());
 
+    // 1. 注册消息管道为单例 (所有策略共享这一个管道)
+    builder.Services.AddSingleton<OrderChannel>();
 
+    // 2. 注册消费者为后台托管服务 (默默在后台搬砖)
+    builder.Services.AddSingleton<OrderExecutionConsumer>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<OrderExecutionConsumer>());
+    // 注册最高风控司令部为单例 (全系统共享这一个状态机)
+    // 🌟 1. 注册用户数据事件总线 (单例，全系统广播通道)
+    builder.Services.AddSingleton<UserDataEventBus>();
+
+    // 2. 注册最高风控司令部 (单例)
+    builder.Services.AddSingleton<RiskControlManager>();
     //平均k线
     // 1. 注册 OI 采集引擎为单例
     builder.Services.AddSingleton<HeikinAshiService>();
 
+    // 🌟 注册私有账户数据流 (作为后台守护进程启动)
+    builder.Services.AddHostedService<BinanceUserDataWsService>();
+
+    // 注册邮件通信管道 (单例)
+    builder.Services.AddSingleton<NotificationChannel>();
+
+    // 注册通知服务 (消费者守护进程)
+    builder.Services.AddHostedService<NotificationService>();
+
+    // 1. 注册快照管道 (单例)
+    builder.Services.AddSingleton<SnapshotChannel>();
+
+    // 2. 注册快照消费者守护进程
+    builder.Services.AddHostedService<SnapshotManager>();
+
+    builder.Services.AddHostedService<SystemRecoveryService>();
     // 2. 将其作为托管服务运行
     builder.Services.AddHostedService(provider =>
         provider.GetRequiredService<HeikinAshiService>());
