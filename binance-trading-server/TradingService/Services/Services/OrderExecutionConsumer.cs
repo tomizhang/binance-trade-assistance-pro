@@ -41,6 +41,7 @@ namespace TradingTerminal.Services
                 try
                 {
                     await ProcessOrderAsync(signal);
+                    _logger.LogInformation("--------------------------------------------------------------");
                 }
                 catch (Exception ex)
                 {
@@ -115,7 +116,7 @@ namespace TradingTerminal.Services
                     if (signal.StopLossPrice.HasValue || signal.TakeProfitPrice.HasValue)
                     {
                         // 稍微等待 500 毫秒，确保币安撮合引擎已生成仓位
-                        await Task.Delay(500);
+                        await Task.Delay(10);
                     }
 
                     // 🛡️ 挂载止损
@@ -130,7 +131,7 @@ namespace TradingTerminal.Services
                         catch (Exception ex) when (ex.Message.Contains("-2021"))
                         {
                             // 🚨 极速插针导致价格已经跌破止损价！不要挂单了，直接跑！
-                            _logger.LogCritical($"🚨 [极速插针断臂] {signal.Symbol} 价格已穿透止损线！立即执行应急市价平仓！");
+                            _logger.LogCritical($"🚨 [极速插针断臂] {signal.Symbol} 价格已穿透止损线！立即执行应急市价平仓！{ex.Message}");
                             await _tradeWsService.PlaceOrderWsAsync(signal.Symbol, closeSide, "MARKET", finalQuantity, reduceOnly: true);
                             return; // 既然已经平仓止损了，下面的止盈就直接跳过不挂了
                         }

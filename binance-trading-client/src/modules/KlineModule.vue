@@ -1155,6 +1155,7 @@ const calculateHeikinAshi = (rawData: any[]) => {
     };
     
     ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
+    // ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
     if (!prevHA) { ha.open = (Number(raw.open) + Number(raw.close)) / 2; } 
     else { ha.open = (Number(prevHA.open) + Number(prevHA.close)) / 2; }
     ha.high = Math.max(Number(raw.high), ha.open, ha.close);

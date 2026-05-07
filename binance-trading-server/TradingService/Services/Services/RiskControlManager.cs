@@ -57,8 +57,9 @@ namespace TradingTerminal.Services
         // ==============================
         public bool CanOpenPosition(string symbol, out string blockReason)
         {
-            blockReason = string.Empty;
 
+            blockReason = string.Empty;
+            return true;
             // 1. 检查全局熔断
             if (IsGlobalTradingSuspended)
             {

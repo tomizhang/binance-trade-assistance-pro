@@ -53,28 +53,95 @@ export const getPrecisionConfig = (symbol: string, symbolRules: any, marketTicke
 };
 
 // 4. Heikin-Ashi (平均K线) 计算
-export const calculateHeikinAshi = (rawData: any[]) => {
+// export const calculateHeikinAshi = (rawData: any[]) => {
+//   const haData = [];
+//   let prevHA: any = null;
+//   for (const raw of rawData) {
+//     const rawVolume = raw.value !== undefined ? raw.value : (raw.volume !== undefined ? raw.volume : (raw.vol || 0));
+//     const ha = { 
+//       time: raw.time, 
+//       parsedTime: raw.parsedTime,
+//       open: 0, high: 0, low: 0, close: 0, 
+//       value: rawVolume, color: raw.color 
+//     };
+    
+//     ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
+//     if (!prevHA) { ha.open = (Number(raw.open) + Number(raw.close)) / 2; } 
+//     else { ha.open = (Number(prevHA.open) + Number(prevHA.close)) / 2; }
+//     ha.high = Math.max(Number(raw.high), ha.open, ha.close);
+//     ha.low = Math.min(Number(raw.low), ha.open, ha.close);
+//     ha.color = ha.close >= ha.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';
+    
+//     haData.push(ha);
+//     prevHA = ha;
+//   }
+//   return haData;
+// };
+export const calculateCumulativeSmoothedHeikinAshi = (rawData: any[]) => {
   const haData = [];
   let prevHA: any = null;
-  for (const raw of rawData) {
+
+  // 维护四价的累加总和，极大地提升遍历性能
+  let sumOpen = 0;
+  let sumHigh = 0;
+  let sumLow = 0;
+  let sumClose = 0;
+
+  for (let i = 0; i < rawData.length; i++) {
+    const raw = rawData[i];
+    
+    // 处理 Volume
     const rawVolume = raw.value !== undefined ? raw.value : (raw.volume !== undefined ? raw.volume : (raw.vol || 0));
+    
     const ha = { 
       time: raw.time, 
       parsedTime: raw.parsedTime,
       open: 0, high: 0, low: 0, close: 0, 
-      value: rawVolume, color: raw.color 
+      value: rawVolume, 
+      color: raw.color 
     };
+
+    // 1. 将当前原始数据转为 Number
+    const curOpen = Number(raw.open);
+    const curHigh = Number(raw.high);
+    const curLow = Number(raw.low);
+    const curClose = Number(raw.close);
+
+    // 2. 将当前值并入累加总和中
+    sumOpen += curOpen;
+    sumHigh += curHigh;
+    sumLow += curLow;
+    sumClose += curClose;
+
+    // 3. 计算当前的累积平均值 (索引 i 从 0 开始，所以除数是 i + 1)
+    const count = i + 1;
+    const cmaOpen = sumOpen / count;
+    const cmaHigh = sumHigh / count;
+    const cmaLow = sumLow / count;
+    const cmaClose = sumClose / count;
+
+    // 4. 将累积平均值 (CMA) 代入 Heikin-Ashi 公式
+    // HA_Close = 平均值的平均
+    ha.close = (cmaOpen + cmaHigh + cmaLow + cmaClose) / 4;
     
-    ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
-    if (!prevHA) { ha.open = (Number(raw.open) + Number(raw.close)) / 2; } 
-    else { ha.open = (Number(prevHA.open) + Number(prevHA.close)) / 2; }
-    ha.high = Math.max(Number(raw.high), ha.open, ha.close);
-    ha.low = Math.min(Number(raw.low), ha.open, ha.close);
+    // HA_Open = 依赖上一根 HA
+    if (!prevHA) { 
+      ha.open = (cmaOpen + cmaClose) / 2; 
+    } else { 
+      ha.open = (Number(prevHA.open) + Number(prevHA.close)) / 2; 
+    }
+    
+    // HA_High / Low = 比较得出极值
+    ha.high = Math.max(cmaHigh, ha.open, ha.close);
+    ha.low  = Math.min(cmaLow, ha.open, ha.close);
+    
+    // 5. 颜色判定
     ha.color = ha.close >= ha.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';
     
     haData.push(ha);
     prevHA = ha;
   }
+  
   return haData;
 };
 

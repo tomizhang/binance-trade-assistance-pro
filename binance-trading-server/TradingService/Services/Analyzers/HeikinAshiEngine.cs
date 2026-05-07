@@ -6,7 +6,17 @@ using Microsoft.Extensions.Logging;
 
 namespace TradingTerminal.Services
 {
-    // 记录 HA 的状态
+    public class LiveHaResult
+    {
+        public bool IsReversed { get; set; }
+        public bool IsBullish { get; set; }
+        public decimal HaOpen { get; set; }
+        public decimal HaClose { get; set; }
+        public decimal HaHigh { get; set; }
+        public decimal HaLow { get; set; }
+    }
+
+    // 🌟 核心重构 1：HaState 降级为最纯净的数据模型，彻底抛弃所有的 Queue
     public class HaState
     {
         public long OpenTime { get; set; }
@@ -16,33 +26,31 @@ namespace TradingTerminal.Services
         public decimal HaLow { get; set; }
 
         public bool IsBullish { get; set; }
-
-        // 滑动窗口：记录原生 K 线的真实波动幅度 (ATR)
-        public Queue<decimal> RecentVolatilities { get; set; } = new Queue<decimal>();
+        public decimal RawVolatility { get; set; } // 记录原生真实波动 (High - Low)
     }
 
     public class HeikinAshiEngine
     {
         private readonly ILogger<HeikinAshiEngine> _logger;
-        private readonly ConcurrentDictionary<string, HaState> _lastClosedStates = new();
 
-        // 🌟 核心升级：跨币种自适应的最小百分比波动率 (0.15%)
+        // 🌟 核心重构 2：引擎维护一个全局的历史 K 线列表字典 (缓冲池)
+        private readonly ConcurrentDictionary<string, List<HaState>> _haHistoryBuffer = new();
+
         private const decimal MIN_VOLATILITY_PERCENTAGE = 0.0015m;
-
-        // 🌟 滑动窗口大小 (记录最近 10 根 K 线的波动)
         private const int VOLATILITY_WINDOW_SIZE = 10;
+        private const int MAX_HISTORY_SIZE = 30; // 历史列表最大保留容量
 
         public HeikinAshiEngine(ILogger<HeikinAshiEngine> logger)
         {
             _logger = logger;
         }
 
-        // 1. 根据历史数据初始化 HA 状态
         public void InitializeFromHistory(string symbol, string timeframe, List<dynamic> rawKlines)
         {
             if (rawKlines.Count == 0) return;
 
             string key = $"{symbol.ToUpper()}_{timeframe}";
+            var historyList = new List<HaState>();
             HaState prevHa = null;
 
             foreach (var k in rawKlines)
@@ -53,7 +61,8 @@ namespace TradingTerminal.Services
                 var currentHa = new HaState
                 {
                     OpenTime = k.OpenTime,
-                    HaClose = (open + high + low + close) / 4m
+                    HaClose = (open + high + low + close) / 4m,
+                    RawVolatility = high - low
                 };
 
                 if (prevHa == null)
@@ -65,33 +74,34 @@ namespace TradingTerminal.Services
                 {
                     currentHa.HaOpen = (prevHa.HaOpen + prevHa.HaClose) / 2m;
                     currentHa.IsBullish = currentHa.HaClose >= currentHa.HaOpen;
-                    currentHa.RecentVolatilities = new Queue<decimal>(prevHa.RecentVolatilities);
                 }
 
                 currentHa.HaHigh = Math.Max(high, Math.Max(currentHa.HaOpen, currentHa.HaClose));
                 currentHa.HaLow = Math.Min(low, Math.Min(currentHa.HaOpen, currentHa.HaClose));
 
-                // 记录原生 K 线的真实波动 (High - Low)
-                decimal rawVolatility = high - low;
-                currentHa.RecentVolatilities.Enqueue(rawVolatility);
-                if (currentHa.RecentVolatilities.Count > VOLATILITY_WINDOW_SIZE)
-                {
-                    currentHa.RecentVolatilities.Dequeue();
-                }
+                historyList.Add(currentHa);
+                if (historyList.Count > MAX_HISTORY_SIZE) historyList.RemoveAt(0);
 
                 prevHa = currentHa;
             }
 
-            _lastClosedStates[key] = prevHa;
+            _haHistoryBuffer[key] = historyList;
         }
 
-        // 2. 处理 WS 推送的实时 K 线，并判断是否反转
-        public bool ProcessLiveKlineAndCheckReversal(string symbol, string timeframe, decimal open, decimal close, decimal high, decimal low, long openTime, bool isClosed)
+        public LiveHaResult ProcessLiveKlineAndCheckReversal(string symbol, string timeframe, decimal open, decimal close, decimal high, decimal low, long openTime, bool isClosed)
         {
             string key = $"{symbol.ToUpper()}_{timeframe}";
 
-            if (!_lastClosedStates.TryGetValue(key, out var prevHa)) return false;
-            if (openTime < prevHa.OpenTime) return false;
+            if (!_haHistoryBuffer.TryGetValue(key, out var historyList)) return new LiveHaResult();
+
+            HaState prevHa;
+            lock (historyList) // 确保线程安全读取
+            {
+                if (historyList.Count == 0) return new LiveHaResult();
+                prevHa = historyList.Last();
+            }
+
+            if (openTime < prevHa.OpenTime) return new LiveHaResult();
 
             decimal haClose = (open + high + low + close) / 4m;
             decimal haOpen = (prevHa.HaOpen + prevHa.HaClose) / 2m;
@@ -99,83 +109,97 @@ namespace TradingTerminal.Services
             decimal haLow = Math.Min(low, Math.Min(haOpen, haClose));
 
             bool isCurrentGreen = haClose >= haOpen;
-            bool isReversal = prevHa.IsBullish != isCurrentGreen;
+            bool isVisualReversal = prevHa.IsBullish != isCurrentGreen;
             bool isValidSignal = false;
 
+            // 🌟 绝对屏障：必须等 K 线完全收盘，才进行历史计算与账本更新
             if (isClosed && openTime > prevHa.OpenTime)
             {
                 decimal currentHaBodySize = Math.Abs(haClose - haOpen);
-                decimal rawCandleLength = high - low; // 真实的 K 线高低点跨度
+                decimal rawCandleLength = high - low;
 
-                // 计算过去 10 根的原生平均波动幅度
-                decimal avgVolatility = prevHa.RecentVolatilities.Any() ? prevHa.RecentVolatilities.Average() : rawCandleLength;
-
-                if (isReversal)
+                lock (historyList) // 确保在读取历史记录时，列表不会被其他线程篡改
                 {
-                    // 🛡️ 过滤 A：相对突发波动率 (这根 K 线的真实波动必须大于过去均值的 50%)
-                    bool isVolatileEnough = rawCandleLength > (avgVolatility * 0.5m);
+                    // 1. 动态从历史 List 中计算最近的平均波动率
+                    int volCount = Math.Min(VOLATILITY_WINDOW_SIZE, historyList.Count);
+                    decimal avgVolatility = volCount > 0
+                        ? historyList.Skip(historyList.Count - volCount).Average(h => h.RawVolatility)
+                        : rawCandleLength;
 
-                    // 🛡️ 过滤 B：防十字星 (HA 实体必须占整根【真实 K 线】长度的 30% 以上)
-                    bool isNotDoji = rawCandleLength > 0 && (currentHaBodySize / rawCandleLength) > 0.3m;
-
-                    // 🛡️ 过滤 C：跨币种绝对冰点过滤 (最近 10 根的平均波动率必须 >= 0.15%) 🌟
-                    // 均波百分比 = 平均价格波动 / 当前收盘价
-                    decimal avgVolatilityPercentage = close > 0 ? (avgVolatility / close) : 0;
-                    bool isMinVolatilityMet = avgVolatilityPercentage >= MIN_VOLATILITY_PERCENTAGE;
-
-                    if (isVolatileEnough && isNotDoji && isMinVolatilityMet)
+                    if (isVisualReversal)
                     {
-                        isValidSignal = true;
-                        // 日志里直接打印出计算出的百分比，方便你复盘时观察 (P2 格式化会自动转为百分比并保留两位小数)
-                        _logger.LogWarning($"🔄 [HA反转] {symbol} 在 {timeframe} 级别由 {(prevHa.IsBullish ? "多转空📉" : "空转多📈")}! (均波率: {avgVolatilityPercentage:P2})");
+                        // 🌟 核心重构 3：直接从历史 List 中切片提取最后 4 根进行判定！
+                        int requiredStreak = 5;
+                        if (historyList.Count >= requiredStreak)
+                        {
+                            bool expectedPrevDir = prevHa.IsBullish;
+
+                            // 动态截取历史最后 4 根 K 线，判断它们的方向是否全部符合预期
+                            var last4States = historyList.Skip(historyList.Count - requiredStreak).ToList();
+                            bool isStreakValid = last4States.All(h => h.IsBullish == expectedPrevDir);
+
+                            if (isStreakValid)
+                            {
+                                bool isVolatileEnough = rawCandleLength > (avgVolatility * 0.5m);
+                                bool isNotDoji = rawCandleLength > 0 && (currentHaBodySize / rawCandleLength) > 0.3m;
+                                decimal avgVolatilityPercentage = close > 0 ? (avgVolatility / close) : 0;
+                                bool isMinVolatilityMet = avgVolatilityPercentage >= MIN_VOLATILITY_PERCENTAGE;
+
+                                if (isVolatileEnough && isNotDoji && isMinVolatilityMet)
+                                {
+                                    isValidSignal = true;
+                                    _logger.LogWarning($"🔥 [极品HA反转] {symbol} {timeframe} 历史列表验证达成连续 {requiredStreak} 根{(expectedPrevDir ? "阳" : "阴")}线后完美反转! (均波率: {avgVolatilityPercentage:P2})");
+                                }
+                            }
+                        }
                     }
-                    else if (isReversal && !isMinVolatilityMet)
+
+                    // 2. 将这根收盘的 K 线推入历史 List
+                    var newState = new HaState
                     {
-                        // 隐式记录：可以把过滤掉的冰点死水打印出来，方便你调试 0.15% 的阈值是否合适
-                        // _logger.LogDebug($"💤 [冰点过滤] {symbol} {timeframe} 发生反转被过滤，当前近期均波率仅为: {avgVolatilityPercentage:P2}");
-                    }
+                        OpenTime = openTime,
+                        HaOpen = haOpen,
+                        HaClose = haClose,
+                        HaHigh = haHigh,
+                        HaLow = haLow,
+                        IsBullish = isCurrentGreen,
+                        RawVolatility = rawCandleLength
+                    };
+
+                    historyList.Add(newState);
+                    if (historyList.Count > MAX_HISTORY_SIZE) historyList.RemoveAt(0);
                 }
-
-                var newState = new HaState
-                {
-                    OpenTime = openTime,
-                    HaOpen = haOpen,
-                    HaClose = haClose,
-                    HaHigh = haHigh,
-                    HaLow = haLow,
-                    RecentVolatilities = new Queue<decimal>(prevHa.RecentVolatilities)
-                };
-
-                if (isValidSignal || !isReversal)
-                {
-                    newState.IsBullish = isCurrentGreen;
-                }
-                else
-                {
-                    newState.IsBullish = prevHa.IsBullish;
-                }
-
-                // 更新历史波动记忆
-                newState.RecentVolatilities.Enqueue(rawCandleLength);
-                if (newState.RecentVolatilities.Count > VOLATILITY_WINDOW_SIZE) newState.RecentVolatilities.Dequeue();
-
-                _lastClosedStates[key] = newState;
             }
 
-            return isValidSignal;
+            return new LiveHaResult
+            {
+                IsReversed = isClosed ? isValidSignal : isVisualReversal,
+                IsBullish = isCurrentGreen,
+                HaOpen = haOpen,
+                HaClose = haClose,
+                HaHigh = haHigh,
+                HaLow = haLow
+            };
         }
 
         public long GetLastClosedTime(string symbol, string timeframe)
         {
             string key = $"{symbol.ToUpper()}_{timeframe}";
-            return _lastClosedStates.TryGetValue(key, out var state) ? state.OpenTime : 0;
+            if (_haHistoryBuffer.TryGetValue(key, out var list))
+            {
+                lock (list) { return list.Count > 0 ? list.Last().OpenTime : 0; }
+            }
+            return 0;
         }
 
-        // 获取指定币种和周期当前的趋势方向 (true 为多头，false 为空头)
         public bool GetCurrentDirection(string symbol, string timeframe)
         {
             string key = $"{symbol.ToUpper()}_{timeframe}";
-            return _lastClosedStates.TryGetValue(key, out var state) && state.IsBullish;
+            if (_haHistoryBuffer.TryGetValue(key, out var list))
+            {
+                lock (list) { return list.Count > 0 && list.Last().IsBullish; }
+            }
+            return true;
         }
     }
 }

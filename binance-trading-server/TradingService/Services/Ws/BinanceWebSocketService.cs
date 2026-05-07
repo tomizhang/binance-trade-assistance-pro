@@ -314,8 +314,8 @@ namespace TradingTerminal.Services
                 using var doc = JsonDocument.Parse(json);
 
                 var validTickers = doc.RootElement.EnumerateArray().Where(x => x.GetProperty("symbol").GetString().EndsWith("USDT")).ToList();
-                var topVolume = validTickers.OrderByDescending(x => decimal.Parse(x.GetProperty("quoteVolume").GetString())).Take(10).Select(x => x.GetProperty("symbol").GetString().ToUpper());
-                var topGainers = validTickers.OrderByDescending(x => decimal.Parse(x.GetProperty("priceChangePercent").GetString())).Take(10).Select(x => x.GetProperty("symbol").GetString().ToUpper());
+                var topVolume = validTickers.OrderByDescending(x => decimal.Parse(x.GetProperty("quoteVolume").GetString())).Take(20).Select(x => x.GetProperty("symbol").GetString().ToUpper());
+                var topGainers = validTickers.OrderByDescending(x => decimal.Parse(x.GetProperty("priceChangePercent").GetString())).Take(20).Select(x => x.GetProperty("symbol").GetString().ToUpper());
 
                 var list = new HashSet<string>(topVolume.Concat(topGainers)).ToList();
                 _logger.LogInformation($"🔥 [雷达更新] 最新锁定的资金战场 (共 {list.Count} 个): {string.Join(", ", list)}");

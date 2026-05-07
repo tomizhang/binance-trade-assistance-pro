@@ -17,25 +17,35 @@ using Microsoft.Extensions.Configuration;
 namespace TradingTerminal.Services
 {
     /// <summary>
-    /// 纯粹的交易执行引擎 (专职负责私有 WS 连接、签名、下单、资金核算)
+    /// 纯粹的交易执行引擎 (专职负责私有 WS 连接、签名、下单、以及监听仓位缓存)
     /// </summary>
     public class BinanceTradeWsService : BackgroundService
     {
         private readonly ILogger<BinanceTradeWsService> _logger;
+        private readonly UserDataEventBus _userDataBus; // 🌟 注入事件总线
         private readonly string _apiKey;
         private readonly string _apiSecret;
 
         private ClientWebSocket _tradeWs = new ClientWebSocket();
         private readonly HttpClient _httpClient;
+
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
         private readonly ConcurrentDictionary<string, (int QuantityPrecision, int PricePrecision)> _symbolPrecisions = new();
-        public BinanceTradeWsService(IConfiguration config, ILogger<BinanceTradeWsService> logger)
+
+        // 本地仓位影子字典 (Key: Symbol, Value: 持仓数量)
+        private readonly ConcurrentDictionary<string, decimal> _localPositions = new();
+
+        public BinanceTradeWsService(
+            IConfiguration config,
+            ILogger<BinanceTradeWsService> logger,
+            UserDataEventBus userDataBus) // 👈 构造函数注入
         {
             _logger = logger;
+            _userDataBus = userDataBus;
             _apiKey = config["BinanceConfig:ApiKey"];
             _apiSecret = config["BinanceConfig:ApiSecret"];
 
-            // 交易网关独立的 HTTP 客户端 (用于查价格等辅助计算)
+            // 交易网关独立的 HTTP 客户端
 #if DEBUG
             WebProxy proxy = new WebProxy("socks5://127.0.0.1:10808");
 #endif
@@ -48,34 +58,100 @@ namespace TradingTerminal.Services
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5)
             };
             _httpClient = new HttpClient(handler);
+
+            // 🌟 订阅大喇叭广播的原始用户数据
+            // 注意：请确保你的 UserDataEventBus 中暴露了 OnRawUserDataReceived 事件
+            _userDataBus.OnRawUserDataReceived += HandleUserDataMessage;
         }
-        // 🌟 新增：重写 StartAsync，在后台大循环开始前，强制阻塞加载基础数据！
+
         public override async Task StartAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("⏳ [系统初始化] 正在阻塞加载交易规则，请稍候...");
-
-            // 必须等这行代码执行完，系统才会继续往后启动
             await LoadExchangeInfoAsync();
-
             _logger.LogInformation("✅ [系统初始化] 交易规则加载完毕，放行启动流程。");
-
-            // 放行，去执行 ExecuteAsync
             await base.StartAsync(cancellationToken);
         }
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("🟢 [交易核心] 独立交易 WS 网关启动...");
+
+            // 🌟 启动时同步拉取一次全量仓位，打底 (因为 WS 只有变动时才推送)
+            await SyncInitialPositionsAsync();
+
+            // 启动下单执行专线
             await MaintainTradeStreamAsync(stoppingToken);
         }
-        public async Task<List<string>> GetActivePositionSymbolsAsync()
+
+        // ==========================================
+        // 🌟 仓位缓存与事件监听逻辑
+        // ==========================================
+
+        // 无延迟读取本地缓存
+        public Task<bool> HasActivePositionAsync(string symbol)
         {
-            var activeSymbols = new List<string>();
+            if (_localPositions.TryGetValue(symbol.ToUpper(), out decimal amt))
+            {
+                return Task.FromResult(amt != 0);
+            }
+            return Task.FromResult(false);
+        }
+
+        public Task<List<string>> GetActivePositionSymbolsAsync()
+        {
+            var activeSymbols = _localPositions
+                .Where(kvp => kvp.Value != 0)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            return Task.FromResult(activeSymbols);
+        }
+
+        // 接收 UserDataEventBus 传来的消息并解析仓位
+        private void HandleUserDataMessage(string jsonMessage)
+        {
             try
             {
+                using var eventDoc = JsonDocument.Parse(jsonMessage);
+                if (eventDoc.RootElement.TryGetProperty("e", out var eventType))
+                {
+                    string type = eventType.GetString();
+
+                    // 我们只关心 ACCOUNT_UPDATE 事件 (仓位变化)
+                    if (type == "ACCOUNT_UPDATE")
+                    {
+                        var updateData = eventDoc.RootElement.GetProperty("a");
+                        if (updateData.TryGetProperty("P", out var positionsArray))
+                        {
+                            foreach (var pos in positionsArray.EnumerateArray())
+                            {
+                                string symbol = pos.GetProperty("s").GetString();
+                                decimal amount = decimal.Parse(pos.GetProperty("pa").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+
+                                // 极其快速地更新本地内存
+                                _localPositions[symbol] = amount;
+
+                                if (amount != 0)
+                                    _logger.LogInformation($"📡 [实盘仓位变更] {symbol} 当前持仓: {amount}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"❌ 解析账户变动事件失败: {ex.Message}");
+            }
+        }
+
+        private async Task SyncInitialPositionsAsync()
+        {
+            try
+            {
+                _logger.LogInformation("📖 [仓位初始化] 正在拉取初始仓位数据...");
                 string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
                 string queryString = $"timestamp={timestamp}";
                 string signature = GenerateSignature(queryString, _apiSecret);
-
                 string url = $"https://fapi.binance.com/fapi/v2/positionRisk?{queryString}&signature={signature}";
 
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -87,25 +163,23 @@ namespace TradingTerminal.Services
                 var json = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
 
-                // 遍历所有仓位，找出 positionAmt (持仓数量) 不为 0 的币种
                 foreach (var position in doc.RootElement.EnumerateArray())
                 {
+                    string symbol = position.GetProperty("symbol").GetString();
                     decimal amt = decimal.Parse(position.GetProperty("positionAmt").GetString(), System.Globalization.CultureInfo.InvariantCulture);
-                    if (amt != 0)
-                    {
-                        activeSymbols.Add(position.GetProperty("symbol").GetString());
-                    }
+                    _localPositions[symbol] = amt;
                 }
-
-                _logger.LogInformation($"📡 [远端查岗] 发现 {activeSymbols.Count} 个活跃持仓: {string.Join(", ", activeSymbols)}");
+                _logger.LogInformation($"✅ [仓位初始化] 成功建立本地仓位影子字典！");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ 获取远端持仓失败: {ex.Message}");
+                _logger.LogError($"❌ 初始仓位同步失败: {ex.Message}");
             }
-            return activeSymbols;
         }
 
+        // ==========================================
+        // 下单核心执行专线
+        // ==========================================
         private async Task MaintainTradeStreamAsync(CancellationToken stoppingToken)
         {
             var buffer = new byte[1024 * 16];
@@ -131,7 +205,6 @@ namespace TradingTerminal.Services
 
                         var jsonResponse = Encoding.UTF8.GetString(buffer, 0, result.Count);
 
-                        // 拦截并唤醒对应的挂起订单请求
                         using var doc = JsonDocument.Parse(jsonResponse);
                         if (doc.RootElement.TryGetProperty("id", out var idElement))
                         {
@@ -151,9 +224,6 @@ namespace TradingTerminal.Services
             }
         }
 
-        // ==========================================
-        // 全功能底层下单网关 (支持止盈止损、只减仓)
-        // ==========================================
         public async Task<string> PlaceOrderWsAsync(
                     string symbol,
                     string side,
@@ -161,14 +231,25 @@ namespace TradingTerminal.Services
                     decimal quantity,
                     decimal? price = null,
                     decimal? stopPrice = null,
-                    bool reduceOnly = false)
+                    bool reduceOnly = false,
+                    bool skipIfHasPosition = false)
         {
             if (_tradeWs.State != WebSocketState.Open) throw new Exception("WebSocket 交易专线未就绪，请稍后再试");
+
+            // 🌟 风控拦截：零延迟阻断重复开单
+            if (skipIfHasPosition)
+            {
+                bool hasPosition = await HasActivePositionAsync(symbol);
+                if (hasPosition)
+                {
+                    _logger.LogWarning($"🛡️ [风控拦截] 发现 {symbol} 已存在活跃持仓，跳过本次 [{side} {type}] 开仓请求！");
+                    return $"{{\"status\": 200, \"skipped\": true, \"msg\": \"Skipped {symbol} due to existing position\"}}";
+                }
+            }
 
             string requestId = Guid.NewGuid().ToString("N");
             long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-            // 🌟 1. 核心判定：是否为算法订单 (条件单)
             bool isAlgoOrder = type == "STOP_MARKET" ||
                                type == "TAKE_PROFIT_MARKET" ||
                                type == "STOP" ||
@@ -188,7 +269,6 @@ namespace TradingTerminal.Services
             if (price.HasValue)
                 parameters.Add("price", price.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
-            // 🌟 2. 兼容新老引擎的触发价字段名 (新引擎叫 triggerPrice，老引擎叫 stopPrice)
             if (stopPrice.HasValue)
             {
                 string stopPriceKey = isAlgoOrder ? "triggerPrice" : "stopPrice";
@@ -201,11 +281,9 @@ namespace TradingTerminal.Services
             if (type == "LIMIT" || type == "STOP" || type == "TAKE_PROFIT")
                 parameters.Add("timeInForce", "GTC");
 
-            // 🌟 3. 算法订单强制追加必填项 algoType
             if (isAlgoOrder)
             {
                 parameters.Add("algoType", "CONDITIONAL");
-                // 🌟 新增修复：强制条件单跟随“最新成交价(Last Price)”，对齐我们的 HA K线价格！
                 parameters.Add("workingType", "CONTRACT_PRICE");
             }
 
@@ -213,7 +291,6 @@ namespace TradingTerminal.Services
             string signature = GenerateSignature(queryStr, _apiSecret);
             parameters.Add("signature", signature);
 
-            // 🌟 4. 动态路由到底层通道
             string wsMethod = isAlgoOrder ? "algoOrder.place" : "order.place";
 
             var payload = new
@@ -231,7 +308,6 @@ namespace TradingTerminal.Services
             var bytes = Encoding.UTF8.GetBytes(jsonPayload);
             await _tradeWs.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
 
-            // 打印时带上实际路由的通道名，方便你复盘观察
             _logger.LogInformation($"🚀 [WS下单路由: {wsMethod}] {symbol} {side} {type} 数量:{quantity} 价格:{price} 触发价:{stopPrice} 只减仓:{reduceOnly}");
 
             var timeoutTask = Task.Delay(5000);
@@ -248,6 +324,11 @@ namespace TradingTerminal.Services
             using var doc = JsonDocument.Parse(responseJson);
             if (doc.RootElement.TryGetProperty("status", out var statusElement) && statusElement.GetInt32() != 200)
             {
+                if (doc.RootElement.TryGetProperty("skipped", out var skippedElement) && skippedElement.GetBoolean() == true)
+                {
+                    return responseJson;
+                }
+
                 if (doc.RootElement.TryGetProperty("error", out var errorElement))
                 {
                     int errorCode = errorElement.GetProperty("code").GetInt32();
@@ -260,16 +341,12 @@ namespace TradingTerminal.Services
             return responseJson;
         }
 
-
-        // ==========================================
-        // 🌟 战场清理：带最强报错侦测的 REST 版本
-        // ==========================================
         public async Task CancelAllOpenOrdersAsync(string symbol)
         {
             var endpoints = new[]
             {
-                "/fapi/v1/allOpenOrders",   // 扫荡普通挂单
-                "/fapi/v1/algoOpenOrders"   // 扫荡条件单 (止盈/止损)
+                "/fapi/v1/allOpenOrders",
+                "/fapi/v1/algoOpenOrders"
             };
 
             foreach (var endpoint in endpoints)
@@ -285,7 +362,6 @@ namespace TradingTerminal.Services
                     var request = new HttpRequestMessage(HttpMethod.Delete, url);
                     request.Headers.Add("X-MBX-APIKEY", _apiKey);
 
-                    // ⚠️ 如果你的 HttpClient 没挂代理，这里就会直接爆炸进 catch！
                     var response = await _httpClient.SendAsync(request);
                     string json = await response.Content.ReadAsStringAsync();
 
@@ -295,10 +371,8 @@ namespace TradingTerminal.Services
                         if (doc.RootElement.TryGetProperty("code", out var errCode))
                         {
                             int code = errCode.GetInt32();
-                            // -2011 是健康状态：说明该引擎里本来就干干净净，没订单可撤
                             if (code != -2011)
                             {
-                                // 🌟 必须是大红色的 Error 级别！把币安真实的骂人话打印出来
                                 _logger.LogError($"❌ [币安拒单] 撤单失败！端点 {endpoint} 返回: {json}");
                             }
                             else
@@ -309,18 +383,16 @@ namespace TradingTerminal.Services
                     }
                     else
                     {
-                        // 🌟 如果真的成功了，把币安的表扬打印出来
                         _logger.LogInformation($"✅ [撤单成功] 端点 {endpoint} 成功清理！回执: {json}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    // 🌟 致命错误：如果进了这里，99% 是因为你的 HttpClient 没有配置 socks5 代理！
-                    _logger.LogError($"💥 [网络致命异常] 无法连接到 {endpoint}，请检查你的 HttpClient 是否配置了代理！详细错误: {ex.Message}");
+                    _logger.LogError($"💥 [网络致命异常] 无法连接到 {endpoint}，请检查配置！详细错误: {ex.Message}");
                 }
             }
         }
-        // 🌟 3. 新增：加载全网精度规则
+
         private async Task LoadExchangeInfoAsync()
         {
             try
@@ -348,18 +420,15 @@ namespace TradingTerminal.Services
             }
         }
 
-        // 🌟 4. 新增：数量安全格式化工具 (向下取整，防止 LOT_SIZE 和余额不足)
         public decimal FormatQuantity(string symbol, decimal rawQty)
         {
             if (_symbolPrecisions.TryGetValue(symbol.ToUpper(), out var precision))
             {
                 return Math.Round(rawQty, precision.QuantityPrecision, MidpointRounding.ToZero);
             }
-            // 兜底方案：如果没查到，默认当成极度严格的整数
             return Math.Round(rawQty, 0, MidpointRounding.ToZero);
         }
 
-        // 🌟 5. 新增：价格安全格式化工具
         public decimal FormatPrice(string symbol, decimal rawPrice)
         {
             if (_symbolPrecisions.TryGetValue(symbol.ToUpper(), out var precision))
@@ -368,9 +437,7 @@ namespace TradingTerminal.Services
             }
             return Math.Round(rawPrice, 2, MidpointRounding.AwayFromZero);
         }
-        // ==========================================
-        // 蓝图功能补充：资金转换与快捷 API
-        // ==========================================
+
         public async Task<decimal> ConvertUsdtToQuantityAsync(string symbol, decimal usdtMargin, decimal leverage)
         {
             string url = $"https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol.ToUpper()}";
@@ -381,11 +448,11 @@ namespace TradingTerminal.Services
             return (usdtMargin * leverage) / currentPrice;
         }
 
-        public async Task<string> OpenMarketPositionAsync(string symbol, string side, decimal quantity) =>
-            await PlaceOrderWsAsync(symbol, side, "MARKET", quantity);
+        public async Task<string> OpenMarketPositionAsync(string symbol, string side, decimal quantity, bool skipIfHasPosition = false) =>
+            await PlaceOrderWsAsync(symbol, side, "MARKET", quantity, skipIfHasPosition: skipIfHasPosition);
 
-        public async Task<string> OpenLimitPositionAsync(string symbol, string side, decimal quantity, decimal price) =>
-            await PlaceOrderWsAsync(symbol, side, "LIMIT", quantity, price: price);
+        public async Task<string> OpenLimitPositionAsync(string symbol, string side, decimal quantity, decimal price, bool skipIfHasPosition = false) =>
+            await PlaceOrderWsAsync(symbol, side, "LIMIT", quantity, price: price, skipIfHasPosition: skipIfHasPosition);
 
         public async Task<string> SetStopLossMarketAsync(string symbol, string positionSide, decimal quantity, decimal stopPrice) =>
             await PlaceOrderWsAsync(symbol, positionSide.ToUpper() == "LONG" ? "SELL" : "BUY", "STOP_MARKET", quantity, stopPrice: stopPrice, reduceOnly: true);
@@ -398,6 +465,18 @@ namespace TradingTerminal.Services
             var keyBytes = Encoding.UTF8.GetBytes(secret);
             using var hmac = new HMACSHA256(keyBytes);
             return BitConverter.ToString(hmac.ComputeHash(Encoding.UTF8.GetBytes(message))).Replace("-", "").ToLower();
+        }
+
+        public override void Dispose()
+        {
+            if (_userDataBus != null)
+            {
+                // 释放事件订阅，防止内存泄漏
+                _userDataBus.OnRawUserDataReceived -= HandleUserDataMessage;
+            }
+            _tradeWs?.Dispose();
+            _httpClient?.Dispose();
+            base.Dispose();
         }
     }
 }
