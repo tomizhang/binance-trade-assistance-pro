@@ -87,13 +87,13 @@ namespace TradingTerminal.Services
                 // 1. 获取成交额 (quoteVolume) 前 10 名
                 var topVolume = validTickers
                     .OrderByDescending(x => decimal.Parse(x.GetProperty("quoteVolume").GetString()))
-                    .Take(20)
+                    .Take(100)
                     .Select(x => x.GetProperty("symbol").GetString().ToUpper());
 
                 // 2. 获取涨幅 (priceChangePercent) 前 10 名
                 var topGainers = validTickers
                     .OrderByDescending(x => decimal.Parse(x.GetProperty("priceChangePercent").GetString()))
-                    .Take(20)
+                    .Take(100)
                     .Select(x => x.GetProperty("symbol").GetString().ToUpper());
 
                 await _symbolsLock.WaitAsync(stoppingToken);

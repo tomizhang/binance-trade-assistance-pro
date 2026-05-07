@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TradingTerminal.Hubs;
 using TradingTerminal.Models;
-using TradingTerminal.Utils; // 🌟 引入 PivotHelper 和 CumulativeHeikinAshiHelper
+using TradingTerminal.Utils;
 
 namespace TradingTerminal.Services
 {
@@ -23,13 +23,12 @@ namespace TradingTerminal.Services
         private readonly BinanceWebSocketService _wsService;
         private readonly OrderChannel _orderChannel;
 
-        // 🌟 K线与方向滑动窗口缓冲区
+        // 🌟 只保留 K 线价格缓冲区，用于计算均线平滑的高低点
         private readonly ConcurrentDictionary<string, List<KlineMessage>> _klineBuffer = new();
-        private readonly ConcurrentDictionary<string, List<bool>> _haDirectionBuffer = new();
-        private const int BUFFER_SIZE = 30; // 缓存最近30根K线，足够过滤和计算极值点
+        private const int BUFFER_SIZE = 30;
 
         private readonly HashSet<string> _watchList = new();
-        private readonly string[] _timeframes = { "2m" }; // 当前专注于 2m 级别核心突破
+        private readonly string[] _timeframes = { "2m" };
         private readonly SemaphoreSlim _lock = new(1, 1);
 
         public HeikinAshiService(
@@ -51,7 +50,7 @@ namespace TradingTerminal.Services
         }
 
         // ==========================================
-        // 🌟 核心过滤：简单移动平均线 (SMA) 平滑处理
+        // 🌟 核心过滤：简单移动平均线 (SMA) 平滑处理，抹平单根插针
         // ==========================================
         private List<decimal> SmoothData(List<decimal> rawData, int period = 3)
         {
@@ -60,7 +59,7 @@ namespace TradingTerminal.Services
             {
                 if (i < period - 1)
                 {
-                    smoothed.Add(rawData[i]); // 前几根数据不足，直接用原值
+                    smoothed.Add(rawData[i]);
                     continue;
                 }
                 decimal sum = 0;
@@ -102,19 +101,18 @@ namespace TradingTerminal.Services
         }
 
         // ==========================================
-        // 🌟 实时心跳：处理 K 线与双重共振防洗盘逻辑
+        // 🌟 实时心跳：简化版，完全信任引擎，只做均线结构判断
         // ==========================================
         private void HandleKlineReceived(KlineMessage msg)
         {
             if (!_watchList.Contains(msg.Symbol)) return;
             if (!_timeframes.Contains(msg.Interval)) return;
 
-            // 1. 实时的 tick 数据喂给 HA 引擎
-            // 1. 获取完整的、包含当前最新价格的 HA 状态！
+            // 1. 获取引擎处理结果 (底层的防十字星、波动率、历史连续性过滤已在引擎内部完成)
             LiveHaResult liveHa = _engine.ProcessLiveKlineAndCheckReversal(
                 msg.Symbol, msg.Interval, msg.Open, msg.Close, msg.High, msg.Low, msg.OpenTime, msg.IsClosed);
 
-            // 🌟 2. 绝对防重绘：必须且仅当这根 K 线彻底走完时，才承认信号！
+            // 2. 绝对防重绘：必须且仅当这根 K 线彻底走完时，才介入结构判定
             if (msg.IsClosed)
             {
                 string key = $"{msg.Symbol}_{msg.Interval}";
@@ -124,44 +122,16 @@ namespace TradingTerminal.Services
                 buffer.Add(msg);
                 if (buffer.Count > BUFFER_SIZE) buffer.RemoveAt(0);
 
-                // 维护 HA 方向缓冲区
-                bool isBullish = _engine.GetCurrentDirection(msg.Symbol, msg.Interval);
-                var dirBuffer = _haDirectionBuffer.GetOrAdd(key, _ => new List<bool>());
-                dirBuffer.Add(isBullish);
-                if (dirBuffer.Count > BUFFER_SIZE) dirBuffer.RemoveAt(0);
-
-                // 3. 发生 HA 第一根反转，进入“多重风控”确认流程
+                // 3. 只要底层引擎吐出了 True，说明动能、趋势长度都完美符合条件！
                 if (liveHa.IsReversed)
                 {
-                    bool isTrendValid = false;   // 第一关：原趋势是否结实
-                    bool confirmPivot = false;   // 第二关：是否有结构支撑
+                    bool isBullish = liveHa.IsBullish;
+                    bool confirmPivot = false;
 
                     // ==========================================
-                    // 🛡️ 第一关：趋势过滤 (至少连续 4 根同向 K 线)
+                    // 🛡️ 唯一保留的风控关卡：均线顶底结构共振 (防半山腰)
                     // ==========================================
-                    if (dirBuffer.Count >= 5)
-                    {
-                        int lastIdx = dirBuffer.Count - 1; // 当前刚刚收盘的反转 K 线
-                        bool expectedPrevDir = !isBullish; // 前方应该具备的趋势方向
-
-                        // 严格检查前方 4 根 K 线是否全部保持同一种方向
-                        if (dirBuffer[lastIdx - 1] == expectedPrevDir &&
-                            dirBuffer[lastIdx - 2] == expectedPrevDir &&
-                            dirBuffer[lastIdx - 3] == expectedPrevDir &&
-                            dirBuffer[lastIdx - 4] == expectedPrevDir)
-                        {
-                            isTrendValid = true;
-                        }
-                        else
-                        {
-                            _logger.LogDebug($"🛡️ [趋势过滤] {msg.Symbol} 出现反转，但前方连续同向 K 线不足 4 根 (盘整洗盘)，拒绝入场！");
-                        }
-                    }
-
-                    // ==========================================
-                    // 🛡️ 第二关：均线顶底结构共振
-                    // ==========================================
-                    if (isTrendValid && buffer.Count >= 10)
+                    if (buffer.Count >= 10)
                     {
                         // 提取基础数据，使用 3周期 MA 进行平滑过滤插针
                         var smoothedHighs = SmoothData(buffer.Select(k => k.High).ToList(), 3);
@@ -170,25 +140,26 @@ namespace TradingTerminal.Services
                         // 寻找极值点 (左3根确认趋势，右1根确认收口)
                         var (peaks, valleys) = PivotHelper.CalculatePeaks(smoothedHighs, smoothedLows, leftLen: 3, rightLen: 1);
 
-                        int currentIndex = buffer.Count - 1;
+                        int currentIndex = buffer.Count - 1; // 当前 K 线索引
+
                         if (isBullish)
                         {
                             // 📈 做多：要求前方 1 到 2 根必须是均线的“支撑低点”
                             confirmPivot = valleys.Contains(currentIndex - 1) || valleys.Contains(currentIndex - 2);
-                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线支撑结构，拒绝半山腰入场。");
+                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线支撑底结构，拒绝半山腰做多。");
                         }
                         else
                         {
                             // 📉 做空：要求前方 1 到 2 根必须是均线的“压制高点”
                             confirmPivot = peaks.Contains(currentIndex - 1) || peaks.Contains(currentIndex - 2);
-                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线压制结构，拒绝半山腰入场。");
+                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线压制顶结构，拒绝半山腰做空。");
                         }
                     }
 
                     // ==========================================
                     // 🚀 最终双重共振成立：发射订单！
                     // ==========================================
-                    if (isTrendValid /*&& confirmPivot*/)
+                    if (confirmPivot)
                     {
                         var alert = new
                         {
@@ -204,7 +175,7 @@ namespace TradingTerminal.Services
 
                         if (msg.Interval == "2m")
                         {
-                            _logger.LogWarning($"🔥 [终极共振爆发] {msg.Symbol} 原趋势极其扎实 + 均线结构吻合 + 动能首根反转，执行重拳出击！");
+                            _logger.LogWarning($"🔥 [终极结构爆发] {msg.Symbol} 底层动能反转 + 均线顶底结构完全吻合，执行重拳出击！");
                             _ = Task.Run(() => ExecuteTradeStrategyAsync(msg.Symbol, isBullish, msg.Close));
                         }
                     }
@@ -213,47 +184,38 @@ namespace TradingTerminal.Services
         }
 
         // ==========================================
-        // 🌟 自动化交易策略执行核心 (原子级连招)
+        // 🌟 自动化交易策略执行核心
         // ==========================================
         private async Task ExecuteTradeStrategyAsync(string symbol, bool isBullish, decimal currentPrice)
         {
             try
             {
-                // ⚠️ 修正：多头对应 BUY，空头对应 SELL
+                // ⚠️ 致命修复：去掉原本多余的 "!" 感叹号！多头就是 BUY，空头就是 SELL
                 string side = isBullish ? "BUY" : "SELL";
 
-                decimal tradeMarginUsdt = 1.5m; // 每次开仓保证金 (U)
-                decimal tradeLeverage = 5m;   // 杠杆倍数
+                decimal tradeMarginUsdt = 1.5m;
+                decimal tradeLeverage = 5m;
 
-                // ==========================================
-                // 🛡️ 杠杆自适应 ROE 止盈止损计算
-                // ==========================================
-                // 设定你的“本金盈亏目标”。例如：止盈赚取本金的 10%，止损容忍本金的 5%
-                decimal targetRoeTp = 0.10m; // 目标 ROE: +10%
-                decimal riskRoeSl = 0.08m;   // 止损 ROE: -5%
+                decimal targetRoeTp = 0.055m; // 目标 ROE: +10%
+                decimal riskRoeSl = 0.04m;   // 止损 ROE: -8%
 
-                // 标的资产实际需要变动的百分比 = 预期 ROE / 杠杆倍数
                 decimal priceChangeTp = targetRoeTp / tradeLeverage;
                 decimal priceChangeSl = riskRoeSl / tradeLeverage;
 
                 decimal stopLossPrice;
                 decimal takeProfitPrice;
 
-                // 严格根据实际开仓方向计算上下边界
                 if (side == "BUY")
                 {
-                    // 做多：止损在买入价下方，止盈在买入价上方
                     stopLossPrice = currentPrice * (1m - priceChangeSl);
                     takeProfitPrice = currentPrice * (1m + priceChangeTp);
                 }
                 else
                 {
-                    // 做空：止损在卖出价上方，止盈在卖出价下方
                     stopLossPrice = currentPrice * (1m + priceChangeSl);
                     takeProfitPrice = currentPrice * (1m - priceChangeTp);
                 }
 
-                // 核心重构：开仓、止损、止盈 合并为 1 个超级包裹发给消费者
                 var comboSignal = new OrderSignal
                 {
                     Symbol = symbol,
@@ -266,12 +228,11 @@ namespace TradingTerminal.Services
                     StopLossPrice = stopLossPrice,
                     TakeProfitPrice = takeProfitPrice,
 
-                    StrategyName = "HA_2m_Reversal_Resonance",
+                    StrategyName = "HA_2m_MA_Structure",
                     Reason = $"建仓价 {currentPrice:F4}，杠杆 {tradeLeverage}X，SL:{stopLossPrice:F4} (-{riskRoeSl:P0})，TP:{takeProfitPrice:F4} (+{targetRoeTp:P0})",
-                    Message = "执行防骗炮突破连招，附带杠杆自适应双边保护"
+                    Message = "均线结构共振反转连招"
                 };
 
-                // 投递至交易网关的消费管道
                 await _orderChannel.WriteAsync(comboSignal);
             }
             catch (Exception ex)
@@ -279,6 +240,7 @@ namespace TradingTerminal.Services
                 _logger.LogError($"❌ [策略打包失败] {symbol}: {ex.Message}");
             }
         }
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             List<string> list = null;
@@ -302,9 +264,6 @@ namespace TradingTerminal.Services
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
 
-        // ==========================================
-        // 🌟 历史数据同步与双缓冲区预热
-        // ==========================================
         private async Task SyncHistoricalDataAsync(List<string> symbols, CancellationToken ct)
         {
             foreach (var sym in symbols)
@@ -331,17 +290,12 @@ namespace TradingTerminal.Services
                             bufferList.Add(new KlineMessage { Symbol = sym, Interval = tf, High = high, Low = low, Close = close, OpenTime = openTime });
                         }
 
-                        // 初始化引擎
                         _engine.InitializeFromHistory(sym, tf, klines);
 
-                        // 截取最后 BUFFER_SIZE 根填入历史 K 线字典
                         if (bufferList.Count > BUFFER_SIZE)
                             bufferList = bufferList.Skip(bufferList.Count - BUFFER_SIZE).ToList();
-                        _klineBuffer[$"{sym}_{tf}"] = bufferList;
 
-                        // 🌟 利用工具类一次性计算历史 HA 方向，预热方向字典，防止系统刚启动时没数据错失良机
-                        var haResults = CumulativeHeikinAshiHelper.Calculate(bufferList);
-                        _haDirectionBuffer[$"{sym}_{tf}"] = haResults.Select(h => h.IsBullish).ToList();
+                        _klineBuffer[$"{sym}_{tf}"] = bufferList;
                     }
                     catch (Exception ex)
                     {
