@@ -23,9 +23,9 @@ namespace TradingTerminal.Services
         private readonly BinanceWebSocketService _wsService;
         private readonly OrderChannel _orderChannel;
 
-        // 🌟 只保留 K 线价格缓冲区，用于计算均线平滑的高低点
+        // 🌟 K 线价格缓冲区，用于计算均线平滑的高低点
         private readonly ConcurrentDictionary<string, List<KlineMessage>> _klineBuffer = new();
-        private const int BUFFER_SIZE = 30;
+        private const int BUFFER_SIZE = 50;
 
         private readonly HashSet<string> _watchList = new();
         private readonly string[] _timeframes = { "2m" };
@@ -50,7 +50,7 @@ namespace TradingTerminal.Services
         }
 
         // ==========================================
-        // 🌟 核心过滤：简单移动平均线 (SMA) 平滑处理，抹平单根插针
+        // 🌟 核心过滤：简单移动平均线 (SMA) 平滑处理
         // ==========================================
         private List<decimal> SmoothData(List<decimal> rawData, int period = 3)
         {
@@ -101,65 +101,58 @@ namespace TradingTerminal.Services
         }
 
         // ==========================================
-        // 🌟 实时心跳：简化版，完全信任引擎，只做均线结构判断
+        // 🌟 实时心跳：处理 K 线与动态止损提取
         // ==========================================
         private void HandleKlineReceived(KlineMessage msg)
         {
             if (!_watchList.Contains(msg.Symbol)) return;
             if (!_timeframes.Contains(msg.Interval)) return;
 
-            // 1. 获取引擎处理结果 (底层的防十字星、波动率、历史连续性过滤已在引擎内部完成)
             LiveHaResult liveHa = _engine.ProcessLiveKlineAndCheckReversal(
                 msg.Symbol, msg.Interval, msg.Open, msg.Close, msg.High, msg.Low, msg.OpenTime, msg.IsClosed);
 
-            // 2. 绝对防重绘：必须且仅当这根 K 线彻底走完时，才介入结构判定
             if (msg.IsClosed)
             {
                 string key = $"{msg.Symbol}_{msg.Interval}";
 
-                // 维护 K 线价格缓冲区
                 var buffer = _klineBuffer.GetOrAdd(key, _ => new List<KlineMessage>());
                 buffer.Add(msg);
                 if (buffer.Count > BUFFER_SIZE) buffer.RemoveAt(0);
 
-                // 3. 只要底层引擎吐出了 True，说明动能、趋势长度都完美符合条件！
                 if (liveHa.IsReversed)
                 {
                     bool isBullish = liveHa.IsBullish;
                     bool confirmPivot = false;
+                    decimal pivotPrice = 0m; // 🌟 记录反转前的极值点 (防守位)
 
-                    // ==========================================
-                    // 🛡️ 唯一保留的风控关卡：均线顶底结构共振 (防半山腰)
-                    // ==========================================
                     if (buffer.Count >= 10)
                     {
-                        // 提取基础数据，使用 3周期 MA 进行平滑过滤插针
                         var smoothedHighs = SmoothData(buffer.Select(k => k.High).ToList(), 3);
                         var smoothedLows = SmoothData(buffer.Select(k => k.Low).ToList(), 3);
 
-                        // 寻找极值点 (左3根确认趋势，右1根确认收口)
                         var (peaks, valleys) = PivotHelper.CalculatePeaks(smoothedHighs, smoothedLows, leftLen: 3, rightLen: 1);
 
-                        int currentIndex = buffer.Count - 1; // 当前 K 线索引
+                        int currentIndex = buffer.Count - 1;
 
                         if (isBullish)
                         {
-                            // 📈 做多：要求前方 1 到 2 根必须是均线的“支撑低点”
-                            confirmPivot = valleys.Contains(currentIndex - 1) || valleys.Contains(currentIndex - 2);
-                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线支撑底结构，拒绝半山腰做多。");
+                            // 📈 做多：要求前方是支撑低点，并提取该低点的真实 Low 价格
+                            if (valleys.Contains(currentIndex - 1)) { confirmPivot = true; pivotPrice = buffer[currentIndex - 1].Low; }
+                            else if (valleys.Contains(currentIndex - 2)) { confirmPivot = true; pivotPrice = buffer[currentIndex - 2].Low; }
+
+                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线支撑底结构，拒绝做多。");
                         }
                         else
                         {
-                            // 📉 做空：要求前方 1 到 2 根必须是均线的“压制高点”
-                            confirmPivot = peaks.Contains(currentIndex - 1) || peaks.Contains(currentIndex - 2);
-                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线压制顶结构，拒绝半山腰做空。");
+                            // 📉 做空：要求前方是压制高点，并提取该高点的真实 High 价格
+                            if (peaks.Contains(currentIndex - 1)) { confirmPivot = true; pivotPrice = buffer[currentIndex - 1].High; }
+                            else if (peaks.Contains(currentIndex - 2)) { confirmPivot = true; pivotPrice = buffer[currentIndex - 2].High; }
+
+                            if (!confirmPivot) _logger.LogDebug($"🛡️ [结构过滤] {msg.Symbol} 缺乏均线压制顶结构，拒绝做空。");
                         }
                     }
 
-                    // ==========================================
-                    // 🚀 最终双重共振成立：发射订单！
-                    // ==========================================
-                    if (confirmPivot)
+                    if (confirmPivot && pivotPrice > 0)
                     {
                         var alert = new
                         {
@@ -175,8 +168,9 @@ namespace TradingTerminal.Services
 
                         if (msg.Interval == "2m")
                         {
-                            _logger.LogWarning($"🔥 [终极结构爆发] {msg.Symbol} 底层动能反转 + 均线顶底结构完全吻合，执行重拳出击！");
-                            _ = Task.Run(() => ExecuteTradeStrategyAsync(msg.Symbol, isBullish, msg.Close));
+                            _logger.LogWarning($"🔥 [终极结构爆发] {msg.Symbol} 底层动能反转 + 结构吻合，获取到防守极值点: {pivotPrice:F6}");
+                            // 🌟 将 pivotPrice 传递给策略执行器
+                            _ = Task.Run(() => ExecuteTradeStrategyAsync(msg.Symbol, isBullish, msg.Close, pivotPrice));
                         }
                     }
                 }
@@ -184,23 +178,34 @@ namespace TradingTerminal.Services
         }
 
         // ==========================================
-        // 🌟 自动化交易策略执行核心
+        // 🌟 自动化交易策略执行核心 (带动态区间止损)
         // ==========================================
-        private async Task ExecuteTradeStrategyAsync(string symbol, bool isBullish, decimal currentPrice)
+        private async Task ExecuteTradeStrategyAsync(string symbol, bool isBullish, decimal currentPrice, decimal pivotPrice)
         {
             try
             {
-                // ⚠️ 致命修复：去掉原本多余的 "!" 感叹号！多头就是 BUY，空头就是 SELL
                 string side = isBullish ? "BUY" : "SELL";
 
                 decimal tradeMarginUsdt = 1.5m;
                 decimal tradeLeverage = 5m;
 
-                decimal targetRoeTp = 0.055m; // 目标 ROE: +10%
-                decimal riskRoeSl = 0.04m;   // 止损 ROE: -8%
+                // 🌟 1. 计算当前价到反转极值点（前高/前低）的绝对距离百分比
+                decimal rawPriceDistance = Math.Abs(currentPrice - pivotPrice);
+                decimal rawPriceChangeSl = currentPrice > 0 ? (rawPriceDistance / currentPrice) : 0;
 
-                decimal priceChangeTp = targetRoeTp / tradeLeverage;
+                // 🌟 2. 将价格变动转换为本金的盈亏率 (ROE)
+                decimal rawRoeSl = rawPriceChangeSl * tradeLeverage;
+
+                // 🌟 3. 核心风控：夹紧止损范围！至少 1.5%，至多 5%
+                // 如果极值点太近，强行扩展到 1.5% 防插针；如果极值点太远，强行切断在 5% 防爆仓
+                decimal riskRoeSl = Math.Clamp(rawRoeSl, 0.015m, 0.05m);
+
+                // 🌟 4. 重新反推出实际的触发价百分比
                 decimal priceChangeSl = riskRoeSl / tradeLeverage;
+
+                // 🌟 5. 动态止盈：止损是活的，止盈也得是活的 (固定 1:2 盈亏比)
+                decimal targetRoeTp = riskRoeSl * 1.5m;
+                decimal priceChangeTp = targetRoeTp / tradeLeverage;
 
                 decimal stopLossPrice;
                 decimal takeProfitPrice;
@@ -229,8 +234,8 @@ namespace TradingTerminal.Services
                     TakeProfitPrice = takeProfitPrice,
 
                     StrategyName = "HA_2m_MA_Structure",
-                    Reason = $"建仓价 {currentPrice:F4}，杠杆 {tradeLeverage}X，SL:{stopLossPrice:F4} (-{riskRoeSl:P0})，TP:{takeProfitPrice:F4} (+{targetRoeTp:P0})",
-                    Message = "均线结构共振反转连招"
+                    Reason = $"入场 {currentPrice:F4}，极值点 {pivotPrice:F4}，SL:{stopLossPrice:F4} (-{riskRoeSl:P1})，TP:{takeProfitPrice:F4} (+{targetRoeTp:P1})",
+                    Message = "均线结构共振连招，含自适应区间止损"
                 };
 
                 await _orderChannel.WriteAsync(comboSignal);

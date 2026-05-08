@@ -112,6 +112,8 @@ try
     builder.Services.AddHostedService(provider =>
         provider.GetRequiredService<HeikinAshiService>());
 
+    // 注册仓位管理守护进程
+    builder.Services.AddHostedService<PositionManagementService>();
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)
     builder.Services.AddCors(options =>
     {

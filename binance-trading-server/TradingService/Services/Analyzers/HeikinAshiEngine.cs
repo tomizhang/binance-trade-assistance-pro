@@ -177,7 +177,7 @@ namespace TradingTerminal.Services
             HaState prevHa, List<HaState> historyList)
         {
             // 1. 检查历史连击数 (核心趋势过滤)
-            int requiredStreak = 5;
+            int requiredStreak = 6;
             if (historyList.Count < requiredStreak) return false;
 
             bool expectedPrevDir = prevHa.IsBullish;
