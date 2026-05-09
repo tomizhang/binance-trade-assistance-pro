@@ -26,6 +26,7 @@ namespace TradingTerminal.Services
 
         public bool IsBullish { get; set; }
         public decimal RawVolatility { get; set; } // 记录原生真实波动 (High - Low)
+        public decimal Volume { get; set; } // 🌟 新增：记录成交量
     }
 
     public class HeikinAshiEngine
@@ -54,12 +55,14 @@ namespace TradingTerminal.Services
             {
                 decimal open = k.Open; decimal close = k.Close;
                 decimal high = k.High; decimal low = k.Low;
+                decimal volume = k.Volume; // 🌟 提取历史成交量
 
                 var currentHa = new HaState
                 {
                     OpenTime = k.OpenTime,
                     HaClose = (open + high + low + close) / 4m,
-                    RawVolatility = high - low
+                    RawVolatility = high - low,
+                    Volume = volume
                 };
 
                 if (prevHa == null)
@@ -85,10 +88,7 @@ namespace TradingTerminal.Services
             _haHistoryBuffer[key] = historyList;
         }
 
-        // ==========================================
-        // 模块 1：主调度器 (Orchestrator)
-        // ==========================================
-        public LiveHaResult ProcessLiveKlineAndCheckReversal(string symbol, string timeframe, decimal open, decimal close, decimal high, decimal low, long openTime, bool isClosed)
+        public LiveHaResult ProcessLiveKlineAndCheckReversal(string symbol, string timeframe, decimal open, decimal close, decimal high, decimal low, decimal volume, long openTime, bool isClosed)
         {
             string key = $"{symbol.ToUpper()}_{timeframe}";
 
@@ -103,28 +103,25 @@ namespace TradingTerminal.Services
 
             if (openTime < prevHa.OpenTime) return new LiveHaResult();
 
-            // 1. 调用独立模块：计算当前 HA 数值
             var (haOpen, haClose, haHigh, haLow, isCurrentGreen) = CalculateLiveHeikinAshi(open, close, high, low, prevHa);
 
             bool isVisualReversal = prevHa.IsBullish != isCurrentGreen;
             bool isValidSignal = false;
 
-            // 🌟 绝对屏障：必须等 K 线完全收盘，才进行风控计算与账本更新
             if (isClosed && openTime > prevHa.OpenTime)
             {
                 decimal rawCandleLength = high - low;
 
                 lock (historyList)
                 {
-                    // 2. 调用独立模块：如果视觉发生反转，执行严苛的策略风控校验
                     if (isVisualReversal)
                     {
+                        // 🌟 传入当前这根 K 线的成交量进行策略评估
                         isValidSignal = EvaluateReversalStrategy(
-                            symbol, timeframe, close, rawCandleLength,
+                            symbol, timeframe, close, rawCandleLength, volume,
                             haOpen, haClose, prevHa, historyList);
                     }
 
-                    // 3. 将这根收盘的 K 线推入历史 List
                     var newState = new HaState
                     {
                         OpenTime = openTime,
@@ -133,7 +130,8 @@ namespace TradingTerminal.Services
                         HaHigh = haHigh,
                         HaLow = haLow,
                         IsBullish = isCurrentGreen,
-                        RawVolatility = rawCandleLength
+                        RawVolatility = rawCandleLength,
+                        Volume = volume // 🌟 固化这一根 K 线的成交量到账本
                     };
 
                     historyList.Add(newState);
@@ -152,9 +150,6 @@ namespace TradingTerminal.Services
             };
         }
 
-        // ==========================================
-        // 模块 2：纯数学计算器 (Calculator)
-        // ==========================================
         private (decimal haOpen, decimal haClose, decimal haHigh, decimal haLow, bool isBullish)
         CalculateLiveHeikinAshi(decimal open, decimal close, decimal high, decimal low, HaState prevHa)
         {
@@ -167,16 +162,13 @@ namespace TradingTerminal.Services
             return (haOpen, haClose, haHigh, haLow, isBullish);
         }
 
-        // ==========================================
-        // 模块 3：策略与风控校验 (Strategy & Risk Management)
-        // ==========================================
         private bool EvaluateReversalStrategy(
             string symbol, string timeframe,
-            decimal closePrice, decimal rawCandleLength,
+            decimal closePrice, decimal rawCandleLength, decimal currentVolume,
             decimal haOpen, decimal haClose,
             HaState prevHa, List<HaState> historyList)
         {
-            // 1. 检查历史连击数 (核心趋势过滤)
+            // 1. 检查历史连击数
             int requiredStreak = 6;
             if (historyList.Count < requiredStreak) return false;
 
@@ -187,27 +179,41 @@ namespace TradingTerminal.Services
             if (!isStreakValid) return false;
 
             // ==========================================
-            // 🌟 新增风控：反弹/单边趋势过度过滤
+            // 🌟 新增风控：成交量爆发过滤 (平常的 3-5 倍)
             // ==========================================
+            // 计算过去 10 根 K 线的平均成交量
+            int volWindow = Math.Min(10, historyList.Count);
+            decimal avgVolume = historyList.Skip(historyList.Count - volWindow).Average(h => h.Volume);
+
+            // 计算成交量放大倍数
+            decimal volMultiplier = avgVolume > 0 ? currentVolume / avgVolume : 0;
+
+            if (volMultiplier < 3.0m || volMultiplier > 8.0m)
+            {
+                _logger.LogDebug($"🛡️ [量能不符] {symbol} {timeframe} 反转发生，但成交量倍数 {volMultiplier:F2} 不在 [3, 5] 区间内，跳过。");
+                return false;
+            }
+
+            // 2. 反弹/单边趋势过度过滤
             decimal streakMax = lastNStates.Max(h => h.HaHigh);
             decimal streakMin = lastNStates.Min(h => h.HaLow);
             decimal streakMovementPercentage = streakMin > 0 ? (streakMax - streakMin) / streakMin : 0;
 
-            if (streakMovementPercentage > 0.015m) // 如果前方连续 K 线波动超过 1.5%
+            if (streakMovementPercentage > 0.015m)
             {
-                _logger.LogDebug($"🛡️ [过度反弹过滤] {symbol} {timeframe} 前期趋势总波动达 {streakMovementPercentage:P2} (大于 1.5%)，结构疑似破坏，拒绝逆势！");
+                _logger.LogDebug($"🛡️ [过度反弹过滤] {symbol} {timeframe} 前期趋势总波动达 {streakMovementPercentage:P2} (大于 1.5%)，结构疑似破坏。");
                 return false;
             }
 
-            // 2. 动态计算平均波动率
-            int volCount = Math.Min(VOLATILITY_WINDOW_SIZE, historyList.Count);
-            decimal avgVolatility = volCount > 0
-                ? historyList.Skip(historyList.Count - volCount).Average(h => h.RawVolatility)
+            // 3. 动态计算平均波动率
+            int volWindowSize = Math.Min(VOLATILITY_WINDOW_SIZE, historyList.Count);
+            decimal avgVolatility = volWindowSize > 0
+                ? historyList.Skip(historyList.Count - volWindowSize).Average(h => h.RawVolatility)
                 : rawCandleLength;
 
             decimal currentHaBodySize = Math.Abs(haClose - haOpen);
 
-            // 3. 核心风控指标校验
+            // 4. 核心风控指标校验
             bool isVolatileEnough = rawCandleLength > (avgVolatility * 0.5m);
             bool isNotDoji = rawCandleLength > 0 && (currentHaBodySize / rawCandleLength) > 0.3m;
             decimal avgVolatilityPercentage = closePrice > 0 ? (avgVolatility / closePrice) : 0;
@@ -215,16 +221,13 @@ namespace TradingTerminal.Services
 
             if (isVolatileEnough && isNotDoji && isMinVolatilityMet)
             {
-                _logger.LogWarning($"🔥 [极品HA反转] {symbol} {timeframe} 验证达成连续 {requiredStreak} 根{(expectedPrevDir ? "阳" : "阴")}线 (波幅:{streakMovementPercentage:P2}) 后反转! (均波率: {avgVolatilityPercentage:P2})");
+                _logger.LogWarning($"🔥 [极品HA反转] {symbol} {timeframe} 达成连续 {requiredStreak} 根{(expectedPrevDir ? "阳" : "阴")}线反转! (波幅:{streakMovementPercentage:P2}, 量能放大:{volMultiplier:F2}X)");
                 return true;
             }
 
             return false;
         }
 
-        // ==========================================
-        // 辅助方法
-        // ==========================================
         public long GetLastClosedTime(string symbol, string timeframe)
         {
             string key = $"{symbol.ToUpper()}_{timeframe}";

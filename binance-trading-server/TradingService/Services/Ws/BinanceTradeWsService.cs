@@ -17,35 +17,25 @@ using Microsoft.Extensions.Configuration;
 namespace TradingTerminal.Services
 {
     /// <summary>
-    /// 纯粹的交易执行引擎 (专职负责私有 WS 连接、签名、下单、以及监听仓位缓存)
+    /// 纯粹的交易执行引擎 (专职负责私有 WS 连接、签名、下单、资金核算、精准撤单)
     /// </summary>
     public class BinanceTradeWsService : BackgroundService
     {
         private readonly ILogger<BinanceTradeWsService> _logger;
-        private readonly UserDataEventBus _userDataBus; // 🌟 注入事件总线
         private readonly string _apiKey;
         private readonly string _apiSecret;
 
         private ClientWebSocket _tradeWs = new ClientWebSocket();
         private readonly HttpClient _httpClient;
-
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
         private readonly ConcurrentDictionary<string, (int QuantityPrecision, int PricePrecision)> _symbolPrecisions = new();
 
-        // 本地仓位影子字典 (Key: Symbol, Value: 持仓数量)
-        private readonly ConcurrentDictionary<string, decimal> _localPositions = new();
-
-        public BinanceTradeWsService(
-            IConfiguration config,
-            ILogger<BinanceTradeWsService> logger,
-            UserDataEventBus userDataBus) // 👈 构造函数注入
+        public BinanceTradeWsService(IConfiguration config, ILogger<BinanceTradeWsService> logger)
         {
             _logger = logger;
-            _userDataBus = userDataBus;
             _apiKey = config["BinanceConfig:ApiKey"];
             _apiSecret = config["BinanceConfig:ApiSecret"];
 
-            // 交易网关独立的 HTTP 客户端
 #if DEBUG
             WebProxy proxy = new WebProxy("socks5://127.0.0.1:10808");
 #endif
@@ -58,10 +48,6 @@ namespace TradingTerminal.Services
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5)
             };
             _httpClient = new HttpClient(handler);
-
-            // 🌟 订阅大喇叭广播的原始用户数据
-            // 注意：请确保你的 UserDataEventBus 中暴露了 OnRawUserDataReceived 事件
-            _userDataBus.OnRawUserDataReceived += HandleUserDataMessage;
         }
 
         public override async Task StartAsync(CancellationToken cancellationToken)
@@ -75,83 +61,18 @@ namespace TradingTerminal.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("🟢 [交易核心] 独立交易 WS 网关启动...");
-
-            // 🌟 启动时同步拉取一次全量仓位，打底 (因为 WS 只有变动时才推送)
-            await SyncInitialPositionsAsync();
-
-            // 启动下单执行专线
             await MaintainTradeStreamAsync(stoppingToken);
         }
 
-        // ==========================================
-        // 🌟 仓位缓存与事件监听逻辑
-        // ==========================================
-
-        // 无延迟读取本地缓存
-        public Task<bool> HasActivePositionAsync(string symbol)
+        public async Task<List<string>> GetActivePositionSymbolsAsync()
         {
-            if (_localPositions.TryGetValue(symbol.ToUpper(), out decimal amt))
-            {
-                return Task.FromResult(amt != 0);
-            }
-            return Task.FromResult(false);
-        }
-
-        public Task<List<string>> GetActivePositionSymbolsAsync()
-        {
-            var activeSymbols = _localPositions
-                .Where(kvp => kvp.Value != 0)
-                .Select(kvp => kvp.Key)
-                .ToList();
-
-            return Task.FromResult(activeSymbols);
-        }
-
-        // 接收 UserDataEventBus 传来的消息并解析仓位
-        private void HandleUserDataMessage(string jsonMessage)
-        {
+            var activeSymbols = new List<string>();
             try
             {
-                using var eventDoc = JsonDocument.Parse(jsonMessage);
-                if (eventDoc.RootElement.TryGetProperty("e", out var eventType))
-                {
-                    string type = eventType.GetString();
-
-                    // 我们只关心 ACCOUNT_UPDATE 事件 (仓位变化)
-                    if (type == "ACCOUNT_UPDATE")
-                    {
-                        var updateData = eventDoc.RootElement.GetProperty("a");
-                        if (updateData.TryGetProperty("P", out var positionsArray))
-                        {
-                            foreach (var pos in positionsArray.EnumerateArray())
-                            {
-                                string symbol = pos.GetProperty("s").GetString();
-                                decimal amount = decimal.Parse(pos.GetProperty("pa").GetString(), System.Globalization.CultureInfo.InvariantCulture);
-
-                                // 极其快速地更新本地内存
-                                _localPositions[symbol] = amount;
-
-                                if (amount != 0)
-                                    _logger.LogInformation($"📡 [实盘仓位变更] {symbol} 当前持仓: {amount}");
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"❌ 解析账户变动事件失败: {ex.Message}");
-            }
-        }
-
-        private async Task SyncInitialPositionsAsync()
-        {
-            try
-            {
-                _logger.LogInformation("📖 [仓位初始化] 正在拉取初始仓位数据...");
                 string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
                 string queryString = $"timestamp={timestamp}";
                 string signature = GenerateSignature(queryString, _apiSecret);
+
                 string url = $"https://fapi.binance.com/fapi/v2/positionRisk?{queryString}&signature={signature}";
 
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -165,21 +86,20 @@ namespace TradingTerminal.Services
 
                 foreach (var position in doc.RootElement.EnumerateArray())
                 {
-                    string symbol = position.GetProperty("symbol").GetString();
                     decimal amt = decimal.Parse(position.GetProperty("positionAmt").GetString(), System.Globalization.CultureInfo.InvariantCulture);
-                    _localPositions[symbol] = amt;
+                    if (amt != 0)
+                    {
+                        activeSymbols.Add(position.GetProperty("symbol").GetString());
+                    }
                 }
-                _logger.LogInformation($"✅ [仓位初始化] 成功建立本地仓位影子字典！");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ 初始仓位同步失败: {ex.Message}");
+                _logger.LogError($"❌ 获取远端持仓失败: {ex.Message}");
             }
+            return activeSymbols;
         }
 
-        // ==========================================
-        // 下单核心执行专线
-        // ==========================================
         private async Task MaintainTradeStreamAsync(CancellationToken stoppingToken)
         {
             var buffer = new byte[1024 * 16];
@@ -231,21 +151,9 @@ namespace TradingTerminal.Services
                     decimal quantity,
                     decimal? price = null,
                     decimal? stopPrice = null,
-                    bool reduceOnly = false,
-                    bool skipIfHasPosition = false)
+                    bool reduceOnly = false)
         {
             if (_tradeWs.State != WebSocketState.Open) throw new Exception("WebSocket 交易专线未就绪，请稍后再试");
-
-            // 🌟 风控拦截：零延迟阻断重复开单
-            if (skipIfHasPosition)
-            {
-                bool hasPosition = await HasActivePositionAsync(symbol);
-                if (hasPosition)
-                {
-                    _logger.LogWarning($"🛡️ [风控拦截] 发现 {symbol} 已存在活跃持仓，跳过本次 [{side} {type}] 开仓请求！");
-                    return $"{{\"status\": 200, \"skipped\": true, \"msg\": \"Skipped {symbol} due to existing position\"}}";
-                }
-            }
 
             string requestId = Guid.NewGuid().ToString("N");
             long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -324,11 +232,6 @@ namespace TradingTerminal.Services
             using var doc = JsonDocument.Parse(responseJson);
             if (doc.RootElement.TryGetProperty("status", out var statusElement) && statusElement.GetInt32() != 200)
             {
-                if (doc.RootElement.TryGetProperty("skipped", out var skippedElement) && skippedElement.GetBoolean() == true)
-                {
-                    return responseJson;
-                }
-
                 if (doc.RootElement.TryGetProperty("error", out var errorElement))
                 {
                     int errorCode = errorElement.GetProperty("code").GetInt32();
@@ -343,11 +246,7 @@ namespace TradingTerminal.Services
 
         public async Task CancelAllOpenOrdersAsync(string symbol)
         {
-            var endpoints = new[]
-            {
-                "/fapi/v1/allOpenOrders",
-                "/fapi/v1/algoOpenOrders"
-            };
+            var endpoints = new[] { "/fapi/v1/allOpenOrders", "/fapi/v1/algoOpenOrders" };
 
             foreach (var endpoint in endpoints)
             {
@@ -358,7 +257,6 @@ namespace TradingTerminal.Services
                     string signature = GenerateSignature(queryString, _apiSecret);
 
                     string url = $"https://fapi.binance.com{endpoint}?{queryString}&signature={signature}";
-
                     var request = new HttpRequestMessage(HttpMethod.Delete, url);
                     request.Headers.Add("X-MBX-APIKEY", _apiKey);
 
@@ -368,29 +266,72 @@ namespace TradingTerminal.Services
                     if (!response.IsSuccessStatusCode)
                     {
                         using var doc = System.Text.Json.JsonDocument.Parse(json);
-                        if (doc.RootElement.TryGetProperty("code", out var errCode))
+                        if (doc.RootElement.TryGetProperty("code", out var errCode) && errCode.GetInt32() != -2011)
                         {
-                            int code = errCode.GetInt32();
-                            if (code != -2011)
-                            {
-                                _logger.LogError($"❌ [币安拒单] 撤单失败！端点 {endpoint} 返回: {json}");
-                            }
-                            else
-                            {
-                                _logger.LogDebug($"ℹ️ [清理记录] {endpoint} 池子里没有需要撤的单子。");
-                            }
+                            _logger.LogError($"❌ [币安拒单] 撤单失败！端点 {endpoint} 返回: {json}");
                         }
-                    }
-                    else
-                    {
-                        _logger.LogInformation($"✅ [撤单成功] 端点 {endpoint} 成功清理！回执: {json}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"💥 [网络致命异常] 无法连接到 {endpoint}，请检查配置！详细错误: {ex.Message}");
+                    _logger.LogError($"💥 [网络异常] 无法连接到 {endpoint}，详细错误: {ex.Message}");
                 }
             }
+        }
+
+        // ==========================================
+        // 🌟 战场清理：精准狙击，只撤止损保留止盈
+        // ==========================================
+        public async Task CancelStopLossOnlyAsync(string symbol)
+        {
+            try
+            {
+                string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+                string queryString = $"symbol={symbol.ToUpper()}&timestamp={timestamp}";
+                string signature = GenerateSignature(queryString, _apiSecret);
+
+                // 1. 查询该币种当前所有的挂单
+                string url = $"https://fapi.binance.com/fapi/v1/openOrders?{queryString}&signature={signature}";
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("X-MBX-APIKEY", _apiKey);
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode) return;
+
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+
+                // 2. 遍历找出止损单进行精准撤销
+                foreach (var order in doc.RootElement.EnumerateArray())
+                {
+                    string type = order.GetProperty("type").GetString();
+
+                    // 币安的止损市价单通常是 STOP_MARKET 或 STOP
+                    if (type == "STOP_MARKET" || type == "STOP")
+                    {
+                        long orderId = order.GetProperty("orderId").GetInt64();
+                        await CancelSingleOrderAsync(symbol, orderId);
+                        _logger.LogInformation($"🎯 [精准撤单] 成功撤销 {symbol} 的原止损单 (ID: {orderId})，止盈单已安全保留！");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ 提取或撤销原止损单失败: {ex.Message}");
+            }
+        }
+
+        // 底层：根据订单 ID 撤销单一订单
+        private async Task CancelSingleOrderAsync(string symbol, long orderId)
+        {
+            string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            string queryString = $"symbol={symbol.ToUpper()}&orderId={orderId}&timestamp={timestamp}";
+            string signature = GenerateSignature(queryString, _apiSecret);
+
+            string url = $"https://fapi.binance.com/fapi/v1/order?{queryString}&signature={signature}";
+            var request = new HttpRequestMessage(HttpMethod.Delete, url);
+            request.Headers.Add("X-MBX-APIKEY", _apiKey);
+            await _httpClient.SendAsync(request);
         }
 
         private async Task LoadExchangeInfoAsync()
@@ -448,11 +389,11 @@ namespace TradingTerminal.Services
             return (usdtMargin * leverage) / currentPrice;
         }
 
-        public async Task<string> OpenMarketPositionAsync(string symbol, string side, decimal quantity, bool skipIfHasPosition = false) =>
-            await PlaceOrderWsAsync(symbol, side, "MARKET", quantity, skipIfHasPosition: skipIfHasPosition);
+        public async Task<string> OpenMarketPositionAsync(string symbol, string side, decimal quantity) =>
+            await PlaceOrderWsAsync(symbol, side, "MARKET", quantity);
 
-        public async Task<string> OpenLimitPositionAsync(string symbol, string side, decimal quantity, decimal price, bool skipIfHasPosition = false) =>
-            await PlaceOrderWsAsync(symbol, side, "LIMIT", quantity, price: price, skipIfHasPosition: skipIfHasPosition);
+        public async Task<string> OpenLimitPositionAsync(string symbol, string side, decimal quantity, decimal price) =>
+            await PlaceOrderWsAsync(symbol, side, "LIMIT", quantity, price: price);
 
         public async Task<string> SetStopLossMarketAsync(string symbol, string positionSide, decimal quantity, decimal stopPrice) =>
             await PlaceOrderWsAsync(symbol, positionSide.ToUpper() == "LONG" ? "SELL" : "BUY", "STOP_MARKET", quantity, stopPrice: stopPrice, reduceOnly: true);
@@ -465,18 +406,6 @@ namespace TradingTerminal.Services
             var keyBytes = Encoding.UTF8.GetBytes(secret);
             using var hmac = new HMACSHA256(keyBytes);
             return BitConverter.ToString(hmac.ComputeHash(Encoding.UTF8.GetBytes(message))).Replace("-", "").ToLower();
-        }
-
-        public override void Dispose()
-        {
-            if (_userDataBus != null)
-            {
-                // 释放事件订阅，防止内存泄漏
-                _userDataBus.OnRawUserDataReceived -= HandleUserDataMessage;
-            }
-            _tradeWs?.Dispose();
-            _httpClient?.Dispose();
-            base.Dispose();
         }
     }
 }

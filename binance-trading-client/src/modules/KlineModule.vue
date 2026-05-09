@@ -1156,8 +1156,18 @@ const calculateHeikinAshi = (rawData: any[]) => {
     
     ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
     // ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
-    if (!prevHA) { ha.open = (Number(raw.open) + Number(raw.close)) / 2; } 
-    else { ha.open = (Number(prevHA.open) + Number(prevHA.close)) / 2; }
+    if (!prevHA) { ha.open = (Number(raw.open) + Number((Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4)) / 2; } 
+    // else { ha.open = (Number(prevHA.open) + Number((Number(prevHA.open) + Number(prevHA.high) + Number(prevHA.low) + Number(prevHA.close)) / 4)) / 2; }
+    // else { ha.open = (Number(prevHA.high) + Number((Number(prevHA.open) + Number(prevHA.high) + Number(prevHA.low) + Number(prevHA.close)) / 4)) / 2; }
+    else { 
+      if(prevHA.open>prevHA.close){//红色
+        //  ha.open = (Number(prevHA.open) + Number(prevHA.low)) / 2; 
+         ha.open = (Number(prevHA.open) +Number(prevHA.close) + Number(prevHA.low)) / 3; 
+      }else{
+        //  ha.open = (Number(prevHA.open) + Number(prevHA.high)) / 2; 
+         ha.open = (Number(prevHA.open) +Number(prevHA.close) + Number(prevHA.high)) / 3; 
+      } 
+    }
     ha.high = Math.max(Number(raw.high), ha.open, ha.close);
     ha.low = Math.min(Number(raw.low), ha.open, ha.close);
     ha.color = ha.close >= ha.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';

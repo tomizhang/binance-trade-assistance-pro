@@ -1,14 +1,15 @@
-using System;
+ï»¿using System;
 
 namespace TradingTerminal.Models
 {
     public class PositionTracker
     {
         public string Symbol { get; set; }
-        public string Side { get; set; } // BUY (×ö¶à) »ò SELL (×ö¿Õ)
+        public string Side { get; set; }
         public decimal Quantity { get; set; }
         public decimal EntryPrice { get; set; }
+        public decimal TakeProfitPrice { get; set; } // ğŸŒŸ æ–°å¢ï¼šè®°å½•è¿™ç¬”å•å­çš„æ­¢ç›ˆç›®æ ‡ä»·
         public DateTime OpenTime { get; set; }
-        public bool IsStopMovedToBE { get; set; } // ÊÇ·ñÒÑ¾­Ö´ĞĞ¹ı±£±¾
+        public bool IsStopMovedToBE { get; set; }
     }
 }
