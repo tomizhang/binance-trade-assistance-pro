@@ -105,19 +105,40 @@ namespace TradingTerminal.Services
         // ==========================================
         // 🌟 公共交易执行工具
         // ==========================================
-        protected async Task PlaceOrderWithProtectionAsync(
+        /// <summary>
+        /// 杠杆自适应：根据目标 ROE 自动计算并下发带保护的订单
+        /// </summary>
+        /// <param name="targetRoeTp">目标止盈 ROE (如 0.04 代表本金盈利 4%)</param>
+        /// <param name="riskRoeSl">目标止损 ROE (如 0.02 代表本金亏损 2%)</param>
+        protected async Task PlaceOrderWithLeverageRiskAsync(
             string symbol,
             bool isLong,
             decimal entryPrice,
-            decimal stopLossPrice,
-            decimal takeProfitPrice,
-            decimal marginUsdt = 1.5m,
-            decimal leverage = 5m,
-            string strategyName = "BaseStrategy")
+            decimal marginUsdt,
+            decimal leverage,
+            decimal targetRoeTp = 0.04m,
+            decimal riskRoeSl = 0.02m,
+            string strategyName = "Breakout_Leverage")
         {
             try
             {
                 string side = isLong ? "BUY" : "SELL";
+
+                // 🌟 1. 计算标的资产实际需要变动的百分比 = ROE / 杠杆
+                decimal priceChangeTp = targetRoeTp / leverage;
+                decimal priceChangeSl = riskRoeSl / leverage;
+
+                // 🌟 2. 根据方向计算绝对价格位
+                decimal rawTp = isLong ? entryPrice * (1 + priceChangeTp) : entryPrice * (1 - priceChangeTp);
+                decimal rawSl = isLong ? entryPrice * (1 - priceChangeSl) : entryPrice * (1 + priceChangeSl);
+
+                // 🌟 3. 严格格式化价格与数量，对齐币安精度规则
+                decimal tpPrice = _tradeWsService.FormatPrice(symbol, rawTp);
+                decimal slPrice = _tradeWsService.FormatPrice(symbol, rawSl);
+
+                // 计算下单数量 (名义价值 / 入场价)
+                decimal rawQty = (marginUsdt * leverage) / entryPrice;
+                decimal qty = _tradeWsService.FormatQuantity(symbol, rawQty);
 
                 var comboSignal = new OrderSignal
                 {
@@ -127,18 +148,18 @@ namespace TradingTerminal.Services
                     IsUsdtMargin = true,
                     UsdtAmount = marginUsdt,
                     Leverage = leverage,
-                    StopLossPrice = stopLossPrice,
-                    TakeProfitPrice = takeProfitPrice,
+                    StopLossPrice = slPrice,
+                    TakeProfitPrice = tpPrice,
                     StrategyName = strategyName,
-                    Reason = $"入场 {entryPrice:F4}, SL: {stopLossPrice:F4}, TP: {takeProfitPrice:F4}",
-                    Message = "执行标准化组合下单策略"
+                    Reason = $"杠杆:{leverage}X, 入场:{entryPrice:F4}, 预设止损ROE:-{riskRoeSl:P1}, 预设止盈ROE:+{targetRoeTp:P1}"
                 };
 
                 await _orderChannel.WriteAsync(comboSignal);
+                _logger.LogInformation($"🚀 [{strategyName}] 已投递{leverage}X杠杆订单: {symbol} {side}, SL: {slPrice}, TP: {tpPrice}");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ [{strategyName}] 下单投递失败: {ex.Message}");
+                _logger.LogError($"❌ [{strategyName}] 杠杆风险计算下单失败: {ex.Message}");
             }
         }
 

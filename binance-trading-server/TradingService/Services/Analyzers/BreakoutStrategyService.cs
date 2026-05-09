@@ -100,8 +100,22 @@ namespace TradingTerminal.Services
                 decimal slPrice = isLong ? msg.Close * (1 - slRoe / 5) : msg.Close * (1 + slRoe / 5);
                 decimal tpPrice = isLong ? msg.Close * (1 + tpRoe / 5) : msg.Close * (1 - tpRoe / 5);
 
-                _ = Task.Run(() => PlaceOrderWithProtectionAsync(
-                    msg.Symbol, isLong, msg.Close, slPrice, tpPrice, 2.0m, 5m, "1m_Breakout_Vol"));
+                _ = Task.Run(async () =>
+                {
+
+                    // 设定参数：使用 2.0 USDT 保证金，5 倍杠杆
+                    // 目标：亏损本金 2.5% 止损，盈利本金 5% 止盈
+                    await PlaceOrderWithLeverageRiskAsync(
+                        msg.Symbol,
+                        isLong,
+                        msg.Close,
+                        marginUsdt: 1.5m,
+                        leverage: 5.0m,
+                        targetRoeTp: 0.05m,  // +5% ROE
+                        riskRoeSl: 0.025m,   // -2.5% ROE
+                        strategyName: "1m_Vol_Breakout"
+                    );
+                });
             }
         }
 
