@@ -17,19 +17,26 @@ namespace TradingTerminal.Services
         private readonly BinanceTradeWsService _tradeWsService;
         private readonly RiskControlManager _riskManager;
         private readonly SnapshotChannel _snapshotChannel;
+
+        // 🌟 新增：注入仓位管理中心，用于查询实时仓位状态
+        private readonly PositionManagementService _positionManager;
+
         public OrderExecutionConsumer(
             ILogger<OrderExecutionConsumer> logger,
             OrderChannel orderChannel,
             BinanceTradeWsService tradeWsService,
             RiskControlManager riskManager,
-            SnapshotChannel snapshotChannel) // 👈 注入进来
+            SnapshotChannel snapshotChannel,
+            PositionManagementService positionManager) // 👈 注入进来
         {
             _logger = logger;
             _orderChannel = orderChannel;
             _tradeWsService = tradeWsService;
             _riskManager = riskManager;
             _snapshotChannel = snapshotChannel;
+            _positionManager = positionManager; // 👈 赋值
         }
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("⚙️ [订单消费者] 后台执行线程已启动，正在监听策略指令...");
@@ -55,10 +62,18 @@ namespace TradingTerminal.Services
         private async Task ProcessOrderAsync(OrderSignal signal)
         {
             // ==========================================
-            // 🛡️ 1. 风控拦截门
+            // 🛡️ 1. 风控与重复开仓拦截门
             // ==========================================
             if (signal.Action == OrderAction.OpenMarket || signal.Action == OrderAction.OpenLimit)
             {
+                // 🌟 第一道防线：防重复开仓拦截
+                if (_positionManager.HasActivePosition(signal.Symbol))
+                {
+                    _logger.LogWarning($"⛔ [防重拦截] 策略 '{signal.StrategyName}' 试图开仓 {signal.Symbol} 被拒绝。原因: 已持有该币种的活动仓位，禁止重复开仓！");
+                    return; // 拦截！直接 Return
+                }
+
+                // 第二道防线：黑名单与全局风控拦截
                 if (!_riskManager.CanOpenPosition(signal.Symbol, out string blockReason))
                 {
                     // 拦截！直接 Return，永远不发给币安
@@ -115,7 +130,7 @@ namespace TradingTerminal.Services
 
                     if (signal.StopLossPrice.HasValue || signal.TakeProfitPrice.HasValue)
                     {
-                        // 稍微等待 500 毫秒，确保币安撮合引擎已生成仓位
+                        // 稍微等待 10 毫秒，确保币安撮合引擎已生成仓位
                         await Task.Delay(10);
                     }
 
@@ -148,7 +163,7 @@ namespace TradingTerminal.Services
                         }
                         catch (Exception ex) when (ex.Message.Contains("-2021"))
                         {
-                            // 💰 500毫秒内暴涨穿透了止盈线！这是天降横财，直接市价砸盘落袋为安！
+                            // 💰 短时间内暴涨穿透了止盈线！这是天降横财，直接市价砸盘落袋为安！
                             _logger.LogCritical($"🚀 [极速暴涨落袋] {signal.Symbol} 价格已穿透止盈线！立即执行市价平仓收割利润！");
                             await _tradeWsService.PlaceOrderWsAsync(signal.Symbol, closeSide, "MARKET", finalQuantity, reduceOnly: true);
                             return;

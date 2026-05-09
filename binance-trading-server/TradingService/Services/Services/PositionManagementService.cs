@@ -22,8 +22,8 @@ namespace TradingTerminal.Services
         // 🌟 注入行情事件总线大喇叭，0 延迟获取跳动价格
         private readonly MarketEventBus _marketEventBus;
 
-        // 活跃仓位追踪器
-        private readonly ConcurrentDictionary<string, PositionTracker> _activeTrackers = new();
+        // 活跃仓位追踪器 (🌟 优化：加上忽略大小写，防止符号比对失败)
+        private readonly ConcurrentDictionary<string, PositionTracker> _activeTrackers = new(StringComparer.OrdinalIgnoreCase);
 
         // 本地专属的最新价格缓存字典
         private readonly ConcurrentDictionary<string, decimal> _latestPrices = new(StringComparer.OrdinalIgnoreCase);
@@ -42,6 +42,29 @@ namespace TradingTerminal.Services
             // 订阅双轨总线：一边听仓位变化，一边听价格跳动
             _userDataBus.OnRawUserDataReceived += HandleAccountUpdate;
             _marketEventBus.OnKlineReceived += HandleKlinePriceUpdate;
+        }
+
+        // ==========================================
+        // 🌟 外部调用接口：供其他 Service (如策略类) 查询仓位状态
+        // ==========================================
+
+        /// <summary>
+        /// 检查指定币种当前是否有活动仓位（防止重复开仓）
+        /// </summary>
+        public bool HasActivePosition(string symbol)
+        {
+            if (string.IsNullOrEmpty(symbol)) return false;
+            return _activeTrackers.ContainsKey(symbol);
+        }
+
+        /// <summary>
+        /// 获取指定币种的当前仓位详情（方便策略获取开仓方向、均价等）
+        /// </summary>
+        public bool TryGetPosition(string symbol, out PositionTracker position)
+        {
+            position = null;
+            if (string.IsNullOrEmpty(symbol)) return false;
+            return _activeTrackers.TryGetValue(symbol, out position);
         }
 
         // ==========================================
@@ -122,8 +145,6 @@ namespace TradingTerminal.Services
         // ==========================================
         // 🌟 巡检大循环：执行保本损策略
         // ==========================================
-        // ... 其他引用保持不变 ...
-
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("🛡️ [仓位管理中心] 启动：半盈(50% TP)保本策略已激活...");
@@ -204,6 +225,7 @@ namespace TradingTerminal.Services
                 }
             }
         }
+
         public override void Dispose()
         {
             if (_userDataBus != null)

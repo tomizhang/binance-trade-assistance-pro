@@ -1,17 +1,17 @@
-using System.Collections.Generic;
+ï»¿using System.Collections.Generic;
 
 namespace TradingTerminal.Utils
 {
     public static class PivotHelper
     {
         /// <summary>
-        /// ¼ÆËãÖ¸¶¨´°¿ÚÆÚÄÚµÄ¾Ö²¿¸ßµã(Peaks)ºÍµÍµã(Valleys)
-        /// ·µ»ØÖµÎª¼ÇÂ¼Ë÷ÒıÎ»ÖÃµÄ Tuple (Peaks, Valleys)
+        /// è®¡ç®—æŒ‡å®šçª—å£æœŸå†…çš„å±€éƒ¨é«˜ç‚¹(Peaks)å’Œä½ç‚¹(Valleys)
+        /// è¿”å›å€¼ä¸ºè®°å½•ç´¢å¼•ä½ç½®çš„ Tuple (Peaks, Valleys)
         /// </summary>
-        /// <param name="highs">×î¸ß¼Û¼¯ºÏ</param>
-        /// <param name="lows">×îµÍ¼Û¼¯ºÏ</param>
-        /// <param name="leftLen">×ó²à±È½ÏKÏß¸ùÊı</param>
-        /// <param name="rightLen">ÓÒ²à±È½ÏKÏß¸ùÊı</param>
+        /// <param name="highs">æœ€é«˜ä»·é›†åˆ</param>
+        /// <param name="lows">æœ€ä½ä»·é›†åˆ</param>
+        /// <param name="leftLen">å·¦ä¾§æ¯”è¾ƒKçº¿æ ¹æ•°</param>
+        /// <param name="rightLen">å³ä¾§æ¯”è¾ƒKçº¿æ ¹æ•°</param>
         public static (List<int> Peaks, List<int> Valleys) CalculatePeaks(
             IReadOnlyList<decimal> highs,
             IReadOnlyList<decimal> lows,
@@ -21,20 +21,20 @@ namespace TradingTerminal.Utils
             var peaks = new List<int>();
             var valleys = new List<int>();
 
-            // ·ÀÓùĞÔ¼ì²é
+            // é˜²å¾¡æ€§æ£€æŸ¥
             if (highs == null || lows == null || highs.Count != lows.Count)
             {
                 return (peaks, valleys);
             }
 
-            int length = highs.Count; // Ìæ´ú JS ÀïµÄ times.length
+            int length = highs.Count; // æ›¿ä»£ JS é‡Œçš„ times.length
 
             for (int i = leftLen; i < length - rightLen; i++)
             {
                 bool isPeak = true;
                 bool isValley = true;
 
-                // 1. ÅĞ¶ÏÊÇ·ñÎª¾Ö²¿×î¸ßµã
+                // 1. åˆ¤æ–­æ˜¯å¦ä¸ºå±€éƒ¨æœ€é«˜ç‚¹
                 for (int j = i - leftLen; j <= i + rightLen; j++)
                 {
                     if (j == i) continue;
@@ -42,11 +42,11 @@ namespace TradingTerminal.Utils
                     if (highs[j] >= highs[i])
                     {
                         isPeak = false;
-                        break; // Ö»Òª·¢ÏÖÓĞÒ»¸öµã±ÈËü¸ß£¬Á¢¿ÌÅĞ¶¨²»ÊÇPeak£¬Ìø³öÄÚ²ãÑ­»·
+                        break; // åªè¦å‘ç°æœ‰ä¸€ä¸ªç‚¹æ¯”å®ƒé«˜ï¼Œç«‹åˆ»åˆ¤å®šä¸æ˜¯Peakï¼Œè·³å‡ºå†…å±‚å¾ªç¯
                     }
                 }
 
-                // 2. ÅĞ¶ÏÊÇ·ñÎª¾Ö²¿×îµÍµã
+                // 2. åˆ¤æ–­æ˜¯å¦ä¸ºå±€éƒ¨æœ€ä½ç‚¹
                 for (int j = i - leftLen; j <= i + rightLen; j++)
                 {
                     if (j == i) continue;
@@ -54,16 +54,16 @@ namespace TradingTerminal.Utils
                     if (lows[j] <= lows[i])
                     {
                         isValley = false;
-                        break; // Ö»Òª·¢ÏÖÓĞÒ»¸öµã±ÈËüµÍ£¬Á¢¿ÌÅĞ¶¨²»ÊÇValley£¬Ìø³öÄÚ²ãÑ­»·
+                        break; // åªè¦å‘ç°æœ‰ä¸€ä¸ªç‚¹æ¯”å®ƒä½ï¼Œç«‹åˆ»åˆ¤å®šä¸æ˜¯Valleyï¼Œè·³å‡ºå†…å±‚å¾ªç¯
                     }
                 }
 
-                // 3. ¼ÇÂ¼¼«ÖµµãµÄË÷Òı
+                // 3. è®°å½•æå€¼ç‚¹çš„ç´¢å¼•
                 if (isPeak) peaks.Add(i);
                 if (isValley) valleys.Add(i);
             }
 
-            // Ê¹ÓÃ C# Ôª×éÓï·¨Ö±½Ó·µ»ØÁ½¸ö List
+            // ä½¿ç”¨ C# å…ƒç»„è¯­æ³•ç›´æ¥è¿”å›ä¸¤ä¸ª List
             return (peaks, valleys);
         }
     }

@@ -24,7 +24,7 @@ namespace TradingTerminal.Services
         private readonly MarketEventBus _eventBus;
         private readonly IHubContext<MarketHub> _marketHubContext;
         private readonly HttpClient _httpClient;
-        private readonly int DefaultTake = 10;
+        private readonly int DefaultTake = 100;
         private const string WsBaseUrl = "wss://fstream.binance.com/market/stream?streams=";
 
         // 🌟 核心：动态监控名单，不再写死

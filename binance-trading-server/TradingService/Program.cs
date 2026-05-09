@@ -111,9 +111,9 @@ try
     // 2. 将其作为托管服务运行
     builder.Services.AddHostedService(provider =>
         provider.GetRequiredService<BreakoutStrategyService>());
-
+    builder.Services.AddSingleton<PositionManagementService>();
     // 注册仓位管理守护进程
-    builder.Services.AddHostedService<PositionManagementService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<PositionManagementService>());
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)
     builder.Services.AddCors(options =>
     {
