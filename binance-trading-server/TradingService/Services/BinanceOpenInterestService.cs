@@ -24,7 +24,7 @@ namespace TradingTerminal.Services
         private readonly MarketEventBus _eventBus;
         private readonly IHubContext<MarketHub> _marketHubContext;
         private readonly HttpClient _httpClient;
-
+        private readonly int DefaultTake = 10;
         private const string WsBaseUrl = "wss://fstream.binance.com/market/stream?streams=";
 
         // 🌟 核心：动态监控名单，不再写死
@@ -87,13 +87,13 @@ namespace TradingTerminal.Services
                 // 1. 获取成交额 (quoteVolume) 前 10 名
                 var topVolume = validTickers
                     .OrderByDescending(x => decimal.Parse(x.GetProperty("quoteVolume").GetString()))
-                    .Take(100)
+                    .Take(DefaultTake)
                     .Select(x => x.GetProperty("symbol").GetString().ToUpper());
 
                 // 2. 获取涨幅 (priceChangePercent) 前 10 名
                 var topGainers = validTickers
                     .OrderByDescending(x => decimal.Parse(x.GetProperty("priceChangePercent").GetString()))
-                    .Take(100)
+                    .Take(DefaultTake)
                     .Select(x => x.GetProperty("symbol").GetString().ToUpper());
 
                 await _symbolsLock.WaitAsync(stoppingToken);
@@ -186,7 +186,7 @@ namespace TradingTerminal.Services
 
                     if (!streamsToListen.Any())
                     {
-                        await Task.Delay(5000, stoppingToken);
+                        await Task.Delay(1000, stoppingToken);
                         continue;
                     }
 
@@ -238,7 +238,7 @@ namespace TradingTerminal.Services
                 catch (Exception ex)
                 {
                     _logger.LogWarning($"⚠️ [雷达 K线] 断开: {ex.Message}，5秒后重连...");
-                    await Task.Delay(5000, stoppingToken);
+                    await Task.Delay(1000, stoppingToken);
                 }
             }
         }

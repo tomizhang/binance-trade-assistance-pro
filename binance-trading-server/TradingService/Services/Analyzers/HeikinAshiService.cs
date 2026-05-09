@@ -87,7 +87,7 @@ namespace TradingTerminal.Services
             decimal takeProfitPrice = isBullish ? currentPrice * (1m + (targetRoeTp / 5m)) : currentPrice * (1m - (targetRoeTp / 5m));
 
             // 调用基类公共下单方法
-            await PlaceOrderWithProtectionAsync(symbol, isBullish, currentPrice, stopLossPrice, takeProfitPrice, 1.5m, 5m, "HA_MA_Structure");
+            //await PlaceOrderWithProtectionAsync(symbol, isBullish, currentPrice, stopLossPrice, takeProfitPrice, 1.5m, 5m, "HA_MA_Structure");
         }
 
         protected override async Task InitializeStrategyDataAsync(List<string> symbols)

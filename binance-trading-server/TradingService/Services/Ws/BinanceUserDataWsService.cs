@@ -102,7 +102,7 @@ namespace TradingTerminal.Services
                 catch (Exception ex)
                 {
                     _logger.LogWarning($"⚠️ [私有数据流] 连接断开，5秒后尝试重建: {ex.Message}");
-                    await Task.Delay(5000, stoppingToken);
+                    await Task.Delay(1000, stoppingToken);
                 }
             }
         }

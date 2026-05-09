@@ -139,7 +139,7 @@ namespace TradingTerminal.Services
                 catch (Exception ex)
                 {
                     _logger.LogWarning($"⚠️ [交易 API 轨] 断开，5秒后重连: {ex.Message}");
-                    await Task.Delay(5000, stoppingToken);
+                    await Task.Delay(1000, stoppingToken);
                 }
             }
         }
@@ -218,7 +218,7 @@ namespace TradingTerminal.Services
 
             _logger.LogInformation($"🚀 [WS下单路由: {wsMethod}] {symbol} {side} {type} 数量:{quantity} 价格:{price} 触发价:{stopPrice} 只减仓:{reduceOnly}");
 
-            var timeoutTask = Task.Delay(5000);
+            var timeoutTask = Task.Delay(1000);
             var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
 
             if (completedTask == timeoutTask)
