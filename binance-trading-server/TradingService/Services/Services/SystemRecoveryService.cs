@@ -15,18 +15,18 @@ namespace TradingTerminal.Services
         private readonly ILogger<SystemRecoveryService> _logger;
         private readonly RiskControlManager _riskManager;
         private readonly BinanceTradeWsService _tradeService;
-        private readonly HeikinAshiService _haService;
+        //private readonly HeikinAshiService _haService;
 
         public SystemRecoveryService(
             ILogger<SystemRecoveryService> logger,
             RiskControlManager riskManager,
-            BinanceTradeWsService tradeService,
-            HeikinAshiService haService)
+            BinanceTradeWsService tradeService
+            /*HeikinAshiService haService*/)
         {
             _logger = logger;
             _riskManager = riskManager;
             _tradeService = tradeService;
-            _haService = haService;
+            //_haService = haService;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
@@ -49,7 +49,7 @@ namespace TradingTerminal.Services
 
                     // 3. 强制唤醒：把这些遗留的币种丢给 HA 策略引擎，
                     // 引擎会自动拉取它们的历史 1000 根 K线，并开启实盘监控，绝不脱管！
-                    await _haService.UpdateWatchListAsync(activeSymbols);
+                    //await _haService.UpdateWatchListAsync(activeSymbols);
                 }
                 else
                 {

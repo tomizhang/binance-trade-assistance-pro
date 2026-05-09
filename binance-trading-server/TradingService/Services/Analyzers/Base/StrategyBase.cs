@@ -27,7 +27,7 @@ namespace TradingTerminal.Services
 
         // 子类共用的行情监控名单
         protected readonly HashSet<string> _watchList = new();
-        protected readonly string[] _timeframes = { "2m" };
+        protected readonly string[] _timeframes = { "1m" };
         protected readonly SemaphoreSlim _lock = new(1, 1);
 
         protected StrategyBase(

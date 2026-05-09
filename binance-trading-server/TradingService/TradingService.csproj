@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <Folder Include="Logs\" />
+    <Folder Include="Services\Analyzers\Base\" />
     <Folder Include="Services\Helper\" />
     <Folder Include="Services\Services\" />
     <Folder Include="Snapshots\" />
