@@ -72,7 +72,7 @@ namespace TradingTerminal.Services
                 if (signal.IsUsdtMargin)
                 {
                     // 获取零延迟的纯净钱包余额（不含未实现盈亏）
-                    decimal currentBalance = _userDataWsService.CachedPureWalletBalance;
+                    decimal currentBalance = _userDataWsService.CachedAvailableBalance;
 
                     if (currentBalance < signal.UsdtAmount)
                     {
@@ -141,7 +141,7 @@ namespace TradingTerminal.Services
 
                     if (signal.StopLossPrice.HasValue || signal.TakeProfitPrice.HasValue)
                     {
-                        await Task.Delay(10); // 稍微等待 10 毫秒，确保币安撮合引擎已生成仓位
+                        await Task.Delay(1); // 稍微等待 10 毫秒，确保币安撮合引擎已生成仓位
                     }
 
                     // 🛡️ 挂载止损

@@ -3,7 +3,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Net;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
@@ -15,8 +16,17 @@ using TradingTerminal.Hubs;
 
 namespace TradingTerminal.Services
 {
+    public class PositionDetails
+    {
+        public string Symbol { get; set; }
+        public decimal Quantity { get; set; }
+        public decimal EntryPrice { get; set; }
+        public decimal UnrealizedPnL { get; set; }
+        public decimal Leverage { get; set; } = 1m;
+    }
+
     /// <summary>
-    /// 账户私有数据中枢：实现零延迟资产同步，支持提取不含盈亏的纯净余额
+    /// 账户私有数据中枢：初始化获取全量仓位/盈亏，WS被动热更新，外加 5 秒 HTTP 静默看门狗兜底
     /// </summary>
     public class BinanceUserDataWsService : BackgroundService
     {
@@ -30,20 +40,15 @@ namespace TradingTerminal.Services
         private string _currentListenKey;
         private Timer _keepAliveTimer;
 
-        // ==========================================
-        // 🌟 零延迟内存资产缓存
-        // ==========================================
+        // 🌟 新增：5 秒静默看门狗
+        private Timer _idleSyncTimer;
+        private int _isSyncing = 0; // 防并发锁
 
-        /// <summary>
-        /// 1. 包含盈亏的余额 (对应 WS 中的 cw)
-        /// </summary>
         public decimal CachedUsdtBalanceWithPnL { get; private set; } = 0m;
-
-        /// <summary>
-        /// 2. 🌟 纯净钱包余额 (对应 WS 中的 wb)：除去所有未实现盈亏。
-        /// 这是你要求的“除去盈亏”的底账。
-        /// </summary>
         public decimal CachedPureWalletBalance { get; private set; } = 0m;
+        public decimal CachedAvailableBalance { get; private set; } = 0m;
+
+        public ConcurrentDictionary<string, PositionDetails> ActivePositions { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public BinanceUserDataWsService(
             ILogger<BinanceUserDataWsService> logger,
@@ -60,7 +65,7 @@ namespace TradingTerminal.Services
             SocketsHttpHandler handler = new SocketsHttpHandler
             {
 #if DEBUG
-                Proxy = new WebProxy("socks5://127.0.0.1:10808"),
+                Proxy = new System.Net.WebProxy("socks5://127.0.0.1:10808"),
 #endif
                 UseProxy = true,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5)
@@ -70,10 +75,13 @@ namespace TradingTerminal.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("🛡️ [资产同步] 启动零延迟监控...");
+            _logger.LogInformation("🛡️ [资产同步] 正在启动私有数据流引擎...");
 
-            // 冷启动先同步一次绝对值
-            await SyncInitialBalanceAsync();
+            // 1. 启动时获取一次高调的底账 (打印日志)
+            await SyncAccountAndPositionsAsync(isSilent: false);
+
+            // 🌟 2. 启动 5 秒静默看门狗定时器
+            _idleSyncTimer = new Timer(OnIdleSyncTimerTriggered, null, 5000, Timeout.Infinite);
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -83,23 +91,32 @@ namespace TradingTerminal.Services
                     _keepAliveTimer?.Dispose();
                     _keepAliveTimer = new Timer(async _ => await KeepAliveListenKeyAsync(), null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
 
-                    using var ws = new ClientWebSocket();
+                    using var streamWs = new ClientWebSocket();
 #if DEBUG
-                    ws.Options.Proxy = new WebProxy("socks5://127.0.0.1:10808");
+                    streamWs.Options.Proxy = new System.Net.WebProxy("socks5://127.0.0.1:10808");
 #endif
-                    await ws.ConnectAsync(new Uri($"wss://fstream.binance.com/private/ws/{_currentListenKey}"), stoppingToken);
+                    await streamWs.ConnectAsync(new Uri($"wss://fstream.binance.com/private/ws/{_currentListenKey}"), stoppingToken);
+                    _logger.LogInformation("🟢 [监听专线] 账户数据流连接成功，开启被动热更新与看门狗！");
 
                     var buffer = new byte[1024 * 16];
 
-                    while (ws.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
+                    while (streamWs.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
                     {
-                        var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), stoppingToken);
+                        using var ms = new System.IO.MemoryStream();
+                        WebSocketReceiveResult result;
+                        do
+                        {
+                            result = await streamWs.ReceiveAsync(new ArraySegment<byte>(buffer), stoppingToken);
+                            if (result.MessageType == WebSocketMessageType.Close) break;
+                            ms.Write(buffer, 0, result.Count);
+                        }
+                        while (!result.EndOfMessage);
+
                         if (result.MessageType == WebSocketMessageType.Close) break;
 
-                        var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        var message = Encoding.UTF8.GetString(ms.ToArray());
                         _userDataBus.PublishRawUserData(message);
 
-                        // 🌟 热更新逻辑：解析数据流并提取 wb
                         ProcessUserDataMessage(message);
 
                         await _hubContext.Clients.All.SendAsync("ReceiveAccountUpdate", message, stoppingToken);
@@ -107,9 +124,109 @@ namespace TradingTerminal.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"⚠️ [资产同步] WS 断开: {ex.Message}");
+                    _logger.LogWarning($"⚠️ [监听专线] 断开，5秒后重连: {ex.Message}");
                     await Task.Delay(5000, stoppingToken);
                 }
+            }
+        }
+
+        public void UpdateLeverage(string symbol, decimal leverage)
+        {
+            if (leverage <= 0) return;
+            ActivePositions.AddOrUpdate(symbol,
+                new PositionDetails { Symbol = symbol, Leverage = leverage },
+                (k, old) => { old.Leverage = leverage; return old; });
+
+            RecalculateAvailableBalance();
+        }
+
+        // ==========================================
+        // 🌟 5 秒看门狗触发方法
+        // ==========================================
+        private void OnIdleSyncTimerTriggered(object state)
+        {
+            // 使用 Interlocked 防止网络卡顿时并发执行
+            if (Interlocked.CompareExchange(ref _isSyncing, 1, 0) == 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // 强制走一遍 HTTP 获取，isSilent=true 不刷屏
+                        await SyncAccountAndPositionsAsync(isSilent: true);
+                    }
+                    finally
+                    {
+                        Interlocked.Exchange(ref _isSyncing, 0);
+                        // HTTP 执行完后，重新挂载下一个 5 秒定时
+                        _idleSyncTimer?.Change(1000, Timeout.Infinite);
+                    }
+                });
+            }
+        }
+
+        // ==========================================
+        // 🌟 HTTP 账户全量同步 (增加静默参数)
+        // ==========================================
+        private async Task SyncAccountAndPositionsAsync(bool isSilent)
+        {
+            try
+            {
+                string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+                string queryString = $"timestamp={timestamp}";
+                string signature = GenerateSignature(queryString, _apiSecret);
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"/fapi/v2/account?{queryString}&signature={signature}");
+                request.Headers.Add("X-MBX-APIKEY", _apiKey);
+
+                var response = await _httpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (!isSilent) _logger.LogWarning($"⚠️ HTTP 账户同步失败，状态码: {response.StatusCode}");
+                    return;
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                foreach (var assetData in root.GetProperty("assets").EnumerateArray())
+                {
+                    if (assetData.GetProperty("asset").GetString() == "USDT")
+                    {
+                        CachedPureWalletBalance = decimal.Parse(assetData.GetProperty("walletBalance").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                        CachedUsdtBalanceWithPnL = decimal.Parse(assetData.GetProperty("crossWalletBalance").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                        CachedAvailableBalance = decimal.Parse(assetData.GetProperty("availableBalance").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                        break;
+                    }
+                }
+
+                foreach (var pos in root.GetProperty("positions").EnumerateArray())
+                {
+                    string sym = pos.GetProperty("symbol").GetString();
+                    decimal amt = decimal.Parse(pos.GetProperty("positionAmt").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                    decimal lev = decimal.Parse(pos.GetProperty("leverage").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                    decimal ep = decimal.Parse(pos.GetProperty("entryPrice").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                    decimal up = decimal.Parse(pos.GetProperty("unrealizedProfit").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+
+                    ActivePositions[sym] = new PositionDetails
+                    {
+                        Symbol = sym,
+                        Quantity = amt,
+                        EntryPrice = ep,
+                        UnrealizedPnL = up,
+                        Leverage = lev > 0 ? lev : 1m
+                    };
+                }
+
+                if (!isSilent)
+                {
+                    _logger.LogInformation($"🚀 [账户同步] 成功！纯净余额: {CachedPureWalletBalance:F2}, 可用余额: {CachedAvailableBalance:F2}, 监控 {ActivePositions.Count} 个仓位。");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!isSilent) _logger.LogError($"❌ HTTP 账户同步异常: {ex.Message}");
             }
         }
 
@@ -120,35 +237,65 @@ namespace TradingTerminal.Services
                 using var doc = JsonDocument.Parse(jsonMessage);
                 var root = doc.RootElement;
 
-                if (root.TryGetProperty("e", out var eventTypeElement))
+                if (!root.TryGetProperty("e", out var eventTypeElement)) return;
+                string eventType = eventTypeElement.GetString();
+
+                if (eventType == "ORDER_TRADE_UPDATE")
                 {
-                    string eventType = eventTypeElement.GetString();
-
-                    if (eventType == "ACCOUNT_UPDATE")
+                    var orderData = root.GetProperty("o");
+                    var tradeEvent = new OrderTradeUpdateEvent
                     {
-                        var updateData = root.GetProperty("a");
-                        if (updateData.TryGetProperty("B", out var balancesArray))
-                        {
-                            foreach (var bal in balancesArray.EnumerateArray())
-                            {
-                                if (bal.GetProperty("a").GetString() == "USDT")
-                                {
-                                    // 🌟 核心提取
-                                    // wb (Wallet Balance): 除去盈亏的纯钱包金额
-                                    if (bal.TryGetProperty("wb", out var wbElement))
-                                    {
-                                        CachedPureWalletBalance = decimal.Parse(wbElement.GetString(), System.Globalization.CultureInfo.InvariantCulture);
-                                    }
+                        Symbol = orderData.GetProperty("s").GetString(),
+                        OrderStatus = orderData.GetProperty("X").GetString(),
+                        OrderType = orderData.GetProperty("o").GetString(),
+                        RealizedPnl = decimal.Parse(orderData.GetProperty("rp").GetString(), System.Globalization.CultureInfo.InvariantCulture)
+                    };
+                    _userDataBus.PublishOrderTradeUpdate(tradeEvent);
+                }
+                else if (eventType == "ACCOUNT_UPDATE")
+                {
+                    // 🌟 收到账户更新推送，重置 5 秒看门狗！
+                    // 意思是：既然有活的数据来，这 5 秒内就不需要再发 HTTP 请求了
+                    _idleSyncTimer?.Change(5000, Timeout.Infinite);
 
-                                    // cw (Cross Wallet Balance): 包含盈亏的余额
-                                    if (bal.TryGetProperty("cw", out var cwElement))
-                                    {
-                                        CachedUsdtBalanceWithPnL = decimal.Parse(cwElement.GetString(), System.Globalization.CultureInfo.InvariantCulture);
-                                    }
-                                }
+                    var updateData = root.GetProperty("a");
+
+                    if (updateData.TryGetProperty("B", out var balancesArray))
+                    {
+                        foreach (var bal in balancesArray.EnumerateArray())
+                        {
+                            if (bal.GetProperty("a").GetString() == "USDT")
+                            {
+                                if (bal.TryGetProperty("wb", out var wbElement))
+                                    CachedPureWalletBalance = decimal.Parse(wbElement.GetString(), System.Globalization.CultureInfo.InvariantCulture);
+
+                                if (bal.TryGetProperty("cw", out var cwElement))
+                                    CachedUsdtBalanceWithPnL = decimal.Parse(cwElement.GetString(), System.Globalization.CultureInfo.InvariantCulture);
                             }
                         }
                     }
+
+                    if (updateData.TryGetProperty("P", out var positionsArray))
+                    {
+                        foreach (var pos in positionsArray.EnumerateArray())
+                        {
+                            string sym = pos.GetProperty("s").GetString();
+                            decimal amt = decimal.Parse(pos.GetProperty("pa").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                            decimal ep = decimal.Parse(pos.GetProperty("ep").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+                            decimal up = decimal.Parse(pos.GetProperty("up").GetString(), System.Globalization.CultureInfo.InvariantCulture);
+
+                            ActivePositions.AddOrUpdate(sym,
+                                new PositionDetails { Symbol = sym, Quantity = amt, EntryPrice = ep, UnrealizedPnL = up, Leverage = 20m },
+                                (k, old) => {
+                                    old.Quantity = amt;
+                                    old.EntryPrice = ep;
+                                    old.UnrealizedPnL = up;
+                                    return old;
+                                });
+                        }
+                    }
+
+                    RecalculateAvailableBalance();
                 }
             }
             catch (Exception ex)
@@ -157,38 +304,18 @@ namespace TradingTerminal.Services
             }
         }
 
-        // 辅助方法：冷启动校准
-        private async Task SyncInitialBalanceAsync()
+        private void RecalculateAvailableBalance()
         {
-            try
+            decimal totalUsedMargin = 0m;
+            foreach (var p in ActivePositions.Values)
             {
-                string timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-                string queryString = $"timestamp={timestamp}";
-                string signature = GenerateSignature(queryString, _apiSecret);
-
-                var request = new HttpRequestMessage(HttpMethod.Get, $"/fapi/v2/balance?{queryString}&signature={signature}");
-                request.Headers.Add("X-MBX-APIKEY", _apiKey);
-
-                var response = await _httpClient.SendAsync(request);
-                if (!response.IsSuccessStatusCode) return;
-
-                var json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-
-                foreach (var assetData in doc.RootElement.EnumerateArray())
+                if (p.Quantity != 0)
                 {
-                    if (assetData.GetProperty("asset").GetString() == "USDT")
-                    {
-                        // 初始校准：balance 是不含盈亏的钱包余额
-                        CachedPureWalletBalance = decimal.Parse(assetData.GetProperty("balance").GetString(), System.Globalization.CultureInfo.InvariantCulture);
-                        break;
-                    }
+                    totalUsedMargin += (Math.Abs(p.Quantity) * p.EntryPrice) / p.Leverage;
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError($"❌ 初始资产同步失败: {ex.Message}");
-            }
+            decimal newAvailable = CachedUsdtBalanceWithPnL - totalUsedMargin;
+            CachedAvailableBalance = newAvailable > 0 ? newAvailable * 0.995m : 0m;
         }
 
         private string GenerateSignature(string message, string secret)
@@ -198,7 +325,6 @@ namespace TradingTerminal.Services
             return BitConverter.ToString(hmac.ComputeHash(Encoding.UTF8.GetBytes(message))).Replace("-", "").ToLower();
         }
 
-        // ListenKey 生命周期管理逻辑保持不变...
         private async Task<string> CreateListenKeyAsync()
         {
             var request = new HttpRequestMessage(HttpMethod.Post, "/fapi/v1/listenKey");
@@ -223,6 +349,7 @@ namespace TradingTerminal.Services
 
         public override void Dispose()
         {
+            _idleSyncTimer?.Dispose();
             _keepAliveTimer?.Dispose();
             base.Dispose();
         }

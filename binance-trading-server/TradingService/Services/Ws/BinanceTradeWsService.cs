@@ -218,14 +218,14 @@ namespace TradingTerminal.Services
 
             _logger.LogInformation($"🚀 [WS下单路由: {wsMethod}] {symbol} {side} {type} 数量:{quantity} 价格:{price} 触发价:{stopPrice} 只减仓:{reduceOnly}");
 
-            var timeoutTask = Task.Delay(1000);
-            var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
+            var timeoutTask = Task.Delay(100);
+            var completedTask = await Task.WhenAny(tcs.Task);
 
-            if (completedTask == timeoutTask)
-            {
-                _pendingRequests.TryRemove(requestId, out _);
-                throw new TimeoutException("WS 下单超时，币安未在5秒内返回确认信息");
-            }
+            //if (completedTask == timeoutTask)
+            //{
+            //    _pendingRequests.TryRemove(requestId, out _);
+            //    throw new TimeoutException("WS 下单超时，币安未在5秒内返回确认信息");
+            //}
 
             string responseJson = await tcs.Task;
 

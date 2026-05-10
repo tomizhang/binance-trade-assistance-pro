@@ -1,12 +1,20 @@
 ﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using TradingTerminal.Hubs;
+using TradingTerminal.Models;
 
 namespace TradingTerminal.Services
 {
@@ -21,6 +29,8 @@ namespace TradingTerminal.Services
         private readonly int DefaultTake = 100;
         private readonly CustomKlineAggregator _aggregator = new();
         private ClientWebSocket _publicWs = new ClientWebSocket();
+
+        // 专门用于冷启动预热 K 线的 HttpClient
         private readonly HttpClient _httpClient;
 
         private readonly ConcurrentDictionary<string, int> _masterStreamCounts = new();
@@ -31,6 +41,7 @@ namespace TradingTerminal.Services
         {
             _hubContext = hubContext;
             _logger = logger;
+            _eventBus = eventBus;
 
 #if DEBUG
             WebProxy proxy = new WebProxy("socks5://127.0.0.1:10808");
@@ -44,16 +55,20 @@ namespace TradingTerminal.Services
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5)
             };
             _httpClient = new HttpClient(handler);
-            _eventBus = eventBus;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("🚀 [行情中枢] 独立公共行情流网关启动...");
             _ = Task.Run(() => MeasureBackendToBinanceLatency(stoppingToken), stoppingToken);
+
+            // 启动被动数据流监听
             await MaintainPublicStreamAsync(stoppingToken);
         }
 
+        // ==========================================
+        // 🌟 历史 K 线获取 (仅用于冷启动预热，无频次压力)
+        // ==========================================
         public async Task<string> GetHistoricalKlinesAsync(string symbol, string interval, int limit = 1000, long? endTime = null)
         {
             var (baseInterval, neededLimit) = _aggregator.GetBaseHistoryRequestParams(interval, limit);
@@ -67,17 +82,21 @@ namespace TradingTerminal.Services
                 var rawContent = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
-                    throw new Exception($"币安接口请求失败，状态码: {response.StatusCode}");
+                    throw new Exception($"币安 HTTP 接口请求失败，状态码: {response.StatusCode}");
 
+                _logger.LogInformation($"✅ [行情预热] {symbol} {interval} 历史K线基底拉取成功。");
                 return _aggregator.AggregateHistoricalJson(rawContent, interval);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ [行情中枢] 获取历史K线异常: {ex.Message}");
+                _logger.LogError($"❌ [行情预热] 获取历史K线异常: {ex.Message}");
                 throw;
             }
         }
 
+        // ==========================================
+        // 🌟 公共 WebSocket 数据流维护
+        // ==========================================
         private async Task MaintainPublicStreamAsync(CancellationToken stoppingToken)
         {
             var buffer = new byte[1024 * 128];
@@ -113,7 +132,7 @@ namespace TradingTerminal.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"⚠️ [行情中枢] 断开，5秒后重连: {ex.Message}");
+                    _logger.LogWarning($"⚠️ [行情中枢] 连线断开，2秒后重连: {ex.Message}");
                     await Task.Delay(1000, stoppingToken);
                 }
             }
@@ -326,6 +345,13 @@ namespace TradingTerminal.Services
                 _logger.LogError($"❌ 刷新热门币种名单失败: {ex.Message}");
             }
             return null;
+        }
+
+        public override void Dispose()
+        {
+            _publicWs?.Dispose();
+            _httpClient?.Dispose();
+            base.Dispose();
         }
     }
 }

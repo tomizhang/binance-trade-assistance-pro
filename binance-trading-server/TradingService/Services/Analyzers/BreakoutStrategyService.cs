@@ -180,7 +180,7 @@ namespace TradingTerminal.Services
                 _ = Task.Run(async () =>
                 {
                     await PlaceOrderWithLeverageRiskAsync(
-                        msg.Symbol, isLong, msg.Close, 1.5m, 5.0m, 0.05m, 0.025m, "Tick_Pivot_Breakout"
+                        msg.Symbol, isLong, msg.Close, 1.5m, 5.0m, 0.045m, 0.045m, "Tick_Pivot_Breakout"
                     );
                 });
             }

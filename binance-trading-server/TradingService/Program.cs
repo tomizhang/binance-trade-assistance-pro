@@ -93,8 +93,7 @@ try
     builder.Services.AddSingleton<BinanceUserDataWsService>();
 
     // 🌟 注册私有账户数据流 (作为后台守护进程启动)
-    builder.Services.AddHostedService<BinanceUserDataWsService>();
-
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceUserDataWsService>());
     // 注册邮件通信管道 (单例)
     builder.Services.AddSingleton<NotificationChannel>();
 
@@ -109,8 +108,7 @@ try
 
     builder.Services.AddHostedService<SystemRecoveryService>();
     // 2. 将其作为托管服务运行
-    builder.Services.AddHostedService(provider =>
-        provider.GetRequiredService<BreakoutStrategyService>());
+    builder.Services.AddHostedService(provider =>provider.GetRequiredService<BreakoutStrategyService>());
     builder.Services.AddSingleton<PositionManagementService>();
     // 注册仓位管理守护进程
     builder.Services.AddHostedService(provider => provider.GetRequiredService<PositionManagementService>());
