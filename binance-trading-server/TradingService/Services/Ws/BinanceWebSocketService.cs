@@ -30,7 +30,6 @@ namespace TradingTerminal.Services
         private readonly CustomKlineAggregator _aggregator = new();
         private ClientWebSocket _publicWs = new ClientWebSocket();
 
-        // 专门用于冷启动预热 K 线的 HttpClient
         private readonly HttpClient _httpClient;
 
         private readonly ConcurrentDictionary<string, int> _masterStreamCounts = new();
@@ -61,14 +60,9 @@ namespace TradingTerminal.Services
         {
             _logger.LogInformation("🚀 [行情中枢] 独立公共行情流网关启动...");
             _ = Task.Run(() => MeasureBackendToBinanceLatency(stoppingToken), stoppingToken);
-
-            // 启动被动数据流监听
             await MaintainPublicStreamAsync(stoppingToken);
         }
 
-        // ==========================================
-        // 🌟 历史 K 线获取 (仅用于冷启动预热，无频次压力)
-        // ==========================================
         public async Task<string> GetHistoricalKlinesAsync(string symbol, string interval, int limit = 1000, long? endTime = null)
         {
             var (baseInterval, neededLimit) = _aggregator.GetBaseHistoryRequestParams(interval, limit);
@@ -94,9 +88,6 @@ namespace TradingTerminal.Services
             }
         }
 
-        // ==========================================
-        // 🌟 公共 WebSocket 数据流维护
-        // ==========================================
         private async Task MaintainPublicStreamAsync(CancellationToken stoppingToken)
         {
             var buffer = new byte[1024 * 128];
@@ -133,7 +124,7 @@ namespace TradingTerminal.Services
                 catch (Exception ex)
                 {
                     _logger.LogWarning($"⚠️ [行情中枢] 连线断开，2秒后重连: {ex.Message}");
-                    await Task.Delay(1000, stoppingToken);
+                    await Task.Delay(2000, stoppingToken);
                 }
             }
         }
@@ -167,7 +158,10 @@ namespace TradingTerminal.Services
                                 High = decimal.Parse(kNode.GetProperty("h").GetString()),
                                 Low = decimal.Parse(kNode.GetProperty("l").GetString()),
                                 Volume = decimal.Parse(kNode.GetProperty("v").GetString()),
-                                OpenTime = kNode.GetProperty("t").GetInt64()
+                                OpenTime = kNode.GetProperty("t").GetInt64(),
+
+                                // 🌟 核心修复 1：提取原始推送中的成交笔数 (n)
+                                TradeCount = kNode.TryGetProperty("n", out var nElement) ? nElement.GetInt32() : 0
                             };
                         }
 
@@ -225,6 +219,10 @@ namespace TradingTerminal.Services
                         h = msg.High.ToString("0.########"),
                         l = msg.Low.ToString("0.########"),
                         v = msg.Volume.ToString("0.########"),
+
+                        // 🌟 核心修复 2：将成交笔数组装回发送给前端的 JSON 中
+                        n = msg.TradeCount,
+
                         i = msg.Interval,
                         x = msg.IsClosed
                     }
@@ -245,18 +243,10 @@ namespace TradingTerminal.Services
 
         private async Task ChangeStreamSubscriptionAsync(string stream, int delta)
         {
-            _masterStreamCounts.AddOrUpdate(
-                stream,
-                addValueFactory: key => delta > 0 ? delta : 0,
-                updateValueFactory: (key, old) => Math.Max(0, old + delta)
-            );
+            _masterStreamCounts.AddOrUpdate(stream, addValueFactory: key => delta > 0 ? delta : 0, updateValueFactory: (key, old) => Math.Max(0, old + delta));
 
             string binanceStream = GetBinanceStreamName(stream);
-            var newBinanceCount = _binanceStreamCounts.AddOrUpdate(
-                binanceStream,
-                addValueFactory: key => delta > 0 ? delta : 0,
-                updateValueFactory: (key, old) => Math.Max(0, old + delta)
-            );
+            var newBinanceCount = _binanceStreamCounts.AddOrUpdate(binanceStream, addValueFactory: key => delta > 0 ? delta : 0, updateValueFactory: (key, old) => Math.Max(0, old + delta));
 
             if (_publicWs == null || _publicWs.State != WebSocketState.Open) return;
 
@@ -269,7 +259,6 @@ namespace TradingTerminal.Services
             var payload = new { method, @params = streams, id = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
             var json = JsonSerializer.Serialize(payload);
             await _publicWs.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
-            _logger.LogInformation($"{(method == "SUBSCRIBE" ? "📡" : "🗑️")} [行情中枢] {method}: {string.Join(", ", streams)}");
         }
 
         public async Task SubscribeFrontendAsync(string connectionId, string stream)
@@ -337,7 +326,6 @@ namespace TradingTerminal.Services
                 var topGainers = validTickers.OrderByDescending(x => decimal.Parse(x.GetProperty("priceChangePercent").GetString())).Take(DefaultTake).Select(x => x.GetProperty("symbol").GetString().ToUpper());
 
                 var list = new HashSet<string>(topVolume.Concat(topGainers)).ToList();
-                _logger.LogInformation($"🔥 [雷达更新] 最新锁定的资金战场 (共 {list.Count} 个): {string.Join(", ", list)}");
                 return list;
             }
             catch (Exception ex)

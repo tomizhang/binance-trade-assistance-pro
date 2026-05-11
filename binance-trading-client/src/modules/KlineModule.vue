@@ -50,7 +50,8 @@
         <div class="chart-type-selector">
           <button :class="{ active: localChartType === 'standard' }" @click="changeChartType('standard')">标准</button>
           <button :class="{ active: localChartType === 'heikinAshi' }" @click="changeChartType('heikinAshi')">平均(HA)</button>
-          <button class="action-btn"  @click="togglePeaks" :class="{ active: isShowingPeaks }" >{{ isShowingPeaks ? '清除高低点' : '📡 标记高低点' }}</button>
+          <button class="action-btn" @click="togglePeaks" :class="{ active: isShowingPeaks }">{{ isShowingPeaks ? '清除高低点' : '📡 标记高低点' }}</button>
+          <button class="action-btn" @click="toggleSR" :class="{ active: isShowingSR }">{{ isShowingSR ? '清除支撑压力' : '🧲 支撑压力' }}</button>
         </div>
         
         <span class="divider">|</span>
@@ -78,6 +79,10 @@
 
         <button class="sync-btn" :class="{ active: showVolume }" @click="toggleVolume" title="副图成交量">
           📊 成交量
+        </button>
+        
+        <button class="sync-btn" :class="{ active: showTradeFreq }" @click="toggleTradeFreq" title="副图交易频率 (成交笔数)">
+          📈 频率
         </button>
 
         <span class="divider">|</span>
@@ -157,6 +162,7 @@
         <span class="legend-item">收: <span :class="hoverData.colorClass">{{ hoverData.close }}</span></span>
         <span class="legend-item">幅: <span :class="hoverData.colorClass">{{ hoverData.change }}</span></span>
         <span class="legend-item" v-if="showVolume">量: <span class="vol-text">{{ hoverData.vol }}</span></span>
+        <span class="legend-item" v-if="showTradeFreq">频: <span style="color: #e2b514; font-weight: bold;">{{ hoverData.freq }}</span></span>
       </div>
 
       <div class="line-settings-panel" v-if="selectedShapeId && currentDrawMode === 'none'">
@@ -304,46 +310,34 @@ const instanceId = Math.random().toString(36).substring(2, 10);
 const isFocused = computed(() => marketStore.currentSymbol === props.symbol);
 const takeFocus = () => { if (!isFocused.value) marketStore.setCurrentSymbol(props.symbol); };
 
-// 修改为对象数组以便于显示和值的对应
 const timeframes = [
-  { label: '1m', value: '1m' },
-  { label: '2m', value: '2m' },
-  { label: '3m', value: '3m' },
-  { label: '4m', value: '4m' },
-  { label: '5m', value: '5m' },
-  { label: '6m', value: '6m' },
-  { label: '8m', value: '8m' },
-  { label: '10m', value: '10m' },
-  { label: '15m', value: '15m' },
-  { label: '20m', value: '20m' },
-  { label: '30m', value: '30m' },
-  { label: '40m', value: '40m' },
-  { label: '1h', value: '1h' },
-  { label: '2h', value: '2h' },
-  { label: '4h', value: '4h' },
-  { label: '6h', value: '6h' },
-  { label: '8h', value: '8h' },
-  { label: '12h', value: '12h' },
-  { label: '1d', value: '1d' },
-  { label: '3d', value: '3d' },
-  { label: '1w', value: '1w' },
+  { label: '1m', value: '1m' }, { label: '2m', value: '2m' }, { label: '3m', value: '3m' },
+  { label: '4m', value: '4m' }, { label: '5m', value: '5m' }, { label: '6m', value: '6m' },
+  { label: '8m', value: '8m' }, { label: '10m', value: '10m' }, { label: '15m', value: '15m' },
+  { label: '20m', value: '20m' }, { label: '30m', value: '30m' }, { label: '40m', value: '40m' },
+  { label: '1h', value: '1h' }, { label: '2h', value: '2h' }, { label: '4h', value: '4h' },
+  { label: '6h', value: '6h' }, { label: '8h', value: '8h' }, { label: '12h', value: '12h' },
+  { label: '1d', value: '1d' }, { label: '3d', value: '3d' }, { label: '1w', value: '1w' },
   { label: '1M', value: '1M' }
 ];
 const currentTf = ref('1m'); 
 
 const localChartType = ref('standard'); 
 const showVolume = ref(true);
+const showTradeFreq = ref(false);
+
 const currentChartData = ref<any[]>([]);
 
 let chart: IChartApi | null = null;
 let candleSeries: any = null;
 let volumeSeries: any = null;
+let tradeFreqSeries: any = null; 
+
 let resizeObserver: ResizeObserver | null = null;
 let positionLineId: any = null;
 let breakEvenLineId: any = null; 
 let openOrderLines: any[] = []; 
 
-// 🌟 用于渲染可交互 HTML 标签的挂单数组
 const activeOpenOrders = ref<any[]>([]);
 const editingOrderId = ref<string | null>(null);
 const editOrderForm = ref({ price: 0, qty: 0 });
@@ -352,91 +346,112 @@ const hoverData = ref<any>(null);
 const containerWidth = ref(0);
 
 const isShowingPeaks = ref(false);
+const isShowingSR = ref(false);
+let srPriceLines: any[] = [];
 
-// 🌟 切换高低点显示/隐藏
-// 🌟 切换高低点显示/隐藏
+// ==========================================
+// 🌟 基础操作函数
+// ==========================================
+const changeInterval = async (tf: string) => {
+  if (tf === currentTf.value) return;
+  marketStore.unsubscribeKline(props.symbol, currentTf.value);
+  currentTf.value = tf;
+  await loadHistory(props.symbol, tf);
+  marketStore.subscribeKline(props.symbol, tf);
+};
+
+const changeChartType = (type: string) => { 
+  localChartType.value = type; 
+  applyDataToSeries(currentChartData.value); 
+};
+
+const toggleVolume = () => { 
+  showVolume.value = !showVolume.value; 
+  if (volumeSeries) volumeSeries.applyOptions({ visible: showVolume.value }); 
+};
+
+const toggleTradeFreq = () => { 
+  showTradeFreq.value = !showTradeFreq.value; 
+  if (tradeFreqSeries) tradeFreqSeries.applyOptions({ visible: showTradeFreq.value }); 
+};
+
+// ==========================================
+// 🌟 智能支撑压力与顶底分型
+// ==========================================
+const toggleSR = () => {
+  if (!candleSeries) return;
+  if (isShowingSR.value) {
+    srPriceLines.forEach(line => { try { candleSeries.removePriceLine(line); } catch (e) {} });
+    srPriceLines = []; isShowingSR.value = false; return;
+  }
+  if (!currentChartData.value || currentChartData.value.length === 0) return;
+  isShowingSR.value = true; updateSRLines(); showNotification("✅ 已开启智能支撑压力线");
+};
+
+const updateSRLines = () => {
+  if (!isShowingSR.value || !chart || !candleSeries || currentChartData.value.length === 0) return;
+  const logicalRange = chart.timeScale().getVisibleLogicalRange();
+  if (!logicalRange) return;
+  const from = Math.max(0, Math.floor(logicalRange.from));
+  const to = Math.min(currentChartData.value.length - 1, Math.ceil(logicalRange.to));
+  const visibleData = currentChartData.value.slice(from, to + 1);
+  if (visibleData.length === 0) return;
+
+  let B = -Infinity; let A = Infinity;
+  for (const d of visibleData) {
+    const h = Number(d.high); const l = Number(d.low);
+    if (h > B) B = h; if (l < A) A = l;
+  }
+  if (B === -Infinity || A === Infinity || B === A) return;
+
+  const support = A + (B - A) / 3; const resistance = B - (B - A) / 3;
+  const configPrecision = getPrecisionConfig().precision;
+
+  if (srPriceLines.length === 2) {
+    srPriceLines[0].applyOptions({ price: support, title: `支撑(1/3): ${support.toFixed(configPrecision)}` });
+    srPriceLines[1].applyOptions({ price: resistance, title: `压力(2/3): ${resistance.toFixed(configPrecision)}` });
+  } else {
+    const line1 = candleSeries.createPriceLine({ price: support, color: '#2ea043', lineWidth: 2 as any, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `支撑: ${support.toFixed(configPrecision)}` });
+    const line2 = candleSeries.createPriceLine({ price: resistance, color: '#f85149', lineWidth: 2 as any, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `压力: ${resistance.toFixed(configPrecision)}` });
+    srPriceLines = [line1, line2];
+  }
+};
+
 const togglePeaks = async () => {
-  if (!candleSeries) {
-    showNotification("❌ 图表尚未初始化完成");
-    return;
-  }
-
-  // 1. 如果当前已经显示，则清除标记
-  if (isShowingPeaks.value) {
-    candleSeries.setMarkers([]); 
-    isShowingPeaks.value = false;
-    return;
-  }
-
-  // 2. 直接从你现有的 currentChartData 提取纯净数据，避开图表实例内部提取的坑
-  if (!currentChartData.value || currentChartData.value.length === 0) {
-    showNotification("⚠️ 暂无 K 线数据可供计算");
-    return;
-  }
+  if (!candleSeries) { showNotification("❌ 图表尚未初始化完成"); return; }
+  if (isShowingPeaks.value) { candleSeries.setMarkers([]); isShowingPeaks.value = false; return; }
+  if (!currentChartData.value || currentChartData.value.length === 0) { showNotification("⚠️ 暂无 K 线数据"); return; }
 
   showNotification("⌛ 正在计算顶底分型...");
-
-  // 提取对应数组 (注意：这里的时间必须和交给 Lightweight Charts 的时间字段严格一致)
   const times = currentChartData.value.map(d => d.parsedTime !== undefined ? d.parsedTime : Number(d.time));
   const highs = currentChartData.value.map(d => Number(d.high));
   const lows = currentChartData.value.map(d => Number(d.low));
 
   try {
-    // 3. 调用 C# 新增的计算接口
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/analysis/peaks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        times, 
-        highs, 
-        lows, 
-        leftLen: 5, // 左侧对比 K 线数量
-        rightLen: 5 // 右侧对比 K 线数量
-      })
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ times, highs, lows, leftLen: 5, rightLen: 5 })
     });
     
     if (!res.ok) throw new Error('API 请求失败');
     const data = await res.json();
-
     const markers: any[] = [];
 
-    // 4. 组装 Lightweight Charts 格式的 Markers
-    data.peaks.forEach((p: any) => {
-      markers.push({ 
-        time: p.time, 
-        position: 'aboveBar', 
-        color: '#e91e63', 
-        shape: 'arrowDown', 
-        text: 'Peak', 
-        size: 1 
-      });
-    });
-
-    data.valleys.forEach((v: any) => {
-      markers.push({ 
-        time: v.time, 
-        position: 'belowBar', 
-        color: '#2ea043', 
-        shape: 'arrowUp', 
-        text: 'Valley', 
-        size: 1 
-      });
-    });
-
-    // 🌟 TradingView 强制要求：标记点必须严格按照时间升序排列
+    data.peaks.forEach((p: any) => { markers.push({ time: p.time, position: 'aboveBar', color: '#e91e63', shape: 'arrowDown', text: 'Peak', size: 1 }); });
+    data.valleys.forEach((v: any) => { markers.push({ time: v.time, position: 'belowBar', color: '#2ea043', shape: 'arrowUp', text: 'Valley', size: 1 }); });
     markers.sort((a, b) => a.time - b.time);
 
-    // 5. 渲染至图表
     candleSeries.setMarkers(markers);
     isShowingPeaks.value = true;
     showNotification(`✅ 成功绘制了 ${data.peaks.length} 个高点和 ${data.valleys.length} 个低点`);
-
   } catch (err) {
-    console.error('❌ 获取高低点失败:', err);
     showNotification("❌ 计算或绘制高低点发生错误");
   }
 };
 
+// ==========================================
+// 🌟 通知提示系统
+// ==========================================
 const notifications = ref<{id: number, msg: string}[]>([]);
 let notifIdCounter = 0;
 const showNotification = (msg: string) => {
@@ -446,44 +461,32 @@ const showNotification = (msg: string) => {
 };
 
 // ==========================================
-// 🌟 新增：挂单的一键撤销、编辑与重发
+// 🌟 订单管理 (撤单/修改)
 // ==========================================
-
-// 一键撤销当前标的的所有挂单
 const cancelAllOrders = async () => {
   const orders = activeOpenOrders.value;
   if (orders.length === 0) return;
-  
   showNotification(`⌛ 正在一键撤销 ${orders.length} 个挂单...`);
   try {
     await Promise.all(orders.map(order => {
       const orderId = order.algoId || order.orderId || order.clientOrderId;
       return fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/cancel-ws`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          symbol: props.symbol, 
-          orderId: orderId.toString(),
-          isAlgo: !!order.algoId
-        })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: props.symbol, orderId: orderId.toString(), isAlgo: !!order.algoId })
       });
     }));
     showNotification(`✅ 一键撤单执行完成`);
     await marketStore.fetchOpenOrders();
-  } catch (e: any) {
-    showNotification(`❌ 一键撤单遇到错误`);
-  }
+  } catch (e: any) { showNotification(`❌ 一键撤单遇到错误`); }
 };
 
-// 撤销单笔挂单 (图表 ✕ 按钮)
 const cancelSingleOrder = async (order: any) => {
   const orderId = order.algoId || order.orderId || order.clientOrderId;
   if (!orderId) return;
   try {
     showNotification(`⌛ 正在撤销挂单...`);
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/cancel-ws`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol: props.symbol, orderId: orderId.toString(), isAlgo: !!order.algoId })
     });
     const data = await res.json();
@@ -492,80 +495,47 @@ const cancelSingleOrder = async (order: any) => {
       editingOrderId.value = null;
       await marketStore.fetchOpenOrders();
     } else throw new Error(data.error?.msg || '撤单被拒');
-  } catch (e: any) {
-    showNotification(`❌ 撤单失败: ${e.message}`);
-  }
+  } catch (e: any) { showNotification(`❌ 撤单失败: ${e.message}`); }
 };
 
-// 打开编辑面板，初始化数据
 const openEditOrder = (order: any) => {
   const orderId = order.algoId || order.orderId || order.clientOrderId;
   editingOrderId.value = orderId;
   const targetPrice = parseFloat(order.price) > 0 ? parseFloat(order.price) : parseFloat(order.triggerPrice || order.stopPrice);
-  
-  editOrderForm.value = {
-    price: targetPrice,
-    qty: parseFloat(order.origQty || order.amount)
-  };
+  editOrderForm.value = { price: targetPrice, qty: parseFloat(order.origQty || order.amount) };
 };
 
-// 提交编辑 (原子操作：撤销旧单 + 发送新单)
 const submitEditOrder = async (order: any) => {
   const oldOrderId = order.algoId || order.orderId || order.clientOrderId;
   const { price, qty } = editOrderForm.value;
-  
   if (!price || !qty) return showNotification('❌ 价格和数量必须大于0');
-  
   try {
     showNotification(`⌛ 正在修改订单参数...`);
-    
-    // 1. 发送撤单请求
     await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/cancel-ws`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol: props.symbol, orderId: oldOrderId.toString(), isAlgo: !!order.algoId })
     });
-
-    // 2. 组装新单 Payload
     const isAlgo = ['STOP_MARKET', 'TAKE_PROFIT_MARKET', 'STOP', 'TAKE_PROFIT'].includes(order.type);
-    const newPayload: any = {
-      symbol: props.symbol,
-      side: order.side,
-      type: order.type,
-      quantity: qty,
-      reduceOnly: order.reduceOnly || false
-    };
-    
+    const newPayload: any = { symbol: props.symbol, side: order.side, type: order.type, quantity: qty, reduceOnly: order.reduceOnly || false };
     if (isAlgo) {
-      newPayload.stopPrice = price; // 后端 Service 负责转化为 triggerPrice
-      if (order.type === 'STOP' || order.type === 'TAKE_PROFIT') {
-        newPayload.price = price; // 限价止损需要价格
-      }
-    } else {
-      newPayload.price = price;
-    }
+      newPayload.stopPrice = price; 
+      if (order.type === 'STOP' || order.type === 'TAKE_PROFIT') newPayload.price = price; 
+    } else { newPayload.price = price; }
 
-    // 3. 发送新单请求
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newPayload)
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newPayload)
     });
-    
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error?.msg || '新参数下单被拒');
 
     showNotification(`✅ 订单修改成功`);
     editingOrderId.value = null;
     await marketStore.fetchOpenOrders();
-  } catch (e: any) {
-    showNotification(`❌ 修改失败: ${e.message}`);
-  }
+  } catch (e: any) { showNotification(`❌ 修改失败: ${e.message}`); }
 };
 
-
 // ==========================================
-// 1. 快捷双击下单状态与逻辑
+// 🌟 快捷下单与平仓逻辑
 // ==========================================
 const isQuickTradeEnabled = ref(true);
 const quickTradeAmount = ref(5); 
@@ -575,9 +545,7 @@ const quickTradeSide = ref<'BUY' | 'SELL'>('BUY');
 const isPlacingOrder = ref(false);
 
 watch(() => marketStore.symbolConfigs[props.symbol], (config) => {
-  if (config && config.leverage) {
-    localLeverage.value = config.leverage;
-  }
+  if (config && config.leverage) localLeverage.value = config.leverage;
 }, { immediate: true, deep: true });
 
 const handleAmountScroll = (e: WheelEvent) => {
@@ -587,26 +555,20 @@ const handleAmountScroll = (e: WheelEvent) => {
     let nextVal = quickTradeAmount.value + step;
     if (maxBalance > 0 && nextVal > maxBalance) nextVal = maxBalance;
     quickTradeAmount.value = Math.max(1, nextVal);
-  } else {
-    quickTradeAmount.value = Math.max(1, quickTradeAmount.value - step);
-  }
+  } else { quickTradeAmount.value = Math.max(1, quickTradeAmount.value - step); }
 };
 
 let leverageTimer: any = null;
 const handleLeverageScroll = (e: WheelEvent) => {
   const step = 1;
-  if (e.deltaY < 0) {
-    localLeverage.value = Math.min(125, localLeverage.value + step);
-  } else {
-    localLeverage.value = Math.max(1, localLeverage.value - step);
-  }
+  if (e.deltaY < 0) localLeverage.value = Math.min(125, localLeverage.value + step);
+  else localLeverage.value = Math.max(1, localLeverage.value - step);
 
   if (leverageTimer) clearTimeout(leverageTimer);
   leverageTimer = setTimeout(async () => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/leverage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: props.symbol, leverage: localLeverage.value })
       });
       if (!res.ok) throw new Error();
@@ -621,8 +583,7 @@ const handleLeverageScroll = (e: WheelEvent) => {
 let lastOrderTime = 0;
 const executeQuickTrade = async (clickedPrice: number) => {
   const now = Date.now();
-  if (now - lastOrderTime < 1000) return; 
-  if (isPlacingOrder.value) return;
+  if (now - lastOrderTime < 1000 || isPlacingOrder.value) return; 
 
   const currentPrice = marketStore.marketTickers[props.symbol]?.lastPrice || clickedPrice;
   const calcPrice = quickTradeType.value === 'MARKET' ? currentPrice : clickedPrice;
@@ -654,20 +615,15 @@ const executeQuickTrade = async (clickedPrice: number) => {
     showNotification(`⚡ [狙击指令] 准备${quickTradeType.value === 'MARKET' ? '市价' : '限价'}${quickTradeSide.value === 'BUY' ? '做多' : '做空'}...`);
     
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        symbol: props.symbol,
-        side: quickTradeSide.value,
-        type: quickTradeType.value,
-        quantity: quantity,
-        price: quickTradeType.value === 'LIMIT' ? formattedPrice : null
+        symbol: props.symbol, side: quickTradeSide.value, type: quickTradeType.value,
+        quantity: quantity, price: quickTradeType.value === 'LIMIT' ? formattedPrice : null
       })
     });
     
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error?.msg || '下单被拒');
-    
     showNotification(`✅ [快捷下单成功] ${quickTradeSide.value === 'BUY' ? '做多' : '做空'} ${quantity} 个`);
     await marketStore.fetchOpenOrders();
   } catch(e: any) {
@@ -677,10 +633,6 @@ const executeQuickTrade = async (clickedPrice: number) => {
   }
 };
 
-
-// ==========================================
-// 2. 平仓逻辑
-// ==========================================
 const isClosing = ref(false);
 let lastCloseTime = 0;
 
@@ -690,11 +642,8 @@ const formatByStep = (value: number, stepStr: string) => {
   let dec = 0;
   if (step < 1) {
     const stepStrParsed = step.toString();
-    if (stepStrParsed.includes('e-')) {
-      dec = parseInt(stepStrParsed.split('e-')[1], 10);
-    } else if (stepStrParsed.includes('.')) {
-      dec = stepStrParsed.split('.')[1].length;
-    }
+    if (stepStrParsed.includes('e-')) dec = parseInt(stepStrParsed.split('e-')[1], 10);
+    else if (stepStrParsed.includes('.')) dec = stepStrParsed.split('.')[1].length;
   }
   const truncated = Math.floor(value / step + Number.EPSILON) * step;
   return truncated.toFixed(dec);
@@ -703,7 +652,6 @@ const formatByStep = (value: number, stepStr: string) => {
 const closePosition = async (percent: number) => {
   const now = Date.now();
   if (now - lastCloseTime < 1000) return; 
-  
   const pos = currentPosition.value;
   if (!pos || isClosing.value) return;
 
@@ -711,9 +659,7 @@ const closePosition = async (percent: number) => {
   if (amountToClose <= 0) return;
 
   const rule = marketStore.symbolRules[props.symbol] || { stepSize: '0.001' };
-  const formattedQtyStr = formatByStep(amountToClose, rule.stepSize);
-  const quantity = parseFloat(formattedQtyStr);
-  
+  const quantity = parseFloat(formatByStep(amountToClose, rule.stepSize));
   if (quantity <= 0) return showNotification(`[警告] 平仓数量过小`);
 
   const side = pos.side === 'LONG' ? 'SELL' : 'BUY';
@@ -722,8 +668,7 @@ const closePosition = async (percent: number) => {
     lastCloseTime = Date.now();
     isClosing.value = true;
     const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/order/place-ws`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol: props.symbol, side: side, type: 'MARKET', quantity: quantity ,reduceOnly: true})
     });
     
@@ -731,16 +676,12 @@ const closePosition = async (percent: number) => {
     if (!res.ok || data.error) throw new Error(data.error?.msg || '平仓失败');
     showNotification(`✅ [${props.symbol}] ${percent}% 平仓成功!`);
     await marketStore.fetchOpenOrders();
-  } catch(e: any) {
-    showNotification(`❌ 平仓失败: ${e.message}`);
-  } finally {
-    isClosing.value = false;
-  }
+  } catch(e: any) { showNotification(`❌ 平仓失败: ${e.message}`); } 
+  finally { isClosing.value = false; }
 };
 
-
 // ==========================================
-// 3. 仓位/挂单渲染引擎
+// 🌟 仓位及精度计算
 // ==========================================
 const getCurrentPrice = () => marketStore.marketTickers[props.symbol]?.lastPrice || 0;
 
@@ -758,52 +699,35 @@ const updatePositionLines = (currentPriceOverride?: number) => {
   const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
   
   const positionLineOptions = {
-    price: pos.entryPrice, 
-    color: pnl >= 0 ? '#2ea043' : '#f85149', 
-    lineWidth: 2 as any, 
-    lineStyle: LineStyle.Dashed, 
-    axisLabelVisible: true,
+    price: pos.entryPrice, color: pnl >= 0 ? '#2ea043' : '#f85149', 
+    lineWidth: 2 as any, lineStyle: LineStyle.Dashed, axisLabelVisible: true,
     title: `${pos.side === 'LONG' ? '多' : '空'} ${Math.abs(pos.amount)} | ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
   };
 
-  if (!positionLineId) { positionLineId = candleSeries.createPriceLine(positionLineOptions); } 
-  else { positionLineId.applyOptions(positionLineOptions); }
+  if (!positionLineId) positionLineId = candleSeries.createPriceLine(positionLineOptions); 
+  else positionLineId.applyOptions(positionLineOptions);
 
   const FEE_RATE = 0.0005;
-  const breakEvenPrice = pos.side === 'LONG'
-    ? pos.entryPrice * (1 + FEE_RATE) / (1 - FEE_RATE)
-    : pos.entryPrice * (1 - FEE_RATE) / (1 + FEE_RATE);
+  const breakEvenPrice = pos.side === 'LONG' ? pos.entryPrice * (1 + FEE_RATE) / (1 - FEE_RATE) : pos.entryPrice * (1 - FEE_RATE) / (1 + FEE_RATE);
+  const breakEvenOptions = { price: breakEvenPrice, color: '#d29922', lineWidth: 1 as any, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: '保本价' };
 
-  const breakEvenOptions = {
-    price: breakEvenPrice, color: '#d29922', lineWidth: 1 as any, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: '保本价',
-  };
-
-  if (!breakEvenLineId) { breakEvenLineId = candleSeries.createPriceLine(breakEvenOptions); } 
-  else { breakEvenLineId.applyOptions(breakEvenOptions); }
+  if (!breakEvenLineId) breakEvenLineId = candleSeries.createPriceLine(breakEvenOptions); 
+  else breakEvenLineId.applyOptions(breakEvenOptions);
 };
 
 const updateOpenOrderLines = () => {
   if (!candleSeries) return;
-  
   openOrderLines.forEach(line => { try { candleSeries.removePriceLine(line); } catch (e) {} });
   openOrderLines = [];
-
   const orders = marketStore.openOrders?.filter((o: any) => o.symbol === props.symbol) || [];
-  
-  // 更新到 HTML 响应式数组，渲染交互标签
   activeOpenOrders.value = orders.map((o: any) => ({ ...o, y: -999 })); 
   
   orders.forEach((order: any) => {
     const targetPrice = parseFloat(order.price) > 0 ? parseFloat(order.price) : parseFloat(order.triggerPrice || order.stopPrice);
     if (!targetPrice) return;
-
     const line = candleSeries.createPriceLine({
-      price: targetPrice,
-      color: order.side === 'BUY' ? '#2ea043' : '#f85149',
-      lineWidth: 1 as any,
-      lineStyle: LineStyle.Dotted, 
-      axisLabelVisible: true,
-      title: '' // 清空 Title，把视觉展示完全交给我们的 HTML 图层
+      price: targetPrice, color: order.side === 'BUY' ? '#2ea043' : '#f85149',
+      lineWidth: 1 as any, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: '' 
     });
     openOrderLines.push(line);
   });
@@ -813,24 +737,15 @@ const currentPosition = computed(() => {
   const pos = marketStore.positions.find(p => p.symbol === props.symbol);
   if (!pos) return null;
   const currentPrice = getCurrentPrice() || pos.entryPrice;
-  const pnl = pos.side === 'LONG' 
-    ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount)
-    : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
+  const pnl = pos.side === 'LONG' ? (currentPrice - pos.entryPrice) * Math.abs(pos.amount) : (pos.entryPrice - currentPrice) * Math.abs(pos.amount);
   return { ...pos, currentPrice, pnl };
 });
 
 const getPrecisionConfig = (lastPrice?: number) => {
   const rule = marketStore.symbolRules[props.symbol];
   if (rule && rule.tickSize) {
-    const minM = parseFloat(rule.tickSize);
-    let dec = 2;
-    if (minM < 1) {
-      const str = minM.toString();
-      if (str.includes('e')) {
-        const match = str.match(/e-(\d+)/);
-        if (match) dec = parseInt(match[1], 10);
-      } else { dec = str.split('.')[1]?.length || 2; }
-    } else { dec = 0; }
+    const minM = parseFloat(rule.tickSize); let dec = 2;
+    if (minM < 1) { const str = minM.toString(); if (str.includes('e')) { const match = str.match(/e-(\d+)/); if (match) dec = parseInt(match[1], 10); } else dec = str.split('.')[1]?.length || 2; } else dec = 0; 
     return { precision: dec, minMove: minM };
   }
   return { precision: 2, minMove: 0.01 };
@@ -843,9 +758,8 @@ watch(() => marketStore.symbolRules[props.symbol], (rule) => {
   }
 }, { deep: true });
 
-
 // ==========================================
-// 4. 绘图引擎与数据逻辑 (含持仓拖拽止盈止损)
+// 🌟 绘图工具引擎 (SVG Overlay)
 // ==========================================
 const currentDrawMode = ref('none'); 
 const drawStep = ref(0);
@@ -865,10 +779,7 @@ const dragPositionType = ref<'TP' | 'SL'>('TP');
 const dragPositionPnl = ref(0);
 
 let dragOffsets: { dl: number, dp: number }[] = [];
-const selectedShapeColor = computed(() => {
-  const shape = customShapes.value.find(s => s.id === selectedShapeId.value);
-  return shape ? shape.color : '#58a6ff';
-});
+const selectedShapeColor = computed(() => { const shape = customShapes.value.find(s => s.id === selectedShapeId.value); return shape ? shape.color : '#58a6ff'; });
 const onDrawModeChange = () => { drawStep.value = 0; if (currentDrawMode.value !== 'none') deselectShape(); };
 const deselectShape = () => { selectedShapeId.value = null; };
 
@@ -895,11 +806,8 @@ const placeDragOrder = async (targetPrice: number, tpSlType: 'TP' | 'SL') => {
       if (!res.ok || data.error) throw new Error(data.error?.msg || '挂单失败');
       showNotification(`✅ 成功设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 挂单`);
       await marketStore.fetchOpenOrders();
-  } catch(e: any) {
-      showNotification(`❌ 设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 失败: ${e.message}`);
-  }
+  } catch(e: any) { showNotification(`❌ 设置 ${tpSlType === 'TP' ? '止盈' : '止损'} 失败: ${e.message}`); }
 };
-
 
 let activeShapeIdForDraw: string | null = null;
 
@@ -966,7 +874,7 @@ const onPointerDown = (e: PointerEvent) => {
     chart.applyOptions({ handleScroll: false, handleScale: false }); 
     const shape = customShapes.value.find(s => s.id === hitId)!;
     dragOffsets = shape.points.map(p => ({ dl: p.logical - logical, dp: p.price - price }));
-  } else { deselectShape(); }
+  } else deselectShape(); 
 };
 
 const onPointerMove = (e: PointerEvent) => {
@@ -978,8 +886,7 @@ const onPointerMove = (e: PointerEvent) => {
   if (logical === null || price === null) return;
 
   if (isDraggingPosition.value && currentPosition.value) {
-      dragPositionPrice.value = price;
-      dragPositionY.value = y;
+      dragPositionPrice.value = price; dragPositionY.value = y;
       const isLong = currentPosition.value.side === 'LONG';
       if (isLong) {
           dragPositionType.value = price > currentPosition.value.entryPrice ? 'TP' : 'SL';
@@ -1027,18 +934,16 @@ const onPointerMove = (e: PointerEvent) => {
 
   if (!hit && currentDrawMode.value === 'none' && !draggingShapeId.value && currentPosition.value && candleSeries) {
       const posY = candleSeries.priceToCoordinate(currentPosition.value.entryPrice);
-      if (posY !== null && Math.abs(y - posY) < 10) { isHoveringPositionLine.value = true; } 
-      else { isHoveringPositionLine.value = false; }
-  } else { isHoveringPositionLine.value = false; }
+      if (posY !== null && Math.abs(y - posY) < 10) isHoveringPositionLine.value = true; 
+      else isHoveringPositionLine.value = false;
+  } else isHoveringPositionLine.value = false; 
 };
 
 const onPointerUp = () => {
   if (isDraggingPosition.value) {
-      isDraggingPosition.value = false;
-      chart?.applyOptions({ handleScroll: true, handleScale: true });
+      isDraggingPosition.value = false; chart?.applyOptions({ handleScroll: true, handleScale: true });
       if (dragPositionPrice.value !== null) placeDragOrder(dragPositionPrice.value, dragPositionType.value);
-      dragPositionPrice.value = null;
-      return;
+      dragPositionPrice.value = null; return;
   }
 
   if (draggingShapeId.value) {
@@ -1062,23 +967,20 @@ const renderSvgLoop = () => {
       if (shape.type === 'channel' && pts.length >= 3 && pts[0].x !== null && pts[1].x !== null && pts[2].x !== null) { pts[3] = { x: pts[2].x + (pts[1].x - pts[0].x) as any, y: pts[2].y + (pts[1].y - pts[0].y) }; }
       if ((shape.type === 'ray' || shape.type === 'alert_ray') && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
         const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y;
-        if (dx !== 0 || dy !== 0) { pts[2] = { x: pts[1].x + dx * 10000 as any, y: pts[1].y + dy * 10000 }; } else { pts[2] = { ...pts[1] }; }
+        if (dx !== 0 || dy !== 0) pts[2] = { x: pts[1].x + dx * 10000 as any, y: pts[1].y + dy * 10000 }; else pts[2] = { ...pts[1] }; 
       }
       let angleStr = '';
       if (shape.type === 'angle' && pts.length >= 2 && pts[0].x !== null && pts[1].x !== null) {
         const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y; 
         angleStr = (Math.atan2(-dy, dx) * (180 / Math.PI)).toFixed(1) + '°';
       }
-      if (pts.every(p => p.x !== null && p.y !== null)) { mapped.push({ ...shape, pts, angleStr }); }
+      if (pts.every(p => p.x !== null && p.y !== null)) mapped.push({ ...shape, pts, angleStr }); 
     }
     svgShapes.value = mapped;
 
-    // 🌟 计算所有挂单在当前 K 线图上的实际 Y 坐标 (跟随缩放滑动实时更新)
     activeOpenOrders.value.forEach(o => {
       const targetPrice = parseFloat(o.price) > 0 ? parseFloat(o.price) : parseFloat(o.triggerPrice || o.stopPrice);
-      if (targetPrice > 0) {
-        o.y = candleSeries.priceToCoordinate(targetPrice);
-      }
+      if (targetPrice > 0) o.y = candleSeries.priceToCoordinate(targetPrice);
     });
   }
   animationFrameId = requestAnimationFrame(renderSvgLoop);
@@ -1097,7 +999,7 @@ const distToRay = (px: number, py: number, x1: number, y1: number, x2: number, y
 };
 
 const broadcastSync = (detail: any) => {
-  if (marketStore.isSyncEnabled) { window.dispatchEvent(new CustomEvent('sync-drawing', { detail: { ...detail, symbol: props.symbol, sourceId: instanceId } })); }
+  if (marketStore.isSyncEnabled) window.dispatchEvent(new CustomEvent('sync-drawing', { detail: { ...detail, symbol: props.symbol, sourceId: instanceId } })); 
 };
 
 const updateShapeColor = (e: Event) => {
@@ -1148,25 +1050,16 @@ const calculateHeikinAshi = (rawData: any[]) => {
   for (const raw of rawData) {
     const rawVolume = raw.value !== undefined ? raw.value : (raw.volume !== undefined ? raw.volume : (raw.vol || 0));
     const ha = { 
-      time: raw.time, 
-      parsedTime: raw.parsedTime,
+      time: raw.time, parsedTime: raw.parsedTime,
       open: 0, high: 0, low: 0, close: 0, 
       value: rawVolume, color: raw.color 
     };
     
     ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
-    // ha.close = (Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4;
     if (!prevHA) { ha.open = (Number(raw.open) + Number((Number(raw.open) + Number(raw.high) + Number(raw.low) + Number(raw.close)) / 4)) / 2; } 
-    // else { ha.open = (Number(prevHA.open) + Number((Number(prevHA.open) + Number(prevHA.high) + Number(prevHA.low) + Number(prevHA.close)) / 4)) / 2; }
-    // else { ha.open = (Number(prevHA.high) + Number((Number(prevHA.open) + Number(prevHA.high) + Number(prevHA.low) + Number(prevHA.close)) / 4)) / 2; }
     else { 
-      if(prevHA.open>prevHA.close){//红色
-        //  ha.open = (Number(prevHA.open) + Number(prevHA.low)) / 2; 
-         ha.open = (Number(prevHA.open) +Number(prevHA.close) + Number(prevHA.low)) / 3; 
-      }else{
-        //  ha.open = (Number(prevHA.open) + Number(prevHA.high)) / 2; 
-         ha.open = (Number(prevHA.open) +Number(prevHA.close) + Number(prevHA.high)) / 3; 
-      } 
+      if(prevHA.open>prevHA.close) ha.open = (Number(prevHA.open) +Number(prevHA.close) + Number(prevHA.low)) / 3; 
+      else ha.open = (Number(prevHA.open) +Number(prevHA.close) + Number(prevHA.high)) / 3; 
     }
     ha.high = Math.max(Number(raw.high), ha.open, ha.close);
     ha.low = Math.min(Number(raw.low), ha.open, ha.close);
@@ -1178,8 +1071,11 @@ const calculateHeikinAshi = (rawData: any[]) => {
   return haData;
 };
 
+// ==========================================
+// 🌟 数据组装与主引擎渲染
+// ==========================================
 const applyDataToSeries = (data: any[]) => {
-  if (!candleSeries || !volumeSeries || data.length === 0) return;
+  if (!candleSeries || !volumeSeries || !tradeFreqSeries || data.length === 0) return;
   
   const normalizedData = data.map(d => {
     const t = Number(d.time);
@@ -1187,15 +1083,12 @@ const applyDataToSeries = (data: any[]) => {
   }).sort((a, b) => a.parsedTime - b.parsedTime);
 
   const uniqueData = normalizedData.filter((item, index, self) => index === self.length - 1 || item.parsedTime !== self[index + 1].parsedTime);
-
   const finalData = localChartType.value === 'heikinAshi' ? calculateHeikinAshi(uniqueData) : uniqueData;
   
   try {
     const lastPrice = finalData[finalData.length - 1]?.close;
     const config = getPrecisionConfig(lastPrice);
-    candleSeries.applyOptions({
-      priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
-    });
+    candleSeries.applyOptions({ priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove } });
 
     candleSeries.setData(finalData.map((d: any) => ({
       time: d.parsedTime !== undefined ? d.parsedTime : d.time, 
@@ -1210,12 +1103,17 @@ const applyDataToSeries = (data: any[]) => {
         color: d.color || (isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)')
       };
     }));
+
+    tradeFreqSeries.setData(finalData.map((d: any) => ({
+      time: d.parsedTime !== undefined ? d.parsedTime : d.time,
+      value: Number(d.tradeCount || d.trades || d.n || 0),
+      color: 'rgba(226, 181, 20, 0.5)' 
+    })));
     
     updatePositionLines();
     updateOpenOrderLines();
-  } catch(e) {
-    console.error("K线渲染引擎异常:", e);
-  }
+    updateSRLines(); 
+  } catch(e) { console.error("K线渲染引擎异常:", e); }
 };
 
 const loadHistory = async (symbol: string, interval: string) => {
@@ -1235,27 +1133,13 @@ const loadMoreHistory = async () => {
   const rawOldest = Number(currentChartData.value[0].time);
   const oldestTimeSec = rawOldest > 9999999999 ? Math.floor(rawOldest / 1000) : rawOldest;
   
-  // Update logic to handle Custom Intervals calculation for backward loading properly
   const intervalStr = currentTf.value;
-  let multiplier = 1;
-  let secondsPerUnit = 60; // default to minutes
-  
-  if (intervalStr.endsWith('m')) {
-    multiplier = parseInt(intervalStr);
-    secondsPerUnit = 60;
-  } else if (intervalStr.endsWith('h')) {
-    multiplier = parseInt(intervalStr);
-    secondsPerUnit = 3600;
-  } else if (intervalStr.endsWith('d')) {
-    multiplier = parseInt(intervalStr);
-    secondsPerUnit = 86400;
-  } else if (intervalStr.endsWith('w')) {
-    multiplier = parseInt(intervalStr);
-    secondsPerUnit = 604800;
-  } else if (intervalStr.endsWith('M')) {
-    multiplier = parseInt(intervalStr);
-    secondsPerUnit = 2592000; // approximate 30 days
-  }
+  let multiplier = 1; let secondsPerUnit = 60; 
+  if (intervalStr.endsWith('m')) { multiplier = parseInt(intervalStr); secondsPerUnit = 60; } 
+  else if (intervalStr.endsWith('h')) { multiplier = parseInt(intervalStr); secondsPerUnit = 3600; } 
+  else if (intervalStr.endsWith('d')) { multiplier = parseInt(intervalStr); secondsPerUnit = 86400; } 
+  else if (intervalStr.endsWith('w')) { multiplier = parseInt(intervalStr); secondsPerUnit = 604800; } 
+  else if (intervalStr.endsWith('M')) { multiplier = parseInt(intervalStr); secondsPerUnit = 2592000; }
   
   const targetEndTimeMs = (oldestTimeSec - (multiplier * secondsPerUnit)) * 1000;
 
@@ -1275,16 +1159,13 @@ const loadMoreHistory = async () => {
       }
     }
   } catch (e) {
-  } finally {
-    isLoadingMoreHistory = false;
-  }
+  } finally { isLoadingMoreHistory = false; }
 };
 
 let isSyncingRange = false;
 const onSyncRange = (e: any) => {
   if (!chart || !marketStore.isSyncEnabled) return;
   const { range, sourceId, symbol } = e.detail;
-  
   if (sourceId !== instanceId && symbol === props.symbol) {
     isSyncingRange = true; 
     chart.timeScale().setVisibleLogicalRange(range);
@@ -1306,71 +1187,64 @@ const initCharts = () => {
 
   const config = getPrecisionConfig();
   candleSeries = chart.addCandlestickSeries({ 
-  upColor: '#2ea043', 
-  downColor: '#f85149', 
-  borderVisible: false, 
-  wickUpColor: '#2ea043', 
-  wickDownColor: '#f85149',
-  priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
-});
-volumeSeries = chart.addHistogramSeries({ 
-  priceFormat: { type: 'volume' }, 
-  priceScaleId: '', 
-  visible: showVolume.value 
-});
-volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
+    priceFormat: { type: 'price', precision: config.precision, minMove: config.minMove }
+  });
+  
+  volumeSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '', visible: showVolume.value });
+  volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+
+  tradeFreqSeries = chart.addHistogramSeries({ 
+    priceFormat: { type: 'volume' }, 
+    priceScaleId: 'freqScale', 
+    visible: showTradeFreq.value 
+  });
+  chart.priceScale('freqScale').applyOptions({
+    scaleMargins: { top: 0.65, bottom: 0.2 }, 
+    visible: false 
+  });
 
   chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
     if (logicalRange && logicalRange.from < 10 && !isLoadingMoreHistory) loadMoreHistory();
     if (marketStore.isSyncEnabled && !isSyncingRange && logicalRange) {
       window.dispatchEvent(new CustomEvent('sync-logical-range', { detail: { range: logicalRange, sourceId: instanceId, symbol: props.symbol } }));
     }
+    updateSRLines(); 
   });
 
   chart.subscribeCrosshairMove((param) => {
-    if (
-      param.point === undefined || !param.time ||
-      param.point.x < 0 || param.point.x > chartContainer.value!.clientWidth ||
-      param.point.y < 0 || param.point.y > chartContainer.value!.clientHeight
-    ) {
+    if (param.point === undefined || !param.time || param.point.x < 0 || param.point.x > chartContainer.value!.clientWidth || param.point.y < 0 || param.point.y > chartContainer.value!.clientHeight) {
       hoverData.value = null;
-      if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) {
-        marketStore.updateGlobalCrosshair(0, 0, props.symbol, instanceId);
-      }
+      if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) marketStore.updateGlobalCrosshair(0, 0, props.symbol, instanceId);
       return;
     }
 
     const candleData: any = param.seriesData.get(candleSeries);
     const volData: any = param.seriesData.get(volumeSeries);
+    const freqData: any = param.seriesData.get(tradeFreqSeries);
 
     if (candleData) {
       const isUp = candleData.close >= candleData.open;
       const dec = getPrecisionConfig().precision; 
-      
       const changePercent = ((candleData.close - candleData.open) / candleData.open) * 100;
-      const changeStr = (changePercent > 0 ? '+' : '') + changePercent.toFixed(2) + '%';
-
+      
       hoverData.value = {
         time: formatDateTime(Number(param.time)),
-        open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec),
-        low: candleData.low.toFixed(dec), close: candleData.close.toFixed(dec),
-        change: changeStr,
+        open: candleData.open.toFixed(dec), high: candleData.high.toFixed(dec), low: candleData.low.toFixed(dec), close: candleData.close.toFixed(dec),
+        change: (changePercent > 0 ? '+' : '') + changePercent.toFixed(2) + '%',
         vol: volData && volData.value !== undefined ? Number(volData.value).toFixed(2) : '0.00',
+        freq: freqData && freqData.value !== undefined ? Number(freqData.value).toString() : '0', 
         colorClass: isUp ? 'text-up' : 'text-down' 
       };
 
-      if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) {
-        marketStore.updateGlobalCrosshair(Number(param.time), candleData.close, props.symbol, instanceId);
-      }
+      if (marketStore.isSyncEnabled && marketStore.updateGlobalCrosshair) marketStore.updateGlobalCrosshair(Number(param.time), candleData.close, props.symbol, instanceId);
     } else hoverData.value = null;
   });
 
   chart.subscribeDblClick((param) => {
     if (!isQuickTradeEnabled.value || !param.point || !candleSeries) return;
     const clickedPrice = candleSeries.coordinateToPrice(param.point.y);
-    if (clickedPrice !== null) {
-      executeQuickTrade(clickedPrice);
-    }
+    if (clickedPrice !== null) executeQuickTrade(clickedPrice);
   });
 
   if (resizeObserver) resizeObserver.disconnect();
@@ -1384,15 +1258,13 @@ volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } }
 const disposeCharts = () => {
   if (resizeObserver) resizeObserver.disconnect();
   if (chart) { chart.remove(); chart = null; }
-  candleSeries = null;
-  volumeSeries = null;
+  candleSeries = null; volumeSeries = null; tradeFreqSeries = null;
+  srPriceLines = []; 
 };
 
 const hardReload = async () => {
   disposeCharts();
-  currentChartData.value = [];
-  customShapes.value = [];
-  svgShapes.value = [];
+  currentChartData.value = []; customShapes.value = []; svgShapes.value = []; isShowingSR.value = false;
   
   initCharts();
   await loadHistory(props.symbol, currentTf.value);
@@ -1403,39 +1275,19 @@ defineExpose({ hardReload });
 
 onMounted(async () => {
   if (!chartContainer.value) return;
-
   window.addEventListener('sync-logical-range', onSyncRange);
   window.addEventListener('sync-drawing', onSyncDrawing);
 
   initCharts();
   await loadHistory(props.symbol, currentTf.value);
   marketStore.subscribeKline(props.symbol, currentTf.value);
-  
   renderSvgLoop();
-});
-
-watch(() => marketStore.globalCrosshairTime, () => {
-  if (!chart || !candleSeries || !marketStore.isSyncEnabled) return;
-  const allCrosshairs = marketStore.crosshairData;
-  if (!allCrosshairs) return;
-
-  const remoteCrosshair = allCrosshairs[props.symbol];
-  if (!remoteCrosshair || remoteCrosshair.sourceId === instanceId || remoteCrosshair.time === 0) {
-    chart.clearCrosshairPosition();
-    return;
-  }
-
-  try {
-    chart.setCrosshairPosition(remoteCrosshair.price, remoteCrosshair.time as any, candleSeries);
-  } catch (e) {
-    chart.clearCrosshairPosition();
-  }
 });
 
 const currentKlineData = computed(() => marketStore.latestKlines[`${props.symbol}_${currentTf.value}`]);
 
 watch(currentKlineData, (newVal) => {
-  if (newVal && candleSeries && volumeSeries && currentChartData.value.length > 0) {
+  if (newVal && candleSeries && volumeSeries && tradeFreqSeries && currentChartData.value.length > 0) {
     const rawTime = Number(newVal.time);
     const timeInSeconds = rawTime > 9999999999 ? Math.floor(rawTime / 1000) : rawTime;
     
@@ -1445,34 +1297,24 @@ watch(currentKlineData, (newVal) => {
 
     if (timeInSeconds < lastTimeSec) return;
 
-    if (timeInSeconds === lastTimeSec) {
-      currentChartData.value[latestLogicalIndex] = newVal; 
-    } else {
-      currentChartData.value.push(newVal);
-      latestLogicalIndex += 1;
-    }
+    if (timeInSeconds === lastTimeSec) currentChartData.value[latestLogicalIndex] = newVal; 
+    else { currentChartData.value.push(newVal); latestLogicalIndex += 1; }
 
     const isUp = Number(newVal.close) >= Number(newVal.open);
     const volValue = Number(newVal.volume !== undefined ? newVal.volume : (newVal.vol || 0));
+    const freqValue = Number(newVal.tradeCount || newVal.trades || newVal.n || 0);
 
-    if (localChartType.value === 'heikinAshi') {
-      applyDataToSeries(currentChartData.value);
-    } else {
+    if (localChartType.value === 'heikinAshi') applyDataToSeries(currentChartData.value);
+    else {
       try {
-        candleSeries.update({
-          time: timeInSeconds as any,
-          open: Number(newVal.open), high: Number(newVal.high), low: Number(newVal.low), close: Number(newVal.close)
-        });
-        volumeSeries.update({
-          time: timeInSeconds as any, value: volValue, color: isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
-        });
-      } catch (e) {
-        console.warn("增量刷新失败，触发兜底全量重载", e);
-        applyDataToSeries(currentChartData.value);
-      }
+        candleSeries.update({ time: timeInSeconds as any, open: Number(newVal.open), high: Number(newVal.high), low: Number(newVal.low), close: Number(newVal.close) });
+        volumeSeries.update({ time: timeInSeconds as any, value: volValue, color: isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' });
+        tradeFreqSeries.update({ time: timeInSeconds as any, value: freqValue, color: 'rgba(226, 181, 20, 0.5)' });
+      } catch (e) { applyDataToSeries(currentChartData.value); }
     }
 
     updatePositionLines(Number(newVal.close));
+    updateSRLines(); 
 
     customShapes.value.filter(s => s.type === 'alert_ray' && !s.triggered).forEach(shape => {
       const p0 = shape.points[0]; const p1 = shape.points[1];
@@ -1489,24 +1331,8 @@ watch(currentKlineData, (newVal) => {
   }
 }, { deep: true });
 
-watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol]?.lastPrice], () => {
-  updatePositionLines();
-}, { deep: true });
-
-watch(() => marketStore.openOrders, () => {
-  updateOpenOrderLines();
-}, { deep: true });
-
-const changeInterval = async (tf: string) => {
-  if (tf === currentTf.value) return;
-  marketStore.unsubscribeKline(props.symbol, currentTf.value);
-  currentTf.value = tf;
-  await loadHistory(props.symbol, tf);
-  marketStore.subscribeKline(props.symbol, tf);
-};
-
-const changeChartType = (type: string) => { localChartType.value = type; applyDataToSeries(currentChartData.value); };
-const toggleVolume = () => { showVolume.value = !showVolume.value; if (volumeSeries) volumeSeries.applyOptions({ visible: showVolume.value }); };
+watch([() => marketStore.positions, () => marketStore.marketTickers[props.symbol]?.lastPrice], () => { updatePositionLines(); }, { deep: true });
+watch(() => marketStore.openOrders, () => { updateOpenOrderLines(); }, { deep: true });
 
 onUnmounted(() => {
   cancelAnimationFrame(animationFrameId);
@@ -1520,51 +1346,25 @@ onUnmounted(() => {
 <style scoped>
 .kline-module { width: 100%; height: 100%; display: flex; flex-direction: column; background: #0d1117; border: 1px solid transparent; transition: all 0.2s ease; box-sizing: border-box; }
 .kline-module.is-focused { border-color: #58a6ff; box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1); }
-
 .kline-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d; flex-shrink: 0; z-index: 2; height: 38px; }
-
 .intervals { display: flex; align-items: center; gap: 4px; overflow-x: auto; padding-right: 8px; flex-wrap: nowrap; scrollbar-width: none; }
 .intervals::-webkit-scrollbar { display: none; }
 .intervals button { background: transparent; border: 1px solid transparent; color: #8b949e; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
 .intervals button:hover { background: #21262d; color: #c9d1d9; }
 .intervals button.active { background: #2ea043; color: #ffffff; font-weight: bold; }
-
 .actions-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.focus-badge { background: #1f6feb; color: #ffffff; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
 .action-btn { background: rgba(226, 181, 20, 0.1); border: 1px solid #e2b514; color: #e2b514; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; flex-shrink: 0;}
-.copy-btn { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); font-weight: normal; padding: 4px 8px; }
-.copy-btn:hover { background: #2ea043; color: #ffffff; }
-
 .position-panel { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: bold; background: rgba(22, 27, 34, 0.8); padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; transition: all 0.3s ease; flex-shrink: 0; }
 .position-panel.in-profit { border-color: rgba(46, 160, 67, 0.4); box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1); }
 .position-panel.in-loss { border-color: rgba(248, 81, 73, 0.4); box-shadow: inset 0 0 10px rgba(248, 81, 73, 0.1); }
 .pos-val { color: #c9d1d9; font-family: monospace;}
 .pos-pnl { display: flex; gap: 4px; align-items: baseline; font-family: monospace; }
 .pos-amount { font-family: monospace; }
-
-.close-pos-btn {
-  background: rgba(248, 81, 73, 0.15);
-  border: 1px solid rgba(248, 81, 73, 0.4);
-  color: #f85149;
-  padding: 2px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: bold;
-  margin-left: 2px;
-  transition: all 0.2s;
-}
+.close-pos-btn { background: rgba(248, 81, 73, 0.15); border: 1px solid rgba(248, 81, 73, 0.4); color: #f85149; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; margin-left: 2px; transition: all 0.2s; }
 .close-pos-btn:hover:not(:disabled) { background: #f85149; color: #ffffff; }
 .close-pos-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.close-pos-btn.btn-75 {
-  background: rgba(210, 153, 34, 0.15);
-  border-color: rgba(210, 153, 34, 0.4);
-  color: #d29922;
-  margin-left: 6px;
-}
+.close-pos-btn.btn-75 { background: rgba(210, 153, 34, 0.15); border-color: rgba(210, 153, 34, 0.4); color: #d29922; margin-left: 6px; }
 .close-pos-btn.btn-75:hover:not(:disabled) { background: #d29922; color: #0d1117; }
-
 .kline-sub-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: #0d1117; border-bottom: 1px solid #21262d; z-index: 1; height: 36px;}
 .drawing-tools { display: flex; align-items: center; gap: 6px; }
 .chart-type-selector { display: flex; background: #0d1117; border-radius: 4px; padding: 2px; }
@@ -1577,83 +1377,39 @@ onUnmounted(() => {
 .cancel-all-btn:hover { background: #f85149; color: white; }
 .clear-btn:hover { border-color: #f85149 !important; color: #f85149 !important; }
 .divider { color: #30363d; margin: 0 4px; }
-
-.quick-order-pill {
-  display: flex;
-  align-items: center;
-  background: rgba(13, 17, 23, 0.6);
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  padding: 2px 4px;
-  gap: 4px;
-  transition: all 0.3s ease;
-}
-.qt-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #8b949e;
-  font-size: 12px;
-  font-weight: bold;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  user-select: none;
-}
+.quick-order-pill { display: flex; align-items: center; background: rgba(13, 17, 23, 0.6); border: 1px solid #30363d; border-radius: 6px; padding: 2px 4px; gap: 4px; transition: all 0.3s ease; }
+.qt-checkbox { display: flex; align-items: center; gap: 4px; color: #8b949e; font-size: 12px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; user-select: none; }
 .qt-checkbox:hover { color: #c9d1d9; background: #21262d; }
 .qt-checkbox.active { color: #e2b514; }
-
 .qt-divider { width: 1px; height: 14px; background: #30363d; margin: 0 2px; }
 .qt-balance { color: #8b949e; font-size: 11px; font-family: monospace; margin: 0 4px; white-space: nowrap; }
-
 .qt-input-wrapper { display: flex; align-items: center; background: #010409; border: 1px solid #30363d; border-radius: 4px; padding: 0 4px; }
 .qt-input { background: transparent; border: none; color: #e6edf3; width: 32px; text-align: center; font-size: 12px; outline: none; font-family: monospace; }
 .qt-input::-webkit-outer-spin-button, .qt-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .qt-unit { color: #8b949e; font-size: 12px; font-weight: bold; margin-right: 2px; }
-
 .qt-toggle-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 12px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
 .qt-toggle-btn:hover { background: #30363d; }
 .qt-buy { color: #2ea043; border-color: rgba(46, 160, 67, 0.4); background: rgba(46, 160, 67, 0.1); }
 .qt-buy:hover { background: #2ea043; color: white; }
 .qt-sell { color: #f85149; border-color: rgba(248, 81, 73, 0.4); background: rgba(248, 81, 73, 0.1); }
 .qt-sell:hover { background: #f85149; color: white; }
-
 .text-up { color: #2ea043; }
 .text-down { color: #f85149; }
-
 .chart-wrapper { flex: 1; position: relative; width: 100%; display: flex; flex-direction: column; overflow: hidden; transition: box-shadow 0.2s; }
 .is-drawing-mode { box-shadow: inset 0 0 15px rgba(88, 166, 255, 0.2); cursor: crosshair; }
 .chart-container { flex: 1; width: 100%; position: relative; z-index: 1; }
-
 .is-resizing { cursor: move !important; }
 .is-hovering-position { cursor: ns-resize !important; }
-
-/* 🌟 图内挂单交互层样式 */
 .open-orders-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; }
-.open-order-tag {
-  position: absolute; left: 10px; transform: translateY(-50%); display: flex; align-items: stretch; gap: 0;
-  border-radius: 4px; font-size: 11px; font-weight: bold; pointer-events: auto;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: top 0.1s linear; user-select: none;
-}
+.open-order-tag { position: absolute; left: 10px; transform: translateY(-50%); display: flex; align-items: stretch; gap: 0; border-radius: 4px; font-size: 11px; font-weight: bold; pointer-events: auto; box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: top 0.1s linear; user-select: none; }
 .tag-buy { background: rgba(46, 160, 67, 0.85); color: white; border: 1px solid #2ea043; }
 .tag-sell { background: rgba(248, 81, 73, 0.85); color: white; border: 1px solid #f85149; }
 .tag-content { padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s; border-radius: 3px 0 0 3px; }
 .tag-content:hover { background: rgba(255,255,255,0.15); }
 .edit-icon { font-size: 9px; opacity: 0.8; }
-.tag-cancel-btn {
-  background: rgba(0,0,0,0.15); border: none; color: white; width: 22px; 
-  display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer;
-  border-radius: 0 3px 3px 0; border-left: 1px solid rgba(255,255,255,0.2); transition: 0.2s;
-}
+.tag-cancel-btn { background: rgba(0,0,0,0.15); border: none; color: white; width: 22px; display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; border-radius: 0 3px 3px 0; border-left: 1px solid rgba(255,255,255,0.2); transition: 0.2s; }
 .tag-cancel-btn:hover { background: #f85149; }
-
-/* 🌟 图内编辑面板样式 */
-.edit-popover {
-  position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 8px;
-  background: rgba(22, 27, 34, 0.95); border: 1px solid #30363d; border-radius: 6px; padding: 8px;
-  width: 150px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 8px;
-  cursor: default; z-index: 20; color: #c9d1d9; backdrop-filter: blur(4px);
-}
+.edit-popover { position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 8px; background: rgba(22, 27, 34, 0.95); border: 1px solid #30363d; border-radius: 6px; padding: 8px; width: 150px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 8px; cursor: default; z-index: 20; color: #c9d1d9; backdrop-filter: blur(4px); }
 .edit-header { font-size: 12px; font-weight: bold; color: #8b949e; border-bottom: 1px solid #30363d; padding-bottom: 4px; text-align: center; }
 .edit-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; }
 .edit-row span { width: 32px; color: #8b949e; }
@@ -1665,19 +1421,14 @@ onUnmounted(() => {
 .btn-confirm:hover { background: #238636; }
 .btn-cancel { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
 .btn-cancel:hover { background: #30363d; }
-
-
 .drawing-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
-
 .toast-container { position: absolute; top: 12px; right: 12px; z-index: 50; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .toast-message { background: rgba(255, 152, 0, 0.9); color: white; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: slideIn 0.3s ease-out; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2); }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-
 .chart-legend { position: absolute; top: 8px; left: 12px; z-index: 10; display: flex; gap: 12px; font-size: 12px; pointer-events: none; background: rgba(13, 17, 23, 0.75); padding: 4px 8px; border-radius: 4px; }
 .legend-time { color: #8b949e; font-weight: bold; margin-right: 4px; }
 .legend-item { color: #8b949e; }
 .vol-text { color: #c9d1d9; font-weight: bold; }
-
 .line-settings-panel { position: absolute; top: 8px; right: 12px; z-index: 10; display: flex; align-items: center; gap: 8px; background: rgba(22, 27, 34, 0.85); border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; backdrop-filter: blur(4px); }
 .setting-title { font-size: 12px; color: #8b949e; margin-right: 4px; }
 .line-settings-panel input[type="color"] { background: transparent; border: none; width: 24px; height: 24px; cursor: pointer; padding: 0; }

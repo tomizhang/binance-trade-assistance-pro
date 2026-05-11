@@ -100,7 +100,7 @@ namespace TradingTerminal.Services
         {
             try
             {
-                string side = isLong ? "BUY" : "SELL";
+                string side = !isLong ? "BUY" : "SELL";
 
                 // 1. 计算标的资产实际需要变动的价格百分比 = 目标 ROE / 杠杆倍数
                 decimal priceChangeTp = targetRoeTp / leverage;

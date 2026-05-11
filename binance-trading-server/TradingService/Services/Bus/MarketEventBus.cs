@@ -37,5 +37,7 @@ namespace TradingTerminal.Services
         public decimal Low { get; set; }       // HA 需要
         public decimal Volume { get; set; }
         public long OpenTime { get; set; }     // HA 需要对齐时间
+
+        public int TradeCount { get; set; }
     }
 }
