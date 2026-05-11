@@ -26,7 +26,7 @@ namespace TradingTerminal.Services
         private readonly IHubContext<MarketHub> _hubContext;
         private readonly ILogger<BinanceWebSocketService> _logger;
         private readonly MarketEventBus _eventBus;
-        private readonly int DefaultTake = 100;
+        private readonly int DefaultTake = 10;
         private readonly CustomKlineAggregator _aggregator = new();
         private ClientWebSocket _publicWs = new ClientWebSocket();
 

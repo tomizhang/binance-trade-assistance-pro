@@ -106,9 +106,17 @@ try
     // 2. 注册快照消费者守护进程
     builder.Services.AddHostedService<SnapshotManager>();
 
+    // 🌟 注册图表发布服务 (单例供策略注入，后台宿主供消费)
+    builder.Services.AddSingleton<ChartPublishService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<ChartPublishService>());
+
     builder.Services.AddHostedService<SystemRecoveryService>();
     // 2. 将其作为托管服务运行
-    builder.Services.AddHostedService(provider =>provider.GetRequiredService<BreakoutStrategyService>());
+    // builder.Services.AddHostedService(provider => provider.GetRequiredService<BreakoutStrategyService>());
+
+    // 注册多周期角度通道策略
+    builder.Services.AddSingleton<MultiTimeframeChannelStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<MultiTimeframeChannelStrategyService>());
     builder.Services.AddSingleton<PositionManagementService>();
     // 注册仓位管理守护进程
     builder.Services.AddHostedService(provider => provider.GetRequiredService<PositionManagementService>());

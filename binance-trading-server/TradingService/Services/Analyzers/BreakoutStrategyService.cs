@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -84,11 +84,11 @@ namespace TradingTerminal.Services
             {
                 obs.CandlesWatched++;
 
-                // 超过 5 根 K 线（5分钟）还没给出回踩确认信号，视为错失良机，放弃
-                if (obs.CandlesWatched > 5)
+                // 超过 2 根 K 线（2分钟）还没给出回踩确认信号，视为错失良机，放弃
+                if (obs.CandlesWatched > 2)
                 {
                     _observationList.TryRemove(msg.Symbol, out _);
-                    _logger.LogInformation($"⏳ [{msg.Symbol}] 观察期超时(超5分钟)，未见确认信号，放弃入场。");
+                    _logger.LogInformation($"⏳ [{msg.Symbol}] 观察期超时(超2分钟)，未见确认信号，放弃入场。");
                     return;
                 }
 
