@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
@@ -30,6 +30,7 @@ namespace TradingTerminal.Services
         protected readonly HashSet<string> _watchList = new();
         protected string[] _timeframes = { "1m" }; // 统一使用 1 分钟作为标准探测周期
         protected readonly SemaphoreSlim _lock = new(1, 1);
+        private readonly SemaphoreSlim _initSemaphore = new(1, 3); // 新增：用于控制并发初始化，防止请求过多被币安拒绝
 
         protected StrategyBase(
             ILogger logger,
@@ -167,9 +168,9 @@ namespace TradingTerminal.Services
         protected abstract void OnKlineReceived(KlineMessage msg);
 
         /// <summary>
-        /// 策略启动时的数据初始化（如拉取历史 K 线）
+        /// 策略启动时的数据初始化（如拉取历史 K 线，改为针对单一币种独立进行）
         /// </summary>
-        protected abstract Task InitializeStrategyDataAsync(List<string> symbols);
+        protected abstract Task InitializeStrategyDataAsync(string symbol);
 
         public virtual async Task UpdateWatchListAsync(IEnumerable<string> symbols)
         {
@@ -196,9 +197,34 @@ namespace TradingTerminal.Services
             if (toAdd.Any())
             {
                 _logger.LogInformation($"📡 [{GetType().Name}] 激活监控: {string.Join(", ", toAdd)}");
-                await InitializeStrategyDataAsync(toAdd);
-                var streams = toAdd.SelectMany(sym => _timeframes.Select(tf => $"{sym.ToLower()}@kline_{tf}")).ToList();
-                await _wsService.SubscribeBackendAsync(streams);
+
+                // 优化：针对每个新增的币种独立开启后台任务
+                // 那个币种的历史数据拉取完成，就立刻为其开启 WS 流，无需等待其它币种
+                foreach (var sym in toAdd)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await _initSemaphore.WaitAsync(); // 获取并发锁，保证不会同时发起大量 API 请求
+                        try
+                        {
+                            await InitializeStrategyDataAsync(sym);
+                            var streams = _timeframes.Select(tf => $"{sym.ToLower()}@kline_{tf}").ToList();
+                            await _wsService.SubscribeBackendAsync(streams);
+                            _logger.LogInformation($"✅ [{GetType().Name}] 币种 {sym} 历史数据就绪，已启动实时策略订阅。");
+
+                            // 增加 1 秒延迟，严格避免触发币安 REST API 频次限制 (TooManyRequests)
+                            await Task.Delay(100);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, $"❌ [{GetType().Name}] 币种 {sym} 初始化或订阅失败");
+                        }
+                        finally
+                        {
+                            _initSemaphore.Release(); // 释放锁，允许下一个币种开始初始化
+                        }
+                    });
+                }
             }
         }
 

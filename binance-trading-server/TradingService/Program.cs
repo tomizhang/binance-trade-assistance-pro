@@ -115,11 +115,20 @@ try
     // builder.Services.AddHostedService(provider => provider.GetRequiredService<BreakoutStrategyService>());
 
     // 注册多周期角度通道策略
-    builder.Services.AddSingleton<MultiTimeframeChannelStrategyService>();
-    builder.Services.AddHostedService(provider => provider.GetRequiredService<MultiTimeframeChannelStrategyService>());
+    // builder.Services.AddSingleton<MultiTimeframeChannelStrategyService>();
+    // builder.Services.AddHostedService(provider => provider.GetRequiredService<MultiTimeframeChannelStrategyService>());
+
+    // 注册多周期共振流动性清扫策略
+    // builder.Services.AddSingleton<TimeframeTransitionStrategyService>();
+    // builder.Services.AddHostedService(provider => provider.GetRequiredService<TimeframeTransitionStrategyService>());
+
     builder.Services.AddSingleton<PositionManagementService>();
     // 注册仓位管理守护进程
     builder.Services.AddHostedService(provider => provider.GetRequiredService<PositionManagementService>());
+
+    // 🌟 注册新增的：1m爆量 + 3/5m连跌 + 1h支撑 反转策略
+    builder.Services.AddSingleton<VolumeExhaustionReversalStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<VolumeExhaustionReversalStrategyService>());
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)
     builder.Services.AddCors(options =>
     {

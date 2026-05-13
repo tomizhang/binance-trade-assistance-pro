@@ -15,5 +15,6 @@ namespace TradingTerminal
         public long OpenTime { get; set; }     // HA 需要对齐时间
 
         public int TradeCount { get; set; }
+        public decimal TakerBuyBaseVolume { get; set; } // 新增：主动买入基础资产量，用于算爆仓针的买卖比例
     }
 }

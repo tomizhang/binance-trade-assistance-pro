@@ -290,38 +290,35 @@ namespace TradingTerminal.Services
             _pivotLevels[symbol] = (peakPrices, valleyPrices);
         }
 
-        protected override async Task InitializeStrategyDataAsync(List<string> symbols)
+        protected override async Task InitializeStrategyDataAsync(string symbol)
         {
-            foreach (var sym in symbols)
+            try
             {
-                try
-                {
-                    string json = await _wsService.GetHistoricalKlinesAsync(sym, "1h", 500);
-                    using var doc = JsonDocument.Parse(json);
+                string json = await _wsService.GetHistoricalKlinesAsync(symbol, "1h", 500);
+                using var doc = JsonDocument.Parse(json);
 
-                    var historyList = new List<KlineMessage>();
-                    foreach (var item in doc.RootElement.EnumerateArray())
+                var historyList = new List<KlineMessage>();
+                foreach (var item in doc.RootElement.EnumerateArray())
+                {
+                    historyList.Add(new KlineMessage
                     {
-                        historyList.Add(new KlineMessage
-                        {
-                            Symbol = sym,
-                            OpenTime = item[0].GetInt64(),
-                            High = decimal.Parse(item[2].GetString()),
-                            Low = decimal.Parse(item[3].GetString()),
-                            Close = decimal.Parse(item[4].GetString()),
-                            Volume = decimal.Parse(item[5].GetString()),
-                            IsClosed = true
-                        });
-                    }
+                        Symbol = symbol,
+                        OpenTime = item[0].GetInt64(),
+                        High = decimal.Parse(item[2].GetString()),
+                        Low = decimal.Parse(item[3].GetString()),
+                        Close = decimal.Parse(item[4].GetString()),
+                        Volume = decimal.Parse(item[5].GetString()),
+                        IsClosed = true
+                    });
+                }
 
-                    _1hHistoryBuffer[sym] = historyList;
-                    RecalculatePivotLevels(sym);
-                    _logger.LogInformation($"✅ {sym} 1h 级支撑压力位初始化完成。");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"❌ {sym} 初始化失败: {ex.Message}");
-                }
+                _1hHistoryBuffer[symbol] = historyList;
+                RecalculatePivotLevels(symbol);
+                _logger.LogInformation($"✅ {symbol} 1h 级支撑压力位初始化完成。");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ {symbol} 初始化失败: {ex.Message}");
             }
         }
     }

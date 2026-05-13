@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
@@ -26,7 +26,7 @@ namespace TradingTerminal.Services
         private readonly IHubContext<MarketHub> _hubContext;
         private readonly ILogger<BinanceWebSocketService> _logger;
         private readonly MarketEventBus _eventBus;
-        private readonly int DefaultTake = 10;
+        private readonly int DefaultTake = 20;
         private readonly CustomKlineAggregator _aggregator = new();
         private ClientWebSocket _publicWs = new ClientWebSocket();
 
@@ -160,8 +160,9 @@ namespace TradingTerminal.Services
                                 Volume = decimal.Parse(kNode.GetProperty("v").GetString()),
                                 OpenTime = kNode.GetProperty("t").GetInt64(),
 
-                                // 🌟 核心修复 1：提取原始推送中的成交笔数 (n)
-                                TradeCount = kNode.TryGetProperty("n", out var nElement) ? nElement.GetInt32() : 0
+                                // 🌟 核心修复 1：提取原始推送中的成交笔数 (n) 和 主动买入基础量 (V)
+                                TradeCount = kNode.TryGetProperty("n", out var nElement) ? nElement.GetInt32() : 0,
+                                TakerBuyBaseVolume = kNode.TryGetProperty("V", out var vElement) ? decimal.Parse(vElement.GetString()) : 0m
                             };
                         }
 
@@ -220,8 +221,9 @@ namespace TradingTerminal.Services
                         l = msg.Low.ToString("0.########"),
                         v = msg.Volume.ToString("0.########"),
 
-                        // 🌟 核心修复 2：将成交笔数组装回发送给前端的 JSON 中
+                        // 🌟 核心修复 2：将成交笔数和主动买入量组装回发送给前端的 JSON 中
                         n = msg.TradeCount,
+                        V = msg.TakerBuyBaseVolume.ToString("0.########"),
 
                         i = msg.Interval,
                         x = msg.IsClosed

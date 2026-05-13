@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -55,6 +55,14 @@ namespace TradingTerminal.Services
         {
             if (string.IsNullOrEmpty(symbol)) return false;
             return _activeTrackers.ContainsKey(symbol);
+        }
+
+        /// <summary>
+        /// 检查当前全局是否有任何活动仓位（用于单线程或防多开逻辑）
+        /// </summary>
+        public bool HasAnyActivePosition()
+        {
+            return !_activeTrackers.IsEmpty;
         }
 
         /// <summary>

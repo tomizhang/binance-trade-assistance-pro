@@ -90,37 +90,34 @@ namespace TradingTerminal.Services
             //await PlaceOrderWithProtectionAsync(symbol, isBullish, currentPrice, stopLossPrice, takeProfitPrice, 1.5m, 5m, "HA_MA_Structure");
         }
 
-        protected override async Task InitializeStrategyDataAsync(List<string> symbols)
+        protected override async Task InitializeStrategyDataAsync(string symbol)
         {
-            foreach (var sym in symbols)
+            try
             {
-                try
+                string json = await _wsService.GetHistoricalKlinesAsync(symbol, "2m", 1000);
+                using var doc = JsonDocument.Parse(json);
+                var klines = new List<dynamic>();
+                var bufferList = new List<KlineMessage>();
+
+                foreach (var item in doc.RootElement.EnumerateArray())
                 {
-                    string json = await _wsService.GetHistoricalKlinesAsync(sym, "2m", 1000);
-                    using var doc = JsonDocument.Parse(json);
-                    var klines = new List<dynamic>();
-                    var bufferList = new List<KlineMessage>();
-
-                    foreach (var item in doc.RootElement.EnumerateArray())
+                    var k = new KlineMessage
                     {
-                        var k = new KlineMessage
-                        {
-                            OpenTime = item[0].GetInt64(),
-                            Open = decimal.Parse(item[1].GetString()),
-                            High = decimal.Parse(item[2].GetString()),
-                            Low = decimal.Parse(item[3].GetString()),
-                            Close = decimal.Parse(item[4].GetString()),
-                            Volume = decimal.Parse(item[5].GetString())
-                        };
-                        klines.Add(new { k.OpenTime, k.Open, k.High, k.Low, k.Close, k.Volume });
-                        bufferList.Add(k);
-                    }
-
-                    _engine.InitializeFromHistory(sym, "2m", klines);
-                    _klineBuffer[$"{sym}_2m"] = bufferList.Skip(Math.Max(0, bufferList.Count - BUFFER_SIZE)).ToList();
+                        OpenTime = item[0].GetInt64(),
+                        Open = decimal.Parse(item[1].GetString()),
+                        High = decimal.Parse(item[2].GetString()),
+                        Low = decimal.Parse(item[3].GetString()),
+                        Close = decimal.Parse(item[4].GetString()),
+                        Volume = decimal.Parse(item[5].GetString())
+                    };
+                    klines.Add(new { k.OpenTime, k.Open, k.High, k.Low, k.Close, k.Volume });
+                    bufferList.Add(k);
                 }
-                catch (Exception ex) { _logger.LogError($"❌ {sym} 初始化失败: {ex.Message}"); }
+
+                _engine.InitializeFromHistory(symbol, "2m", klines);
+                _klineBuffer[$"{symbol}_2m"] = bufferList.Skip(Math.Max(0, bufferList.Count - BUFFER_SIZE)).ToList();
             }
+            catch (Exception ex) { _logger.LogError($"❌ {symbol} 初始化失败: {ex.Message}"); }
         }
     }
 }

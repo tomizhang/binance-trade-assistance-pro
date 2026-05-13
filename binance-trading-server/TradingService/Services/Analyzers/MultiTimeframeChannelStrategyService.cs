@@ -58,7 +58,7 @@ namespace TradingTerminal.Services
         {
             _positionManager = positionManager;
             _chartPublishService = chartPublishService;
-            this.IsOrderEnabled = true;
+            this.IsOrderEnabled = false;
         }
 
         protected override void OnKlineReceived(KlineMessage msg)
@@ -72,7 +72,7 @@ namespace TradingTerminal.Services
             lock (buffer1m)
             {
                 buffer1m.Add(msg);
-                if (buffer1m.Count > 1500) buffer1m.RemoveAt(0); // 保存足够长以满足最新极值点的显示
+                if (buffer1m.Count > 2000) buffer1m.RemoveAt(0); // 保存足够长以满足最新极值点的显示
             }
 
             // 2. 动态维护各个大周期 K 线并计算高低点
@@ -109,8 +109,13 @@ namespace TradingTerminal.Services
             {
                 Symbol = symbol,
                 StrategyName = "MultiTFAngleChannel",
-                Klines = buffer1m.TakeLast(300).ToList() // 推送最近的 300 根 1m K线作为底图
+                Klines = buffer1m.TakeLast(1000).ToList() // 推送最近的 1000 根 1m K线作为底图，让通道视野更广阔
             };
+
+            // 计算 1 分钟级别的近期平均成交量（取当前 3 根之前的 50 根作基准）
+            decimal avgVol = buffer1m.TakeLast(53).Take(50).Average(k => k.Volume);
+            // 只要最近 3 根 K 线里有任意一根爆发了 3.5 倍以上成交量，都认为满足大成交量条件
+            bool isVolumeSurge = buffer1m.TakeLast(3).Any(k => k.Volume > avgVol * 3.5m);
 
             foreach (var channel in activeChannels)
             {
@@ -120,25 +125,28 @@ namespace TradingTerminal.Services
 
                 // --- 策略判定逻辑 ---
 
+                // 新增条件：要求 1 分钟级别必须存在大成交量 (放量) 才能确认有效突破/回弹
+                if (!isVolumeSurge) continue;
+
                 // 1. 向上突破通道上轨 (做多)
                 if (prev1m.Close <= channelTop && current1m.Close > channelTop)
                 {
                     triggered = true;
                     isLong = true;
                     triggerReason = $"向上突破 {channel.Timeframe} 角度通道上轨";
-                    stopLoss = channelTop * (1 - _stopLossPercent); 
+                    stopLoss = channelTop * (1 - _stopLossPercent);
                     takeProfit = current1m.Close * (1 + (_channelWidthPercent / 2)); // 止盈前通道高度一半
                     triggeredChannel = channel;
                     break;
                 }
-                
+
                 // 2. 向下突破通道下轨 (做空)
                 if (prev1m.Close >= channelBottom && current1m.Close < channelBottom)
                 {
                     triggered = true;
                     isLong = false;
                     triggerReason = $"向下跌破 {channel.Timeframe} 角度通道下轨";
-                    stopLoss = channelBottom * (1 + _stopLossPercent); 
+                    stopLoss = channelBottom * (1 + _stopLossPercent);
                     takeProfit = current1m.Close * (1 - (_channelWidthPercent / 2));
                     triggeredChannel = channel;
                     break;
@@ -171,6 +179,16 @@ namespace TradingTerminal.Services
 
             if (triggered)
             {
+                // 🌟 新增安全限制：强制保证止损距离不超过止盈距离的 1.5 倍
+                decimal tpDistance = Math.Abs(takeProfit - current1m.Close);
+                decimal slDistance = Math.Abs(stopLoss - current1m.Close);
+
+                if (slDistance > tpDistance * 1.5m)
+                {
+                    slDistance = tpDistance * 1.5m;
+                    stopLoss = isLong ? current1m.Close - slDistance : current1m.Close + slDistance;
+                }
+
                 _lastTradeTime[symbol] = DateTime.Now;
                 _logger.LogWarning($"🎯 [{symbol}] {triggerReason}！触发入场。SL: {stopLoss:F4}, TP: {takeProfit:F4}");
 
@@ -184,7 +202,7 @@ namespace TradingTerminal.Services
 
                     decimal price1 = c.AnchorPrice + ((chartItem.Klines[idx1].OpenTime - c.AnchorTime) / 60000m) * c.Slope;
                     decimal price2 = c.AnchorPrice + ((chartItem.Klines[idx2].OpenTime - c.AnchorTime) / 60000m) * c.Slope;
-                    
+
                     // 利用 ChartPublishService 优化的垂直通道进行无变形绘制
                     chartItem.PriceChannels.Add((idx1, price1, idx2, price2, (float)_channelWidthPercent, SkiaSharp.SKColors.DarkBlue));
                 }
@@ -213,15 +231,16 @@ namespace TradingTerminal.Services
                 // 异步发布图表
                 _ = _chartPublishService.PublishChartAsync(chartItem);
 
-                // 发送订单请求
-                decimal tpPercent = Math.Abs(takeProfit - current1m.Close) / current1m.Close * 100m;
-                decimal slPercent = Math.Abs(stopLoss - current1m.Close) / current1m.Close * 100m;
+                // 计算达到目标价格所需的本金盈亏率 (ROE)
+                decimal leverage = 5.0m; // 根据调用时传入的杠杆保持一致
+                decimal requiredRoeTp = (Math.Abs(takeProfit - current1m.Close) / current1m.Close) * leverage;
+                decimal requiredRoeSl = (Math.Abs(stopLoss - current1m.Close) / current1m.Close) * leverage;
 
                 _ = Task.Run(async () =>
                 {
                     await PlaceOrderWithLeverageRiskAsync(
-                        symbol, isLong, current1m.Close, tpPercent, 5.0m, 0.05m, slPercent, "MultiTFAngleChannel"
-                    );
+                                symbol, isLong, current1m.Close, 1.5m, leverage, requiredRoeTp, requiredRoeSl, "MultiTFAngleChannel"
+                            );
                 });
             }
         }
@@ -296,7 +315,7 @@ namespace TradingTerminal.Services
                     {
                         decimal passedMinutes = (current1mTime - data.LatestPeak.OpenTime) / 60000m;
                         if (passedMinutes < 0) continue;
-                        
+
                         // 高点向下发散的压力通道
                         decimal centerPrice = data.LatestPeak.High - (s * data.LatestPeak.High * passedMinutes);
                         results.Add(new ChannelCalc
@@ -316,7 +335,7 @@ namespace TradingTerminal.Services
                     {
                         decimal passedMinutes = (current1mTime - data.LatestValley.OpenTime) / 60000m;
                         if (passedMinutes < 0) continue;
-                        
+
                         // 低点向上发散的支撑通道
                         decimal centerPrice = data.LatestValley.Low + (s * data.LatestValley.Low * passedMinutes);
                         results.Add(new ChannelCalc
@@ -345,51 +364,48 @@ namespace TradingTerminal.Services
             };
         }
 
-        protected override async Task InitializeStrategyDataAsync(List<string> symbols)
+        protected override async Task InitializeStrategyDataAsync(string symbol)
         {
-            foreach (var sym in symbols)
+            foreach (var tf in _timeframes)
             {
-                foreach (var tf in _timeframes)
+                try
                 {
-                    try
-                    {
-                        // 分别获取各个周期的历史数据用于初始化极值点
-                        string json = await _wsService.GetHistoricalKlinesAsync(sym, tf, 50);
-                        using var doc = JsonDocument.Parse(json);
+                    // 分别获取各个周期的历史数据用于初始化极值点
+                    string json = await _wsService.GetHistoricalKlinesAsync(symbol, tf, 50);
+                    using var doc = JsonDocument.Parse(json);
 
-                        var historyList = new List<KlineMessage>();
-                        foreach (var item in doc.RootElement.EnumerateArray())
+                    var historyList = new List<KlineMessage>();
+                    foreach (var item in doc.RootElement.EnumerateArray())
+                    {
+                        historyList.Add(new KlineMessage
                         {
-                            historyList.Add(new KlineMessage
-                            {
-                                Symbol = sym,
-                                OpenTime = item[0].GetInt64(),
-                                High = decimal.Parse(item[2].GetString()),
-                                Low = decimal.Parse(item[3].GetString()),
-                                Close = decimal.Parse(item[4].GetString()),
-                                Volume = decimal.Parse(item[5].GetString()),
-                                IsClosed = true
-                            });
-                        }
-
-                        var symbolData = _timeframeData.GetOrAdd(sym, _ => new ConcurrentDictionary<string, TimeframeData>());
-                        var tfData = symbolData.GetOrAdd(tf, _ => new TimeframeData());
-                        
-                        tfData.Buffer = historyList;
-
-                        var highs = tfData.Buffer.Select(k => k.High).ToList();
-                        var lows = tfData.Buffer.Select(k => k.Low).ToList();
-                        var (peaks, valleys) = PivotHelper.CalculatePeaks(highs, lows, 3, 3);
-
-                        if (peaks.Any()) tfData.LatestPeak = tfData.Buffer[peaks.Last()];
-                        if (valleys.Any()) tfData.LatestValley = tfData.Buffer[valleys.Last()];
-
-                        _logger.LogInformation($"✅ {sym} {tf} 极值点初始化完成。");
+                            Symbol = symbol,
+                            OpenTime = item[0].GetInt64(),
+                            High = decimal.Parse(item[2].GetString()),
+                            Low = decimal.Parse(item[3].GetString()),
+                            Close = decimal.Parse(item[4].GetString()),
+                            Volume = decimal.Parse(item[5].GetString()),
+                            IsClosed = true
+                        });
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError($"❌ {sym} {tf} 初始化失败: {ex.Message}");
-                    }
+
+                    var symbolData = _timeframeData.GetOrAdd(symbol, _ => new ConcurrentDictionary<string, TimeframeData>());
+                    var tfData = symbolData.GetOrAdd(tf, _ => new TimeframeData());
+
+                    tfData.Buffer = historyList;
+
+                    var highs = tfData.Buffer.Select(k => k.High).ToList();
+                    var lows = tfData.Buffer.Select(k => k.Low).ToList();
+                    var (peaks, valleys) = PivotHelper.CalculatePeaks(highs, lows, 3, 3);
+
+                    if (peaks.Any()) tfData.LatestPeak = tfData.Buffer[peaks.Last()];
+                    if (valleys.Any()) tfData.LatestValley = tfData.Buffer[valleys.Last()];
+
+                    _logger.LogInformation($"✅ {symbol} {tf} 极值点初始化完成。");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"❌ {symbol} {tf} 初始化失败: {ex.Message}");
                 }
             }
         }
