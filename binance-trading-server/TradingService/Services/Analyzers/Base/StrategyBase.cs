@@ -213,7 +213,7 @@ namespace TradingTerminal.Services
                             _logger.LogInformation($"✅ [{GetType().Name}] 币种 {sym} 历史数据就绪，已启动实时策略订阅。");
 
                             // 增加 1 秒延迟，严格避免触发币安 REST API 频次限制 (TooManyRequests)
-                            await Task.Delay(100);
+                            await Task.Delay(1000);
                         }
                         catch (Exception ex)
                         {

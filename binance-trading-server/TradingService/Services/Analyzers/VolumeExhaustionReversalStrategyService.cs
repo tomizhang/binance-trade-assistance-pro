@@ -27,6 +27,8 @@ namespace TradingTerminal.Services
         private readonly decimal _supportZoneTolerance = 0.005m; // 1小时开盘价上下 0.5% 内视为附近
         private readonly decimal _fixedStopLossDistance = 0.005m; // 固定止损距离 0.5%
         private readonly decimal _targetPriceChange = 0.01m; // 止盈目标为标的物实际涨幅 1%
+        private readonly double _rSquaredThreshold = 0.65; // 拟合优度阈值
+        private readonly double _pinBarZoneThreshold = 0.5; // 如果 > 50% 的 K 线处于极端插针区，视为破坏
 
         public VolumeExhaustionReversalStrategyService(
             ILogger<VolumeExhaustionReversalStrategyService> logger,
@@ -41,7 +43,7 @@ namespace TradingTerminal.Services
         {
             _positionManager = positionManager;
             _chartPublishService = chartPublishService;
-            this.IsOrderEnabled = false;
+            this.IsOrderEnabled = true;
 
             // 订阅 1m 用于细颗粒度，并同时直接订阅 3m, 5m, 1h 以实现原生实时数据流
             this._timeframes = new[] { "1m", "3m", "5m", "1h" };
@@ -56,12 +58,12 @@ namespace TradingTerminal.Services
 
             var klines3m = await FetchHistoryAsync(symbol, "3m", 1500);
             var klines5m = await FetchHistoryAsync(symbol, "5m", 1500);
-            var klines1h = await FetchHistoryAsync(symbol, "1h", 1500);
+            // var klines1h = await FetchHistoryAsync(symbol, "1h", 1500);
 
             var tfData = _tfBuffers.GetOrAdd(symbol, _ => new ConcurrentDictionary<string, List<KlineMessage>>());
             if (klines3m.Any()) tfData["3m"] = klines3m;
             if (klines5m.Any()) tfData["5m"] = klines5m;
-            if (klines1h.Any()) tfData["1h"] = klines1h;
+            // if (klines1h.Any()) tfData["1h"] = klines1h;
         }
 
         private async Task<List<KlineMessage>> FetchHistoryAsync(string symbol, string interval, int limit)
@@ -153,7 +155,7 @@ namespace TradingTerminal.Services
             if (!_tfBuffers.TryGetValue(symbol, out var tfData)) return;
             if (!tfData.TryGetValue("3m", out var buffer3m) || buffer3m.Count < _trendCandleCount + 1) return;
             if (!tfData.TryGetValue("5m", out var buffer5m) || buffer5m.Count < _trendCandleCount + 1) return;
-            if (!tfData.TryGetValue("1h", out var buffer1h) || buffer1h.Count < 2) return;
+            // if (!tfData.TryGetValue("1h", out var buffer1h) || buffer1h.Count < 2) return;
 
             // 1. 检查 1 分钟大成交量
             decimal avgVol = buffer1m.TakeLast(51).Take(50).Average(k => k.Volume);
@@ -166,12 +168,12 @@ namespace TradingTerminal.Services
 
             // 3. 检查是否在 1 小时开盘价附近
             // 因为现在 1h 是原生订阅的，Last() 就是实时的 1h K 线
-            var current1h = buffer1h.Last();
+            // var current1h = buffer1h.Last();
 
-            decimal openPrice1h = current1h.Open;
-            decimal deviation = Math.Abs(current1m.Close - openPrice1h) / openPrice1h;
+            // decimal openPrice1h = current1h.Open;
+            // decimal deviation = Math.Abs(current1m.Close - openPrice1h) / openPrice1h;
 
-            if (deviation > _supportZoneTolerance) return; // 距离 1h 开仓价太远，不是有效的支撑位
+            // if (deviation > _supportZoneTolerance) return; // 距离 1h 开仓价太远，不是有效的支撑位
 
             // --- 满足所有条件，触发做多开仓 ---
             _lastTradeTime[symbol] = DateTime.Now;
@@ -195,28 +197,62 @@ namespace TradingTerminal.Services
             });
 
             // 绘图推送
-            PublishChart(symbol, buffer1m, current1m, openPrice1h, stopLoss, takeProfit, triggerReason);
+            // PublishChart(symbol, buffer1m, current1m, openPrice1h, stopLoss, takeProfit, triggerReason);
         }
 
         private bool IsDownwardStructure(List<KlineMessage> buffer, int count)
         {
-            // 拷贝一份防止并发修改
             var contextBuffer = buffer.ToList();
             var recentData = contextBuffer.TakeLast(count + 1).ToList();
             if (recentData.Count < count) return false;
 
-            // 采用 HA 均线处理以判断趋势结构
+            // 采用 HA 均线处理以过滤一部分毛刺
             var haData = CumulativeHeikinAshiHelper.Calculate(recentData);
             var evalHa = haData.TakeLast(count).ToList();
 
-            // 统计反向（阳线）的 K 线数量
-            int reverseCount = evalHa.Count(h => h.Close >= h.Open);
-            
-            // 允许最多 1 根反向 K 线（例如中间的插针或小幅反弹）
-            if (reverseCount > 1) return false;
+            // 1. 使用 HA 的 High 价进行回归拟合
+            double[] y = evalHa.Select(k => (double)k.High).ToArray();
+            double[] x = Enumerable.Range(0, count).Select(i => (double)i).ToArray();
 
-            // 确保整体形态仍然是下跌的（首根的开盘价 明确高于 尾根的收盘价）
-            if (evalHa.First().Open <= evalHa.Last().Close) return false;
+            CalculateLinearRegression(x, y, out double slope, out double intercept, out double rSquared);
+
+            // 2. 判定整体趋势向下且 R² 达标
+            double avgPrice = y.Average();
+            double normalizedSlope = slope / avgPrice;
+            if (normalizedSlope >= -0.0001) return false; // 斜率不够向下，非明显跌势
+            if (rSquared < _rSquaredThreshold) return false; // 趋势不够平滑，R²不达标
+
+            // 3. 构建插针平行线并统计区间
+            double maxPositiveResidual = 0;
+            for (int i = 0; i < count; i++)
+            {
+                double lineValue = slope * i + intercept;
+                double residual = y[i] - lineValue;
+                if (residual > maxPositiveResidual) maxPositiveResidual = residual;
+            }
+
+            // 定义插针高危区间的底部边界 (取最大偏离度的一半作为界限)
+            // 回归线到最高插针点这半壁江山中，取最极端的上半区
+            double dangerZoneLowerBound = maxPositiveResidual * 0.5;
+            int klinesInDangerZone = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                double lineValue = slope * i + intercept;
+                double residual = y[i] - lineValue;
+
+                // 如果这根 K 线的 High 落入了插针极端区
+                if (residual > dangerZoneLowerBound)
+                {
+                    klinesInDangerZone++;
+                }
+            }
+
+            // 4. 判断是否破坏结构
+            if ((double)klinesInDangerZone / count > _pinBarZoneThreshold)
+            {
+                return false; // 超过 50% 的 K 线在高危区，说明不是单一插针，是阻力位横盘，形态破坏
+            }
 
             return true;
         }
@@ -251,6 +287,41 @@ namespace TradingTerminal.Services
             _ = _chartPublishService.PublishChartAsync(chartItem);
         }
 
+        private void CalculateLinearRegression(double[] x, double[] y, out double slope, out double intercept, out double rSquared)
+        {
+            if (x.Length != y.Length || x.Length < 2)
+            {
+                throw new ArgumentException("数组长度必须一致且大于1");
+            }
 
+            int n = x.Length;
+            double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+            for (int i = 0; i < n; i++)
+            {
+                sumX += x[i];
+                sumY += y[i];
+                sumXY += x[i] * y[i];
+                sumX2 += x[i] * x[i];
+            }
+
+            double meanX = sumX / n;
+            double meanY = sumY / n;
+
+            // 计算斜率 (Slope) 和截距 (Intercept)
+            slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+            intercept = meanY - slope * meanX;
+
+            // 计算 R 平方 (R-Squared)
+            double ssTot = 0, ssRes = 0;
+            for (int i = 0; i < n; i++)
+            {
+                double predictedY = slope * x[i] + intercept;
+                ssTot += (y[i] - meanY) * (y[i] - meanY);
+                ssRes += (y[i] - predictedY) * (y[i] - predictedY);
+            }
+
+            rSquared = ssTot == 0 ? 0 : 1 - (ssRes / ssTot);
+        }
     }
 }
