@@ -58,7 +58,7 @@ namespace TradingTerminal.Utils
         /// <summary>
         /// 批量绘制 K线
         /// </summary>
-        public ChartDrawingHelper DrawKlines(IEnumerable<KlineMessage> klines, decimal minPrice, decimal maxPrice, float margin = 50f)
+        public ChartDrawingHelper DrawKlines(IEnumerable<IKline> klines, decimal minPrice, decimal maxPrice, float margin = 50f)
         {
             var klineList = klines.ToList();
             if (!klineList.Any()) return this;

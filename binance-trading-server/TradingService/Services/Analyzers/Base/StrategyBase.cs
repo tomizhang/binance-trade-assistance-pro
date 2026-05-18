@@ -26,6 +26,10 @@ namespace TradingTerminal.Services
         protected readonly BinanceTradeWsService _tradeWsService;
 
         // 🌟 策略核心控制参数
+        public bool IsStrategyEnabled { get; set; }
+#if !DEBUG
+        = true; // 控制是否开启该策略的运算
+#endif
         protected bool IsOrderEnabled { get; set; } = false; // 默认关闭真实下单，仅开启信号观察
         protected readonly HashSet<string> _watchList = new();
         protected string[] _timeframes = { "1m" }; // 统一使用 1 分钟作为标准探测周期
@@ -153,8 +157,9 @@ namespace TradingTerminal.Services
         // ==========================================
         // 🌟 行情分发与生命周期管理
         // ==========================================
-        private void HandleKlineInternal(KlineMessage msg)
+        private void HandleKlineInternal(IKline msg)
         {
+            if (!IsStrategyEnabled) return; // 如果策略处于关闭状态，直接忽略数据推送
             if (!_watchList.Contains(msg.Symbol)) return;
             if (!_timeframes.Contains(msg.Interval)) return;
 
@@ -165,7 +170,7 @@ namespace TradingTerminal.Services
         /// <summary>
         /// 子类需实现的 K 线实时处理逻辑
         /// </summary>
-        protected abstract void OnKlineReceived(KlineMessage msg);
+        protected abstract void OnKlineReceived(IKline msg);
 
         /// <summary>
         /// 策略启动时的数据初始化（如拉取历史 K 线，改为针对单一币种独立进行）
@@ -175,6 +180,20 @@ namespace TradingTerminal.Services
         public virtual async Task UpdateWatchListAsync(IEnumerable<string> symbols)
         {
             var requested = symbols.Select(s => s.ToUpper()).ToList();
+
+            if (!IsStrategyEnabled)
+            {
+                // 如果策略处于关闭状态，仅仅静默更新列表，不发起任何 HTTP 请求拉取历史，也不订阅 WS
+                await _lock.WaitAsync();
+                try
+                {
+                    _watchList.Clear();
+                    foreach (var sym in requested) _watchList.Add(sym);
+                }
+                finally { _lock.Release(); }
+                return;
+            }
+
             List<string> toAdd, toRemove;
 
             await _lock.WaitAsync();
@@ -243,6 +262,39 @@ namespace TradingTerminal.Services
             if (list != null) await UpdateWatchListAsync(list);
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
+
+        // 切换策略的启停状态
+        public async Task SetStrategyEnabledAsync(bool enable)
+        {
+            if (IsStrategyEnabled == enable) return;
+            IsStrategyEnabled = enable;
+
+            if (enable)
+            {
+                _logger.LogInformation($"🚀 [{GetType().Name}] 策略已被重新开启，开始拉取历史数据并初始化...");
+
+                // 将当前的 watchList 提出来重新触发一次完整的 UpdateWatchListAsync 以实现热启动初始化
+                List<string> currentSymbols;
+                await _lock.WaitAsync();
+                try
+                {
+                    currentSymbols = _watchList.ToList();
+                    _watchList.Clear(); // 清空旧列表，使其判定为全部是“新增”币种从而触发初始化
+                }
+                finally { _lock.Release(); }
+
+                await UpdateWatchListAsync(currentSymbols);
+            }
+            else
+            {
+                _logger.LogInformation($"⏸️ [{GetType().Name}] 策略已被关闭，停止一切计算。");
+                // 可选：在这里调用一个 virtual 方法让子类去清空内存中的历史 K 线 buffer
+                OnStrategyDisabled();
+            }
+        }
+
+        // 子类可重写此方法，在策略关闭时清空内存释放资源
+        protected virtual void OnStrategyDisabled() { }
 
         // 辅助工具：SMA 平滑处理
         protected List<decimal> SmoothData(List<decimal> rawData, int period = 3)

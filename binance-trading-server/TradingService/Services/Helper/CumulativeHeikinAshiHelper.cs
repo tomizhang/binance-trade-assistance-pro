@@ -1,16 +1,16 @@
 using System;
 using System.Collections.Generic;
 using TradingTerminal.Models;
-using TradingTerminal.Services; // ¼ÙÉè KlineMessage ÔÚÕâÀï
+using TradingTerminal.Services; // å‡è®¾ KlineMessage åœ¨è¿™é‡Œ
 
 namespace TradingTerminal.Utils
 {
     /// <summary>
-    /// ÀÛ»ıÆ½»¬ Heikin-Ashi Ëã·¨¹¤¾ßÀà
+    /// ç´¯ç§¯å¹³æ»‘ Heikin-Ashi ç®—æ³•å·¥å…·ç±»
     /// </summary>
     public static class CumulativeHeikinAshiHelper
     {
-        // ¶¨ÒåÊä³öµÄ HA Êı¾İÄ£ĞÍ
+        // å®šä¹‰è¾“å‡ºçš„ HA æ•°æ®æ¨¡å‹
         public class HeikinAshiResult
         {
             public long OpenTime { get; set; }
@@ -19,20 +19,20 @@ namespace TradingTerminal.Utils
             public decimal Low { get; set; }
             public decimal Close { get; set; }
             public decimal Volume { get; set; }
-            public bool IsBullish { get; set; } // Ìæ´úÇ°¶ËµÄ Color
+            public bool IsBullish { get; set; } // æ›¿ä»£å‰ç«¯çš„ Color
         }
 
         /// <summary>
-        /// ¸ù¾İÔ­Ê¼ K Ïß¼ÆËã CMA Heikin-Ashi Êı¾İ
+        /// æ ¹æ®åŸå§‹ K çº¿è®¡ç®— CMA Heikin-Ashi æ•°æ®
         /// </summary>
-        /// <param name="rawData">Ô­Ê¼ K ÏßÁĞ±í (°´Ê±¼äÕıĞòÅÅÁĞ)</param>
-        /// <returns>¼ÆËãºÃµÄ HA KÏßÁĞ±í</returns>
-        public static List<HeikinAshiResult> Calculate(List<KlineMessage> rawData)
+        /// <param name="rawData">åŸå§‹ K çº¿åˆ—è¡¨ (æŒ‰æ—¶é—´æ­£åºæ’åˆ—)</param>
+        /// <returns>è®¡ç®—å¥½çš„ HA Kçº¿åˆ—è¡¨</returns>
+        public static List<HeikinAshiResult> Calculate(List<IKline> rawData)
         {
             var haData = new List<HeikinAshiResult>(rawData.Count);
             HeikinAshiResult prevHA = null;
 
-            // Î¬»¤ËÄ¼ÛµÄÀÛ¼Ó×ÜºÍ£¬¼«´óµØÌáÉı±éÀúĞÔÄÜ
+            // ç»´æŠ¤å››ä»·çš„ç´¯åŠ æ€»å’Œï¼Œæå¤§åœ°æå‡éå†æ€§èƒ½
             decimal sumOpen = 0m;
             decimal sumHigh = 0m;
             decimal sumLow = 0m;
@@ -42,32 +42,32 @@ namespace TradingTerminal.Utils
             {
                 var raw = rawData[i];
 
-                // 1. ½«µ±Ç°Öµ²¢ÈëÀÛ¼Ó×ÜºÍÖĞ
+                // 1. å°†å½“å‰å€¼å¹¶å…¥ç´¯åŠ æ€»å’Œä¸­
                 sumOpen += raw.Open;
                 sumHigh += raw.High;
                 sumLow += raw.Low;
                 sumClose += raw.Close;
 
-                // 2. ¼ÆËãµ±Ç°µÄÀÛ»ıÆ½¾ùÖµ (Ë÷Òı i ´Ó 0 ¿ªÊ¼£¬ËùÒÔ³ıÊıÊÇ i + 1)
+                // 2. è®¡ç®—å½“å‰çš„ç´¯ç§¯å¹³å‡å€¼ (ç´¢å¼• i ä» 0 å¼€å§‹ï¼Œæ‰€ä»¥é™¤æ•°æ˜¯ i + 1)
                 decimal count = i + 1m;
                 decimal cmaOpen = sumOpen / count;
                 decimal cmaHigh = sumHigh / count;
                 decimal cmaLow = sumLow / count;
                 decimal cmaClose = sumClose / count;
 
-                // ³õÊ¼»¯µ±Ç° HA ÊµÌå
+                // åˆå§‹åŒ–å½“å‰ HA å®ä½“
                 var ha = new HeikinAshiResult
                 {
                     OpenTime = raw.OpenTime,
-                    Volume = raw.Volume // ÑÓÓÃÔ­Ê¼³É½»Á¿
+                    Volume = raw.Volume // å»¶ç”¨åŸå§‹æˆäº¤é‡
                 };
 
-                // 3. ½«ÀÛ»ıÆ½¾ùÖµ (CMA) ´úÈë Heikin-Ashi ¹«Ê½
+                // 3. å°†ç´¯ç§¯å¹³å‡å€¼ (CMA) ä»£å…¥ Heikin-Ashi å…¬å¼
 
-                // HA_Close = Æ½¾ùÖµµÄÆ½¾ù
+                // HA_Close = å¹³å‡å€¼çš„å¹³å‡
                 ha.Close = (cmaOpen + cmaHigh + cmaLow + cmaClose) / 4m;
 
-                // HA_Open = ÒÀÀµÉÏÒ»¸ù HA
+                // HA_Open = ä¾èµ–ä¸Šä¸€æ ¹ HA
                 if (prevHA == null)
                 {
                     ha.Open = (cmaOpen + cmaClose) / 2m;
@@ -77,15 +77,15 @@ namespace TradingTerminal.Utils
                     ha.Open = (prevHA.Open + prevHA.Close) / 2m;
                 }
 
-                // HA_High / Low = ±È½ÏµÃ³ö¼«Öµ
-                // C# µÄ Math.Max/Min Ö»Ö§³ÖÁ½¸ö²ÎÊı£¬ËùÒÔĞèÒªÇ¶Ì×µ÷ÓÃ
+                // HA_High / Low = æ¯”è¾ƒå¾—å‡ºæå€¼
+                // C# çš„ Math.Max/Min åªæ”¯æŒä¸¤ä¸ªå‚æ•°ï¼Œæ‰€ä»¥éœ€è¦åµŒå¥—è°ƒç”¨
                 ha.High = Math.Max(cmaHigh, Math.Max(ha.Open, ha.Close));
                 ha.Low = Math.Min(cmaLow, Math.Min(ha.Open, ha.Close));
 
-                // 4. ·½ÏòÅĞ¶¨ (Ìæ´ú JS µÄÑÕÉ«ÅĞ¶¨)
+                // 4. æ–¹å‘åˆ¤å®š (æ›¿ä»£ JS çš„é¢œè‰²åˆ¤å®š)
                 ha.IsBullish = ha.Close >= ha.Open;
 
-                // 5. ´æÈë½á¹û²¢¹ö¶¯Ö¸Õë
+                // 5. å­˜å…¥ç»“æœå¹¶æ»šåŠ¨æŒ‡é’ˆ
                 haData.Add(ha);
                 prevHA = ha;
             }

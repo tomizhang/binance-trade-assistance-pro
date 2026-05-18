@@ -1,19 +1,20 @@
 using System;
+using TradingTerminal.Models;
 
 namespace TradingTerminal.Services
 {
     /// <summary>
-    /// È«¾ÖĞĞÇéÊÂ¼ş×ÜÏß (·¢²¼/¶©ÔÄÖĞĞÄ)
+    /// å…¨å±€è¡Œæƒ…äº‹ä»¶æ€»çº¿ (å‘å¸ƒ/è®¢é˜…ä¸­å¿ƒ)
     /// </summary>
     public class MarketEventBus
     {
-        // 1. ¶¨Òå OI ½ÓÊÕÊÂ¼ş
+        // 1. å®šä¹‰ OI æ¥æ”¶äº‹ä»¶
         public event Action<string, decimal> OnOpenInterestReceived;
 
-        // 2. ¶¨Òå KÏß ½ÓÊÕÊÂ¼ş
-        public event Action<KlineMessage> OnKlineReceived;
+        // 2. å®šä¹‰ Kçº¿ æ¥æ”¶äº‹ä»¶
+        public event Action<IKline> OnKlineReceived;
 
-        // WebSocket ·şÎñµ÷ÓÃÕâĞ©·½·¨À´·¢²¼Êı¾İ
+        // WebSocket æœåŠ¡è°ƒç”¨è¿™äº›æ–¹æ³•æ¥å‘å¸ƒæ•°æ®
         public void PublishOpenInterest(string symbol, decimal oi)
         {
             OnOpenInterestReceived?.Invoke(symbol, oi);
@@ -21,7 +22,7 @@ namespace TradingTerminal.Services
 
 
 
-        public void PublishKline(KlineMessage msg)
+        public void PublishKline(IKline msg)
         {
             OnKlineReceived?.Invoke(msg);
         }

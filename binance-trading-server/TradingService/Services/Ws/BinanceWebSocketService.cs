@@ -202,7 +202,7 @@ namespace TradingTerminal.Services
             catch { }
         }
 
-        private string CreateSyntheticKlineJson(KlineMessage msg)
+        private string CreateSyntheticKlineJson(IKline msg)
         {
             var payload = new
             {

@@ -78,7 +78,7 @@ namespace TradingTerminal.Services
         // ==========================================
         // 🌟 监听行情总线：光速更新本地价格缓存
         // ==========================================
-        private void HandleKlinePriceUpdate(KlineMessage msg)
+        private void HandleKlinePriceUpdate(IKline msg)
         {
             // K 线在未收盘前，它的 Close 价格每秒都在跳动，这就是实时的最新成交价
             _latestPrices[msg.Symbol] = msg.Close;

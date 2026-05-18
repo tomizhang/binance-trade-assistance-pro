@@ -1,8 +1,9 @@
 using System;
+using TradingTerminal.Models;
 
 namespace TradingTerminal
 {
-    public class KlineMessage
+    public class KlineMessage : IKline
     {
         public string Symbol { get; set; }
         public string Interval { get; set; }   // 周期，如 "1m", "15m"

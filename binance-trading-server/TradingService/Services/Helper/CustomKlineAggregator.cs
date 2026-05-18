@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using TradingTerminal.Models;
 
 namespace TradingTerminal.Services
 {
@@ -36,11 +37,11 @@ namespace TradingTerminal.Services
         public bool IsCustomInterval(string interval) => SupportedCustomIntervals.ContainsKey(interval);
 
         // ==========================================
-        // 1. WebSocket 实时数据聚合引擎
+        // 1. WebSocket 实时数据聚合
         // ==========================================
-        public List<KlineMessage> Process1mKline(KlineMessage k1m, IEnumerable<string> activeCustomIntervals)
+        public List<IKline> Process1mKline(IKline k1m, IEnumerable<string> activeCustomIntervals)
         {
-            var results = new List<KlineMessage>();
+            var results = new List<IKline>();
 
             foreach (var interval in activeCustomIntervals)
             {

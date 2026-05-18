@@ -23,7 +23,7 @@ namespace TradingTerminal.Services
         public DateTime Timestamp { get; set; }
         
         // 绘图基础数据：K线列表
-        public List<KlineMessage> Klines { get; set; } = new();
+        public List<IKline> Klines { get; set; } = new();
         
         // 标注点位: Index (K线索引, 代表X轴), Price (价格, 代表Y轴), Color, 半径
         public List<(int Index, decimal Price, SKColor Color, float Radius)> Points { get; set; } = new();

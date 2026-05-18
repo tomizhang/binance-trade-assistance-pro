@@ -27,7 +27,7 @@ namespace TradingTerminal.Utils
                 return (peaks, valleys);
             }
 
-            int length = highs.Count; // 替代 JS 里的 times.length
+            int length = highs.Count;
 
             for (int i = leftLen; i < length - rightLen; i++)
             {

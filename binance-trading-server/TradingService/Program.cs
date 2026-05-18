@@ -50,11 +50,7 @@ try
 
     // 🌟 2. 再将其作为后台宿主服务启动，触发 ExecuteAsync
     //builder.Services.AddHostedService(provider => provider.GetRequiredService<BinanceWsApiService>());
-    builder.Services.AddSingleton<OrderFlowAnalyzer>();
-    builder.Services.AddSingleton<HeikinAshiEngine>();
 
-    builder.Services.AddHostedService(provider =>
-    provider.GetRequiredService<OrderFlowAnalyzer>());
     // 1. 注册核心数据总线为单例 (所有人共享一条总线)
     builder.Services.AddSingleton<MarketEventBus>();
     // 🌟 步骤 1：先把引擎注册为单例，这样 MarketHub 才能在构造函数里拿到它！
@@ -89,7 +85,6 @@ try
     builder.Services.AddSingleton<RiskControlManager>();
     //平均k线
     // 1. 注册 OI 采集引擎为单例
-    builder.Services.AddSingleton<BreakoutStrategyService>();
     builder.Services.AddSingleton<BinanceUserDataWsService>();
 
     // 🌟 注册私有账户数据流 (作为后台守护进程启动)
@@ -129,7 +124,13 @@ try
     // 🌟 注册新增的：1m爆量 + 3/5m连跌 + 1h支撑 反转策略
     builder.Services.AddSingleton<VolumeExhaustionReversalStrategyService>();
     builder.Services.AddHostedService(provider => provider.GetRequiredService<VolumeExhaustionReversalStrategyService>());
-    // 注册跨域策略 (开发阶段允许前端 Vue 请求)
+    // 🌟 注册新增的：1m爆量 + 3/5m连跌 + 1h支撑 反转策略
+    builder.Services.AddSingleton<VReversalStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<VReversalStrategyService>());
+
+    // 注册跨域策略 (开发阶段允许前端 Vue 请求)    // 🌟 注册新增的：1m爆量 + 3/5m连跌 + 1h支撑 反转策略
+    builder.Services.AddSingleton<HighVolStructureStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<HighVolStructureStrategyService>());
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowVueFrontend",
