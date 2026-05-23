@@ -10,9 +10,10 @@ using TradingTerminal.Models;
 
 namespace TradingTerminal.Services
 {
+    [System.ComponentModel.DisplayName("爆量超跌反弹策略")]
     public class HighVolStructureStrategyService : StrategyBase
     {
-        private readonly PositionManagementService _positionManager;
+        private readonly IPositionManagementService _positionManager;
 
         // === 参数设置 ===
         private readonly int _mtfMinutes = 10;       // 大周期：10分钟 (根据原逻辑)
@@ -40,7 +41,7 @@ namespace TradingTerminal.Services
             BinanceWebSocketService wsService,
             OrderChannel orderChannel,
             BinanceTradeWsService tradeWsService,
-            PositionManagementService positionManager)
+            IPositionManagementService positionManager)
             : base(logger, hubContext, eventBus, wsService, orderChannel, tradeWsService)
         {
             _positionManager = positionManager;
@@ -284,14 +285,15 @@ namespace TradingTerminal.Services
                 
                 _ = Task.Run(async () =>
                 {
+                    decimal leverage = GetLeverage(_leverage);
                     await PlaceOrderWithLeverageRiskAsync(
                         symbol,
                         isLongSignal,
                         kline.Close,
                         _marginUsdt,
-                        _leverage,
-                        _takeProfitPct * _leverage,
-                        _stopLossPct * _leverage,
+                        leverage,
+                        _takeProfitPct * leverage,
+                        _stopLossPct * leverage,
                         "HighVolStructure"
                     );
                 });

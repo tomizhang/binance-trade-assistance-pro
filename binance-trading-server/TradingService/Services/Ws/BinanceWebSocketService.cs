@@ -63,7 +63,7 @@ namespace TradingTerminal.Services
             await MaintainPublicStreamAsync(stoppingToken);
         }
 
-        public async Task<string> GetHistoricalKlinesAsync(string symbol, string interval, int limit = 1000, long? endTime = null)
+        public virtual async Task<string> GetHistoricalKlinesAsync(string symbol, string interval, int limit = 1000, long? endTime = null)
         {
             var (baseInterval, neededLimit) = _aggregator.GetBaseHistoryRequestParams(interval, limit);
 
@@ -287,12 +287,12 @@ namespace TradingTerminal.Services
             }
         }
 
-        public async Task SubscribeBackendAsync(IEnumerable<string> streams)
+        public virtual async Task SubscribeBackendAsync(IEnumerable<string> streams)
         {
             foreach (var s in streams) await ChangeStreamSubscriptionAsync(s, 1);
         }
 
-        public async Task UnsubscribeBackendAsync(IEnumerable<string> streams)
+        public virtual async Task UnsubscribeBackendAsync(IEnumerable<string> streams)
         {
             foreach (var s in streams) await ChangeStreamSubscriptionAsync(s, -1);
         }
@@ -313,7 +313,7 @@ namespace TradingTerminal.Services
             }
         }
 
-        public async Task<List<string>> RefreshTopSymbolsAsync(CancellationToken stoppingToken)
+        public virtual async Task<List<string>> RefreshTopSymbolsAsync(CancellationToken stoppingToken)
         {
             try
             {

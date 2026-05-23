@@ -6,9 +6,21 @@
         <span class="logo-text">QUANT TERMINAL</span>
       </div>
       <div class="nav-links">
-        <a href="#" class="active">交易面板</a>
-        <a href="#">策略回测</a>
-        <a href="#">资产管理</a>
+        <a 
+          href="#" 
+          :class="{ active: layoutStore.currentTab === 'dashboard' }" 
+          @click.prevent="layoutStore.setTab('dashboard')"
+        >交易面板</a>
+        <a 
+          href="#" 
+          :class="{ active: layoutStore.currentTab === 'backtest' }" 
+          @click.prevent="layoutStore.setTab('backtest')"
+        >策略回测</a>
+        <a 
+          href="#" 
+          :class="{ active: layoutStore.currentTab === 'assets' }" 
+          @click.prevent="layoutStore.setTab('assets')"
+        >资产管理</a>
       </div>
     </div>
 
@@ -99,12 +111,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted ,watch} from 'vue';
 import { useMarketStore } from '@/store/market';
-import { useNotificationStore } from '@/store/notification'
+import { useNotificationStore } from '@/store/notification';
+import { useLayoutStore } from '@/store/layout';
 
 const marketStore = useMarketStore();
+const notificationStore = useNotificationStore(); // 🌟 初始化 Store
+const layoutStore = useLayoutStore();
 const showAddMenu = ref(false);
-const notificationStore = useNotificationStore() // 🌟 初始化 Store
-const hasNewAlerts = ref(false)
+const hasNewAlerts = ref(false);
 
 watch(() => notificationStore.unreadCount, (newVal, oldVal) => {
   if (newVal > oldVal) {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace TradingTerminal.Models
 {
@@ -11,5 +11,6 @@ namespace TradingTerminal.Models
         public decimal TakeProfitPrice { get; set; } // 🌟 新增：记录这笔单子的止盈目标价
         public DateTime OpenTime { get; set; }
         public bool IsStopMovedToBE { get; set; }
+        public string StrategyName { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
@@ -17,7 +17,7 @@ namespace TradingTerminal.Services
         private readonly BinanceTradeWsService _tradeWsService;
         private readonly RiskControlManager _riskManager;
         private readonly SnapshotChannel _snapshotChannel;
-        private readonly PositionManagementService _positionManager;
+        private readonly IPositionManagementService _positionManager;
 
         // 🌟 新增：注入私有数据服务，用于零延迟获取实时可用余额
         private readonly BinanceUserDataWsService _userDataWsService;
@@ -28,7 +28,7 @@ namespace TradingTerminal.Services
             BinanceTradeWsService tradeWsService,
             RiskControlManager riskManager,
             SnapshotChannel snapshotChannel,
-            PositionManagementService positionManager,
+            IPositionManagementService positionManager,
             BinanceUserDataWsService userDataWsService) // 👈 注入进来
         {
             _logger = logger;
@@ -134,6 +134,8 @@ namespace TradingTerminal.Services
                         OrderSide = signal.Side,
                         StrategyName = signal.StrategyName
                     });
+
+                    _positionManager.RegisterPositionStrategy(signal.Symbol, signal.StrategyName, 0m, signal.TakeProfitPrice ?? 0m);
 
                     // 【阶段二：连招触发】
                     string positionSide = signal.Side == "BUY" ? "LONG" : "SHORT";

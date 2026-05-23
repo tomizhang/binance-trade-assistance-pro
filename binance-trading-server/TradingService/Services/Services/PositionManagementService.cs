@@ -13,7 +13,7 @@ namespace TradingTerminal.Services
     /// <summary>
     /// 仓位高级管理中心：专职负责监听仓位变化、移动保本损、阶梯止盈等扩展策略
     /// </summary>
-    public class PositionManagementService : BackgroundService
+    public class PositionManagementService : BackgroundService, IPositionManagementService
     {
         private readonly ILogger<PositionManagementService> _logger;
         private readonly BinanceTradeWsService _tradeWsService;
@@ -73,6 +73,26 @@ namespace TradingTerminal.Services
             position = null;
             if (string.IsNullOrEmpty(symbol)) return false;
             return _activeTrackers.TryGetValue(symbol, out position);
+        }
+
+        public void RegisterPositionStrategy(string symbol, string strategyName, decimal entryPrice, decimal takeProfitPrice)
+        {
+            if (_activeTrackers.TryGetValue(symbol, out var tracker))
+            {
+                tracker.StrategyName = strategyName;
+                tracker.TakeProfitPrice = takeProfitPrice;
+            }
+            else
+            {
+                _activeTrackers[symbol] = new PositionTracker
+                {
+                    Symbol = symbol,
+                    StrategyName = strategyName,
+                    TakeProfitPrice = takeProfitPrice,
+                    EntryPrice = entryPrice,
+                    OpenTime = DateTime.UtcNow
+                };
+            }
         }
 
         // ==========================================
@@ -172,57 +192,46 @@ namespace TradingTerminal.Services
                         decimal currentPrice = _latestPrices.TryGetValue(tracker.Symbol, out var price) ? price : 0m;
                         if (currentPrice <= 0) continue;
 
-                        // 🌟 2. 如果没有记录到止盈价，则尝试从远端查一次挂单
-                        if (tracker.TakeProfitPrice == 0)
-                        {
-                            // 这里可以调用 _tradeWsService.GetTakeProfitPriceAsync(tracker.Symbol)
-                            // 暂时跳过或记录日志，建议在 HandleAccountUpdate 中通过订单广播同步获取
-                            continue;
-                        }
-
-                        // 🌟 3. 计算“半盈位” (Half-TP Price)
-                        decimal tpDistance = Math.Abs(tracker.TakeProfitPrice - tracker.EntryPrice);
-                        decimal halfTpTargetPrice = tracker.Side == "BUY"
-                            ? tracker.EntryPrice + (tpDistance * 0.5m)
-                            : tracker.EntryPrice - (tpDistance * 0.5m);
-
-                        // 🌟 4. 判定条件：达到半盈位 且 过去2分钟
-                        bool isHalfTpReached = tracker.Side == "BUY"
-                            ? currentPrice >= halfTpTargetPrice
-                            : currentPrice <= halfTpTargetPrice;
-
                         var duration = now - tracker.OpenTime;
-                        bool isTimeReached = duration.TotalMinutes >= 2;
 
-                        if (isHalfTpReached && isTimeReached)
+                        if (tracker.StrategyName == "MinVolumeReversalStrategyService")
                         {
-                            _logger.LogWarning($"🎯 [半盈保护] {tracker.Symbol} 触碰半盈位 {halfTpTargetPrice:F4} (全盈目标:{tracker.TakeProfitPrice:F4})，执行保本损...");
+                            // 1分钟成交量反转策略专属规则：盈利期间并且达到3分钟，移动止损位置到开仓价格
+                            bool isInProfit = tracker.Side == "BUY"
+                                ? currentPrice > tracker.EntryPrice
+                                : currentPrice < tracker.EntryPrice;
 
-                            try
+                            bool isTimeReached = duration.TotalMinutes >= 3;
+
+                            if (isInProfit && isTimeReached)
                             {
-                                // 动作 A：精准撤销旧止损
-                                await _tradeWsService.CancelStopLossOnlyAsync(tracker.Symbol);
-
-                                // 动作 B：挂载带手续费补偿的保本损
-                                decimal bePriceRaw = tracker.Side == "BUY"
-                                    ? tracker.EntryPrice * 1.0005m  // 做多保本略高一点
-                                    : tracker.EntryPrice * 0.9995m; // 做空保本略低一点
-
-                                decimal bePrice = _tradeWsService.FormatPrice(tracker.Symbol, bePriceRaw);
-                                decimal qty = _tradeWsService.FormatQuantity(tracker.Symbol, Math.Abs(tracker.Quantity));
-
-                                await _tradeWsService.SetStopLossMarketAsync(
-                                    tracker.Symbol,
-                                    tracker.Side == "BUY" ? "LONG" : "SHORT",
-                                    qty,
-                                    bePrice);
-
-                                tracker.IsStopMovedToBE = true;
-                                _logger.LogInformation($"✅ [保本成功] {tracker.Symbol} 已进入零风险模式。");
+                                _logger.LogWarning($"🎯 [1m成交量反转保本触发] {tracker.Symbol} 持仓达到3分钟且已盈利(开仓价:{tracker.EntryPrice:F4}, 当前价:{currentPrice:F4})，移动止损至保本...");
+                                await MoveStopToBEAsync(tracker);
                             }
-                            catch (Exception ex)
+                        }
+                        else
+                        {
+                            // 默认规则：触碰半盈位 且 过去2分钟
+                            if (tracker.TakeProfitPrice == 0)
                             {
-                                _logger.LogError($"❌ [保本异常] {tracker.Symbol}: {ex.Message}");
+                                continue;
+                            }
+
+                            decimal tpDistance = Math.Abs(tracker.TakeProfitPrice - tracker.EntryPrice);
+                            decimal halfTpTargetPrice = tracker.Side == "BUY"
+                                ? tracker.EntryPrice + (tpDistance * 0.5m)
+                                : tracker.EntryPrice - (tpDistance * 0.5m);
+
+                            bool isHalfTpReached = tracker.Side == "BUY"
+                                ? currentPrice >= halfTpTargetPrice
+                                : currentPrice <= halfTpTargetPrice;
+
+                            bool isTimeReached = duration.TotalMinutes >= 2;
+
+                            if (isHalfTpReached && isTimeReached)
+                            {
+                                _logger.LogWarning($"🎯 [半盈保护] {tracker.Symbol} 触碰半盈位 {halfTpTargetPrice:F4} (全盈目标:{tracker.TakeProfitPrice:F4})，执行保本损...");
+                                await MoveStopToBEAsync(tracker);
                             }
                         }
                     }
@@ -231,6 +240,38 @@ namespace TradingTerminal.Services
                 {
                     _logger.LogError($"❌ 巡检循环崩溃: {ex.Message}");
                 }
+            }
+        }
+
+        private async Task<bool> MoveStopToBEAsync(PositionTracker tracker)
+        {
+            try
+            {
+                // 动作 A：精准撤销旧止损
+                await _tradeWsService.CancelStopLossOnlyAsync(tracker.Symbol);
+
+                // 动作 B：挂载带手续费补偿的保本损
+                decimal bePriceRaw = tracker.Side == "BUY"
+                    ? tracker.EntryPrice * 1.0005m  // 做多保本略高一点
+                    : tracker.EntryPrice * 0.9995m; // 做空保本略低一点
+
+                decimal bePrice = _tradeWsService.FormatPrice(tracker.Symbol, bePriceRaw);
+                decimal qty = _tradeWsService.FormatQuantity(tracker.Symbol, Math.Abs(tracker.Quantity));
+
+                await _tradeWsService.SetStopLossMarketAsync(
+                    tracker.Symbol,
+                    tracker.Side == "BUY" ? "LONG" : "SHORT",
+                    qty,
+                    bePrice);
+
+                tracker.IsStopMovedToBE = true;
+                _logger.LogInformation($"✅ [保本成功] {tracker.Symbol} 已进入零风险模式。");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ [保本异常] {tracker.Symbol}: {ex.Message}");
+                return false;
             }
         }
 

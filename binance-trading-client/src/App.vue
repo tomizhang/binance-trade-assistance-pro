@@ -2,20 +2,27 @@
   <div id="app" class="app-container">
     <div class="main-content">
       <TopNavBar /> 
-      <Dashboard />
+      <Dashboard v-show="layoutStore.currentTab === 'dashboard'" />
+      <BacktestView v-if="layoutStore.currentTab === 'backtest'" />
+      <div v-else-if="layoutStore.currentTab === 'assets'" class="coming-soon">
+        <h2>资产管理 (建设中...)</h2>
+      </div>
       <ToastContainer />
     </div>
   </div>
 </template>
 <script setup lang="ts">
-// 直接引入我们之前写好的主工作台
 import Dashboard from '@/views/Dashboard.vue'
+import BacktestView from '@/views/BacktestView.vue'
 import ToastContainer from '@/components/ToastContainer.vue';
 import { onMounted } from 'vue';
 import { useMarketStore } from '@/store/market';
+import { useLayoutStore } from '@/store/layout';
 import TopNavBar from '@/components/TopNavBar.vue';
-// 如果别名 @ 报错，请使用相对路径: import Dashboard from './views/Dashboard.vue'
+
 const marketStore = useMarketStore();
+const layoutStore = useLayoutStore();
+
 onMounted(()=>{
   marketStore.fetchExchangeInfo()
   marketStore.connectUserDataStream(); // 🌟 连接私有账户数据流
@@ -58,5 +65,14 @@ html, body, #app {
   flex: 1;
   position: relative;
   /* 如果你的 grid-layout 需要滚动或自适应，可以在这里设置 */
+}
+
+.coming-soon {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: calc(100vh - 50px);
+  color: #8b949e;
+  font-size: 20px;
 }
 </style>

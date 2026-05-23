@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -361,7 +361,7 @@ namespace TradingTerminal.Services
             }
         }
 
-        public decimal FormatQuantity(string symbol, decimal rawQty)
+        public virtual decimal FormatQuantity(string symbol, decimal rawQty)
         {
             if (_symbolPrecisions.TryGetValue(symbol.ToUpper(), out var precision))
             {
@@ -370,7 +370,7 @@ namespace TradingTerminal.Services
             return Math.Round(rawQty, 0, MidpointRounding.ToZero);
         }
 
-        public decimal FormatPrice(string symbol, decimal rawPrice)
+        public virtual decimal FormatPrice(string symbol, decimal rawPrice)
         {
             if (_symbolPrecisions.TryGetValue(symbol.ToUpper(), out var precision))
             {

@@ -11,9 +11,10 @@ using TradingTerminal.Utils;
 
 namespace TradingTerminal.Services
 {
+    [System.ComponentModel.DisplayName("成交量衰竭反转策略")]
     public class VolumeExhaustionReversalStrategyService : StrategyBase
     {
-        private readonly PositionManagementService _positionManager;
+        private readonly IPositionManagementService _positionManager;
         private readonly ChartPublishService _chartPublishService;
 
         private readonly ConcurrentDictionary<string, List<IKline>> _1mBuffer = new();
@@ -25,7 +26,7 @@ namespace TradingTerminal.Services
         private readonly decimal _volumeSurgeMultiplier = 3.0m; // 1分钟爆量倍数
         private readonly int _trendCandleCount = 5; // 3m/5m 至少 5 根连跌
         private readonly decimal _supportZoneTolerance = 0.005m; // 1小时开盘价上下 0.5% 内视为附近
-        private readonly decimal _fixedStopLossDistance = 0.005m; // 固定止损距离 0.5%
+        private readonly decimal _fixedStopLossDistance = 0.01m; // 固定止损距离 0.5%
         private readonly decimal _targetPriceChange = 0.01m; // 止盈目标为标的物实际涨幅 1%
         private readonly double _rSquaredThreshold = 0.65; // 拟合优度阈值
         private readonly double _pinBarZoneThreshold = 0.5; // 如果 > 50% 的 K 线处于极端插针区，视为破坏
@@ -37,7 +38,7 @@ namespace TradingTerminal.Services
             BinanceWebSocketService wsService,
             OrderChannel orderChannel,
             BinanceTradeWsService tradeWsService,
-            PositionManagementService positionManager,
+            IPositionManagementService positionManager,
             ChartPublishService chartPublishService)
             : base(logger, hubContext, eventBus, wsService, orderChannel, tradeWsService)
         {
@@ -163,7 +164,7 @@ namespace TradingTerminal.Services
         private void CheckReversalConditions(string symbol, IKline current1m, List<IKline> buffer1m)
         {
             if (_positionManager.HasAnyActivePosition()) return;
-            if (_lastTradeTime.TryGetValue(symbol, out var lastTime) && (DateTime.Now - lastTime).TotalMinutes < 5) return;
+            if (_lastTradeTime.TryGetValue(symbol, out var lastTime) && (GetCurrentTime() - lastTime).TotalMinutes < 5) return;
 
             if (!_tfBuffers.TryGetValue(symbol, out var tfData)) return;
             if (!tfData.TryGetValue("3m", out var buffer3m) || buffer3m.Count < _trendCandleCount + 1) return;
@@ -197,7 +198,7 @@ namespace TradingTerminal.Services
             // if (deviation > _supportZoneTolerance) return; // 距离 1h 开仓价太远，不是有效的支撑位
 
             // --- 满足所有条件，触发开仓 ---
-            _lastTradeTime[symbol] = DateTime.Now;
+            _lastTradeTime[symbol] = GetCurrentTime();
 
             decimal stopLoss = isLongSignal
                 ? current1m.Low * (1 - _fixedStopLossDistance)
@@ -214,7 +215,7 @@ namespace TradingTerminal.Services
             _logger.LogWarning($"🎯 [{symbol}] {triggerReason}！触发{direction}反转。SL: {stopLoss:F4}, TP: {takeProfit:F4}");
 
             // 执行下单（计算 ROE：本金涨幅 % * 杠杆）
-            decimal leverage = 5.0m;
+            decimal leverage = GetLeverage(100.0m);
             decimal requiredRoeTp = _targetPriceChange * leverage; // 1% 涨幅对应 5% ROE
             decimal requiredRoeSl = _fixedStopLossDistance * leverage; // 0.5% 跌幅对应 2.5% ROE
 
@@ -226,7 +227,7 @@ namespace TradingTerminal.Services
             });
 
             // 绘图推送
-            // PublishChart(symbol, buffer1m, current1m, openPrice1h, stopLoss, takeProfit, triggerReason);
+            //PublishChart(symbol, buffer1m, current1m, openPrice1h, stopLoss, takeProfit, triggerReason);
         }
 
         private bool IsDownwardStructure(List<IKline> buffer, int count)

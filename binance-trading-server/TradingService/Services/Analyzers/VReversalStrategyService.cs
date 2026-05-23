@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -12,30 +12,30 @@ using TradingTerminal.Utils;
 namespace TradingTerminal.Services
 {
     /// <summary>
-    /// V形态/倒V形态 反转狙击策略
-    /// 猎杀散户在关键支撑/阻力位的突破追单行为
+    /// 🌟 V形态/倒V形态 流动性回扫猎杀策略 (Liquidity Sweep Hunter) - 宏观大周期版
+    /// 核心逻辑：基于 30m 和 1h 的大级别阻力/支撑，精准狙击做市商 +0.5%/-0.5% 的扫损假突破
     /// </summary>
+    [System.ComponentModel.DisplayName("VReversal 反转策略 (1m爆量+3/5m连跌+1h支撑)")]
     public class VReversalStrategyService : StrategyBase
     {
         private class VObservationState
         {
-            public bool IsShorting { get; set; }        // true = V形态做空 (测试前高); false = 倒V形态做多 (测试前低)
-            public decimal PivotPrice { get; set; }     // 瞄准的前高/前低点
-            public int CandlesWatched { get; set; }     // 观察了多少根 1m K线
-            public decimal BaseAvgVolume { get; set; }  // 进入观察期前的 1m 均量
+            public bool IsShorting { get; set; }        // true = 猎杀前高流动性(做空); false = 猎杀前低流动性(做多)
+            public decimal PivotPrice { get; set; }     // 瞄准的前高/前低点 (来自30m/1h)
+            public decimal SweepPrice { get; set; }     // 🌟 做市商回扫目标价 (前高+0.5% 或 前低-0.5%)
+
+            public int CandlesWatched { get; set; }     // 已观察的时间 (盆底耗时)
+            public double EntryAngle { get; set; }      // 入角 (到达关键点前的冲刺角度)
+            public int MaxObservationCandles { get; set; } // 动态计算的最大过渡时间
         }
 
-        private readonly PositionManagementService _positionManager;
+        private readonly IPositionManagementService _positionManager;
         private readonly ChartPublishService _chartPublishService;
 
         private readonly ConcurrentDictionary<string, List<IKline>> _1mBuffer = new();
-        // 存储多周期聚合 K 线：3m, 5m
         private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, List<IKline>>> _tfBuffers = new();
-
-        // 存储 3m 和 5m 级别合并的关键位点位 (支撑/压力)
         private readonly ConcurrentDictionary<string, (List<decimal> Peaks, List<decimal> Valleys)> _pivotLevels = new();
 
-        // 观察名单与防重发控制
         private readonly ConcurrentDictionary<string, VObservationState> _observations = new();
         private readonly ConcurrentDictionary<string, DateTime> _lastTradeTime = new();
 
@@ -46,33 +46,38 @@ namespace TradingTerminal.Services
             BinanceWebSocketService wsService,
             OrderChannel orderChannel,
             BinanceTradeWsService tradeWsService,
-            PositionManagementService positionManager,
+            IPositionManagementService positionManager,
             ChartPublishService chartPublishService)
             : base(logger, hubContext, eventBus, wsService, orderChannel, tradeWsService)
         {
             _positionManager = positionManager;
             _chartPublishService = chartPublishService;
 
-            this.IsOrderEnabled = true; // 实盘下单开关
+#if !DEBUG
+            this.IsOrderEnabled = true; // 开启实盘执行
             this.IsStrategyEnabled = true;
-
-            // 订阅所需的周期
-            this._timeframes = new[] { "1m", "3m", "5m" };
+#endif
+            // 🌟 订阅 1m 用于微观狙击，订阅 30m 和 1h 用于宏观阻力/支撑
+            this._timeframes = new[] { "1m", "30m", "1h" };
         }
 
+        // ==========================================
+        // 🌟 初始化与历史数据预热
+        // ==========================================
         protected override async Task InitializeStrategyDataAsync(string symbol)
         {
-            _logger.LogInformation($"[{GetType().Name}] 正在为 {symbol} 拉取历史数据...");
+            _logger.LogInformation($"[{GetType().Name}] 正在为 {symbol} 拉取宏观历史数据底库...");
 
-            var klines1m = await FetchHistoryAsync(symbol, "1m", 150);
+            // 1m 扩大到 500 根，覆盖长达 8 小时的微观变动
+            var klines1m = await FetchHistoryAsync(symbol, "1m", 500);
             _1mBuffer[symbol] = klines1m;
 
-            var klines3m = await FetchHistoryAsync(symbol, "3m", 150);
-            var klines5m = await FetchHistoryAsync(symbol, "5m", 150);
+            var klines30m = await FetchHistoryAsync(symbol, "30m", 150);
+            var klines1h = await FetchHistoryAsync(symbol, "1h", 150);
 
             var tfData = _tfBuffers.GetOrAdd(symbol, _ => new ConcurrentDictionary<string, List<IKline>>());
-            if (klines3m.Any()) tfData["3m"] = klines3m;
-            if (klines5m.Any()) tfData["5m"] = klines5m;
+            if (klines30m.Any()) tfData["30m"] = klines30m;
+            if (klines1h.Any()) tfData["1h"] = klines1h;
 
             RecalculateMultiTimeframePivots(symbol);
         }
@@ -129,22 +134,18 @@ namespace TradingTerminal.Services
                 lock (buffer1m)
                 {
                     buffer1m.Add(msg);
-                    if (buffer1m.Count > 200) buffer1m.RemoveAt(0);
+                    if (buffer1m.Count > 500) buffer1m.RemoveAt(0);
                 }
             }
             else
             {
-                // 实时维护 3m 和 5m 结构
                 var symbolData = _tfBuffers.GetOrAdd(symbol, _ => new ConcurrentDictionary<string, List<IKline>>());
                 var buffer = symbolData.GetOrAdd(interval, _ => new List<IKline>());
 
                 lock (buffer)
                 {
                     var lastKline = buffer.LastOrDefault();
-                    if (lastKline != null && lastKline.OpenTime == msg.OpenTime)
-                    {
-                        buffer[buffer.Count - 1] = msg;
-                    }
+                    if (lastKline != null && lastKline.OpenTime == msg.OpenTime) buffer[buffer.Count - 1] = msg;
                     else if (lastKline == null || msg.OpenTime > lastKline.OpenTime)
                     {
                         buffer.Add(new KlineMessage
@@ -165,112 +166,126 @@ namespace TradingTerminal.Services
                     if (buffer.Count > 200) buffer.RemoveAt(0);
                 }
 
-                // 大周期收盘时，利用 PivotHelper 重新提取高低点
-                if (msg.IsClosed)
-                {
-                    RecalculateMultiTimeframePivots(symbol);
-                }
+                if (msg.IsClosed) RecalculateMultiTimeframePivots(symbol);
             }
         }
 
-        private void CheckReversalConditions(string symbol, IKline current1m, List<IKline> buffer1m)
+        // ==========================================
+        // 🌟 核心：回扫猎杀状态机
+        // ==========================================
+        private void CheckReversalConditions(string symbol, IKline currentTick, List<IKline> buffer1m)
         {
-            if (_positionManager.HasAnyActivePosition()) return;
-            if (_lastTradeTime.TryGetValue(symbol, out var lastTime) && (DateTime.Now - lastTime).TotalMinutes < 5) return;
+            if (_positionManager.HasActivePosition(symbol)) return;
+            if (_lastTradeTime.TryGetValue(symbol, out var lastTime) && (GetCurrentTime() - lastTime).TotalMinutes < 5) return;
 
-            // ==========================================
-            // 🛡️ 阶段 1：观察期，判断加速与反转
-            // ==========================================
+            // ----------------------------------------------------
+            // 🛡️ 阶段 1：观察期，等待做市商触碰 +0.5%/-0.5% 的红线
+            // ----------------------------------------------------
             if (_observations.TryGetValue(symbol, out var obs))
             {
-                if (current1m.IsClosed) obs.CandlesWatched++;
+                if (currentTick.IsClosed) obs.CandlesWatched++;
 
-                if (obs.CandlesWatched > 5)
+                if (obs.CandlesWatched > obs.MaxObservationCandles)
                 {
                     _observations.TryRemove(symbol, out _);
-                    _logger.LogInformation($"⏳ [{symbol}] V反转观察期超时，未见加速假突破行为，放弃入场。");
+                    _logger.LogInformation($"⏳ [{symbol}] 超过入角决定的过渡时间 ({obs.MaxObservationCandles}分钟)，未发生宏观流动性回扫，放弃入场。");
                     return;
                 }
 
-                // 判断短时间加速：当前一分钟量能大于基础均量的 1.5 倍
-                bool isAccelerating = current1m.Volume > obs.BaseAvgVolume * 1.5m;
-
-                if (obs.IsShorting) // V形态，在阻力位准备做空
+                if (obs.IsShorting) // 🌟 猎杀前高上方 +0.5% 的流动性
                 {
-                    // 止损或失效：如果实体强势突破并站稳前高点上方 0.3%，直接取消观察
-                    if (current1m.Close > obs.PivotPrice * 1.003m)
+                    if (currentTick.Close >= obs.SweepPrice)
                     {
-                        _observations.TryRemove(symbol, out _);
+                        ExecuteTrade(symbol, obs, currentTick);
                         return;
                     }
-
-                    // 狙击点：量能放大，最高价摸到了前高，但收盘价被死死压制在阻力下方
-                    if (isAccelerating && current1m.High >= obs.PivotPrice * 0.998m && current1m.Close < obs.PivotPrice)
-                    {
-                        ExecuteTrade(symbol, obs, current1m);
-                    }
+                    if (currentTick.Close < obs.PivotPrice * 0.995m) _observations.TryRemove(symbol, out _);
                 }
-                else // 倒V形态，在支撑位准备做多
+                else // 🌟 猎杀前低下方 -0.5% 的流动性
                 {
-                    if (current1m.Close < obs.PivotPrice * 0.997m)
+                    if (currentTick.Close <= obs.SweepPrice)
                     {
-                        _observations.TryRemove(symbol, out _);
+                        ExecuteTrade(symbol, obs, currentTick);
                         return;
                     }
-
-                    // 狙击点：量能放大，最低价摸到了前低，但收盘价被买盘托起
-                    if (isAccelerating && current1m.Low <= obs.PivotPrice * 1.002m && current1m.Close > obs.PivotPrice)
-                    {
-                        ExecuteTrade(symbol, obs, current1m);
-                    }
+                    if (currentTick.Close > obs.PivotPrice * 1.005m) _observations.TryRemove(symbol, out _);
                 }
                 return;
             }
 
-            // ==========================================
-            // 🚀 阶段 2：寻找 V / 倒V 形态并切入观察
-            // ==========================================
+            // ----------------------------------------------------
+            // 🚀 阶段 2：扫描点位接触，计算入角，分配盆底时间，挂载虚拟扫损单
+            // ----------------------------------------------------
             if (!_pivotLevels.TryGetValue(symbol, out var levels)) return;
 
-            decimal avgVol = buffer1m.TakeLast(30).Average(k => k.Volume);
-
-            // 🌟 严格使用 PivotHelper 获取近期的微观起涨点/起跌点
             var highs1m = buffer1m.Select(k => (decimal)k.High).ToList();
             var lows1m = buffer1m.Select(k => (decimal)k.Low).ToList();
             var (peaks1m, valleys1m) = PivotHelper.CalculatePeaks(highs1m, lows1m, 5, 2);
 
-            // 寻找 V 形态阻力 (做空观察)
+            // 寻找宏观前高阻力接触
             foreach (var peak in levels.Peaks)
             {
-                // 🌟 使用 High 价格判断是否碰到了前高
-                if (current1m.High >= peak * 0.998m && current1m.High <= peak * 1.005m)
+                if (currentTick.Close >= peak * 0.998m && currentTick.Close <= peak * 1.002m)
                 {
                     if (valleys1m.Any())
                     {
-                        decimal recentLow = lows1m[valleys1m.Last()]; // 真正的微观谷底
-                        if ((peak - recentLow) / recentLow > 0.02m) // 振幅必须大于 2%
+                        int recentLowIdx = valleys1m.Last();
+                        decimal recentLow = lows1m[recentLowIdx];
+
+                        if ((peak - recentLow) / recentLow > 0.02m)
                         {
-                            _observations[symbol] = new VObservationState { IsShorting = true, PivotPrice = peak, CandlesWatched = 0, BaseAvgVolume = avgVol };
-                            _logger.LogWarning($"👀 [{symbol}] 触碰前高 {peak:F4}, V形态底部 {recentLow:F4} (起涨振幅>2%)。切入空头观察...");
+                            int xDistance = Math.Max(1, buffer1m.Count - recentLowIdx);
+                            double entryAngle = SlopeHelper.CalculateNormalizedAngle(recentLow, currentTick.Close, xDistance);
+                            int maxObs = CalculateDynamicTransitionTime(Math.Abs(entryAngle));
+
+                            decimal sweepPrice = peak * 1.005m;
+
+                            _observations[symbol] = new VObservationState
+                            {
+                                IsShorting = true,
+                                PivotPrice = peak,
+                                SweepPrice = sweepPrice,
+                                CandlesWatched = 0,
+                                EntryAngle = entryAngle,
+                                MaxObservationCandles = maxObs
+                            };
+
+                            _logger.LogWarning($"👀 [{symbol}] 逼近 30m/1h 宏观前高 {peak:F4}。入角:{entryAngle:F1}°。部署流动性红线: {sweepPrice:F4} (+0.5%)");
                             return;
                         }
                     }
                 }
             }
 
-            // 寻找倒 V 形态支撑 (做多观察)
+            // 寻找宏观前低支撑接触
             foreach (var valley in levels.Valleys)
             {
-                // 🌟 使用 Low 价格判断是否碰到了前低
-                if (current1m.Low <= valley * 1.002m && current1m.Low >= valley * 0.995m)
+                if (currentTick.Close <= valley * 1.002m && currentTick.Close >= valley * 0.998m)
                 {
                     if (peaks1m.Any())
                     {
-                        decimal recentHigh = highs1m[peaks1m.Last()]; // 真正的微观山峰
-                        if ((recentHigh - valley) / valley > 0.02m) // 振幅必须大于 2%
+                        int recentHighIdx = peaks1m.Last();
+                        decimal recentHigh = highs1m[recentHighIdx];
+
+                        if ((recentHigh - valley) / valley > 0.02m)
                         {
-                            _observations[symbol] = new VObservationState { IsShorting = false, PivotPrice = valley, CandlesWatched = 0, BaseAvgVolume = avgVol };
-                            _logger.LogWarning($"👀 [{symbol}] 触碰前低 {valley:F4}, 倒V形态顶部 {recentHigh:F4} (起跌振幅>2%)。切入多头观察...");
+                            int xDistance = Math.Max(1, buffer1m.Count - recentHighIdx);
+                            double entryAngle = SlopeHelper.CalculateNormalizedAngle(recentHigh, currentTick.Close, xDistance);
+                            int maxObs = CalculateDynamicTransitionTime(Math.Abs(entryAngle));
+
+                            decimal sweepPrice = valley * 0.995m;
+
+                            _observations[symbol] = new VObservationState
+                            {
+                                IsShorting = false,
+                                PivotPrice = valley,
+                                SweepPrice = sweepPrice,
+                                CandlesWatched = 0,
+                                EntryAngle = entryAngle,
+                                MaxObservationCandles = maxObs
+                            };
+
+                            _logger.LogWarning($"👀 [{symbol}] 逼近 30m/1h 宏观前低 {valley:F4}。入角:{entryAngle:F1}°。部署流动性红线: {sweepPrice:F4} (-0.5%)");
                             return;
                         }
                     }
@@ -278,37 +293,47 @@ namespace TradingTerminal.Services
             }
         }
 
-        private void ExecuteTrade(string symbol, VObservationState obs, IKline triggerKline)
+        private int CalculateDynamicTransitionTime(double absAngle)
+        {
+            if (absAngle >= 85) return 2;
+            if (absAngle >= 65) return 4;
+            if (absAngle >= 35) return 6;
+            if (absAngle >= 15) return 10;
+            return 15;
+        }
+
+        // ==========================================
+        // 🌟 交易执行
+        // ==========================================
+        private void ExecuteTrade(string symbol, VObservationState obs, IKline triggerTick)
         {
             _observations.TryRemove(symbol, out _);
-            _lastTradeTime[symbol] = DateTime.Now;
+            _lastTradeTime[symbol] = GetCurrentTime();
 
             bool isLongSignal = !obs.IsShorting;
-            string tradeType = isLongSignal ? "做多 (倒V支撑假突破)" : "做空 (V形态阻力假突破)";
+            string tradeType = isLongSignal ? "做多 (吞噬大周期假跌破)" : "做空 (吞噬大周期假突破)";
 
-            // 2.3.3 严格止损：前高点/低点外延 0.5%
-            decimal stopLoss = isLongSignal ? obs.PivotPrice * 0.995m : obs.PivotPrice * 1.005m;
-            decimal takeProfit = isLongSignal ? triggerKline.Close * 1.015m : triggerKline.Close * 0.985m; // 目标涨跌 1.5%
+            // 🌟 核心优化：止盈止损逻辑调换
+            // 止损放宽到 1.5%，止盈缩小到 0.5% 
+            decimal stopLoss = isLongSignal ? obs.SweepPrice * 0.993m : obs.SweepPrice * 1.007m;
+            decimal takeProfit = isLongSignal ? obs.SweepPrice * 1.005m : obs.SweepPrice * 0.995m;
 
-            _logger.LogWarning($"🎯 [{symbol}] {tradeType} 狙击成功！加速衰竭确认。SL: {stopLoss:F4}, TP: {takeProfit:F4}");
+            _logger.LogWarning($"🎯 [{symbol}] {tradeType}！大级别做市商回扫完成。入场价: {triggerTick.Close:F4}。SL: {stopLoss:F4}(-1.5%), TP: {takeProfit:F4}(+0.5%)");
 
-            decimal leverage = 10.0m;
-            decimal requiredRoeTp = Math.Abs(takeProfit - triggerKline.Close) / triggerKline.Close * leverage;
-            decimal requiredRoeSl = Math.Abs(triggerKline.Close - stopLoss) / triggerKline.Close * leverage;
+            decimal leverage = GetLeverage(5.0m);
+            decimal requiredRoeTp = Math.Abs(takeProfit - triggerTick.Close) / triggerTick.Close * leverage;
+            decimal requiredRoeSl = Math.Abs(triggerTick.Close - stopLoss) / triggerTick.Close * leverage;
 
             _ = Task.Run(async () =>
             {
                 await PlaceOrderWithLeverageRiskAsync(
-                    symbol, isLongSignal, triggerKline.Close, 1.50m, leverage, requiredRoeTp, requiredRoeSl, "V_Reversal_Hunter"
+                    symbol, isLongSignal, triggerTick.Close, 1.5m, leverage, requiredRoeTp, requiredRoeSl, "Macro_Sweep_Hunter_Inverted", OrderAction.OpenLimit
                 );
             });
-
-            // 绘图推送给前端
-            // PublishChart(symbol, _1mBuffer[symbol], triggerKline, obs.PivotPrice, stopLoss, takeProfit, tradeType);
         }
 
         // ==========================================
-        // 🌟 多周期支撑压力合并提取
+        // 🌟 30m/1h 宏观支撑压力合并提取 
         // ==========================================
         private void RecalculateMultiTimeframePivots(string symbol)
         {
@@ -317,13 +342,12 @@ namespace TradingTerminal.Services
             var allHighs = new List<decimal>();
             var allLows = new List<decimal>();
 
-            foreach (var tf in new[] { "3m", "5m" })
+            foreach (var tf in new[] { "30m", "1h" })
             {
                 if (tfData.TryGetValue(tf, out var buffer) && buffer.Count > 10)
                 {
                     lock (buffer)
                     {
-                        // 🌟 严格传入 High / Low 集合交由 PivotHelper 计算宏观高低点
                         var highs = buffer.Select(k => (decimal)k.High).ToList();
                         var lows = buffer.Select(k => (decimal)k.Low).ToList();
 
@@ -338,32 +362,6 @@ namespace TradingTerminal.Services
                 allHighs.Distinct().OrderByDescending(x => x).ToList(),
                 allLows.Distinct().OrderBy(x => x).ToList()
             );
-        }
-
-        private void PublishChart(string symbol, List<IKline> buffer1m, IKline current1m, decimal pivotPrice, decimal stopLoss, decimal takeProfit, string reason)
-        {
-            var chartItem = new ChartPublishItem
-            {
-                Symbol = symbol,
-                StrategyName = "V_Reversal",
-                Klines = buffer1m.TakeLast(150).ToList()
-            };
-
-            int currentKIndex = chartItem.Klines.Count - 1;
-
-            chartItem.Points.Add((currentKIndex, current1m.Close, SkiaSharp.SKColors.Yellow, 8f));
-            chartItem.Texts.Add((reason, Math.Max(0, currentKIndex - 30), current1m.High * 1.002m, SkiaSharp.SKColors.Yellow));
-
-            chartItem.Lines.Add((0, pivotPrice, currentKIndex + 20, pivotPrice, SkiaSharp.SKColors.Purple, 2f));
-            chartItem.Texts.Add(($"Pivot: {pivotPrice:F4}", 10, pivotPrice, SkiaSharp.SKColors.Purple));
-
-            chartItem.Lines.Add((currentKIndex, stopLoss, currentKIndex + 20, stopLoss, SkiaSharp.SKColors.Red, 2f));
-            chartItem.Texts.Add(($"SL: {stopLoss:F4}", currentKIndex + 2, stopLoss, SkiaSharp.SKColors.Red));
-
-            chartItem.Lines.Add((currentKIndex, takeProfit, currentKIndex + 20, takeProfit, SkiaSharp.SKColors.Green, 2f));
-            chartItem.Texts.Add(($"TP: {takeProfit:F4}", currentKIndex + 2, takeProfit, SkiaSharp.SKColors.Green));
-
-            _ = _chartPublishService.PublishChartAsync(chartItem);
         }
     }
 }

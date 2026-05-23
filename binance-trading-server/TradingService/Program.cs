@@ -8,6 +8,7 @@ using TradingService.BackgroundWorkers;
 using TradingService.Services;
 using TradingTerminal.Hubs;
 using TradingTerminal.Services;
+using TradingTerminal.Services.Backtest.Services;
 using YourApp.Infrastructure; // 记得替换为你的实际命名空间
 
 // ==========================================
@@ -120,6 +121,12 @@ try
     builder.Services.AddSingleton<PositionManagementService>();
     // 注册仓位管理守护进程
     builder.Services.AddHostedService(provider => provider.GetRequiredService<PositionManagementService>());
+    builder.Services.AddSingleton<IPositionManagementService>(provider => provider.GetRequiredService<PositionManagementService>());
+
+    // 注册回测相关服务
+    builder.Services.AddSingleton<BinanceDataDownloadService>();
+    builder.Services.AddTransient<BacktestRunner>();
+    builder.Services.AddSingleton<BacktestQueueManager>();
 
     // 🌟 注册新增的：1m爆量 + 3/5m连跌 + 1h支撑 反转策略
     builder.Services.AddSingleton<VolumeExhaustionReversalStrategyService>();
@@ -170,6 +177,7 @@ try
     app.MapHub<AccountHub>("/hubs/account");
     // 3. 映射 Hub 路由
     app.MapHub<MarketHub>("/hubs/market");
+    app.MapHub<BacktestHub>("/hubs/backtest");
     app.MapControllers();
 
     // 启动应用

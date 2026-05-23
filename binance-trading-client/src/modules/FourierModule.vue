@@ -338,14 +338,14 @@ onMounted(() => {
   };
 
   mainChart = createChart(mainChartRef.value, { ...commonOptions });
-  originalSeries = mainChart.addSeries(LineSeries, { color: 'rgba(88, 166, 255, 0.3)', lineWidth: 1, title: '原始信号' });
+  originalSeries = mainChart.addLineSeries({ color: 'rgba(88, 166, 255, 0.3)', lineWidth: 1, title: '原始信号' });
   
   // 🌟 拟合结果分为两段：历史拟合实线，未来推演虚线
-  reconstructedSeries = mainChart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 2, title: '频率叠加拟合' });
-  predictSeries = mainChart.addSeries(LineSeries, { color: '#e2b514', lineWidth: 2, lineStyle: LineStyle.Dashed, title: '未来推演' });
+  reconstructedSeries = mainChart.addLineSeries({ color: '#ff9800', lineWidth: 2, title: '频率叠加拟合' });
+  predictSeries = mainChart.addLineSeries({ color: '#e2b514', lineWidth: 2, lineStyle: LineStyle.Dashed, title: '未来推演' });
 
   freqChart = createChart(freqChartRef.value, { ...commonOptions });
-  spectrumSeries = freqChart.addSeries(HistogramSeries, { color: '#21262d', priceFormat: { type: 'volume' }, title: '频谱能量' });
+  spectrumSeries = freqChart.addHistogramSeries({ color: '#21262d', priceFormat: { type: 'volume' }, title: '频谱能量' });
   freqChart.applyOptions({ timeScale: { visible: false } }); 
 
   mainChart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {

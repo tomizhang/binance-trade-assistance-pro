@@ -191,15 +191,17 @@ const handleGlobalAddPanel = (e: any) => {
 
 onMounted(() => { 
   window.addEventListener('add-panel', handleGlobalAddPanel); 
-  if (typeof marketStore.initAccountSignalR === 'function') {
-    marketStore.initAccountSignalR();
+  const anyStore = marketStore as any;
+  if (typeof anyStore.initAccountSignalR === 'function') {
+    anyStore.initAccountSignalR();
   }
 });
 
 onUnmounted(() => { 
   window.removeEventListener('add-panel', handleGlobalAddPanel); 
-  if (typeof marketStore.closeAccountSignalR === 'function') {
-    marketStore.closeAccountSignalR();
+  const anyStore = marketStore as any;
+  if (typeof anyStore.closeAccountSignalR === 'function') {
+    anyStore.closeAccountSignalR();
   }
 });
 </script>

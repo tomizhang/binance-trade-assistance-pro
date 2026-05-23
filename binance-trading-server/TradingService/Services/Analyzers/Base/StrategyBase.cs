@@ -55,6 +55,19 @@ namespace TradingTerminal.Services
             _eventBus.OnKlineReceived += HandleKlineInternal;
         }
 
+        public DateTime? BacktestTime { get; set; }
+        public decimal? BacktestLeverage { get; set; }
+
+        protected decimal GetLeverage(decimal defaultLeverage)
+        {
+            return BacktestLeverage ?? defaultLeverage;
+        }
+
+        protected virtual DateTime GetCurrentTime()
+        {
+            return BacktestTime ?? DateTime.Now;
+        }
+
         // ==========================================
         // 🌟 通用通知接口：SignalR 前端推送 + 本地分级日志
         // ==========================================
@@ -69,7 +82,7 @@ namespace TradingTerminal.Services
                 strategy = GetType().Name,
                 type = type, // 如: "量能监控", "技术突破", "下单执行"
                 message = message,
-                time = DateTime.Now.ToString("HH:mm:ss"),
+                time = GetCurrentTime().ToString("HH:mm:ss"),
                 isImportant = isImportant,
                 isOrderEnabled = IsOrderEnabled // 告知前端当前策略是否处于实盘运行状态
             };
@@ -93,7 +106,7 @@ namespace TradingTerminal.Services
         /// </summary>
         /// <param name="targetRoeTp">目标止盈 ROE (如 0.05 代表本金盈利 5%)</param>
         /// <param name="riskRoeSl">风险止损 ROE (如 0.025 代表本金亏损 2.5%)</param>
-        protected async Task PlaceOrderWithLeverageRiskAsync(
+        protected virtual async Task PlaceOrderWithLeverageRiskAsync(
             string symbol,
             bool isLong,
             decimal entryPrice,
@@ -101,7 +114,7 @@ namespace TradingTerminal.Services
             decimal leverage,
             decimal targetRoeTp = 0.04m,
             decimal riskRoeSl = 0.02m,
-            string strategyName = "BaseStrategy")
+            string strategyName = "BaseStrategy", OrderAction orderAction = OrderAction.OpenMarket)
         {
             try
             {
@@ -133,7 +146,7 @@ namespace TradingTerminal.Services
                 var comboSignal = new OrderSignal
                 {
                     Symbol = symbol,
-                    Action = OrderAction.OpenMarket,
+                    Action = orderAction,
                     Side = side,
                     IsUsdtMargin = true,
                     UsdtAmount = marginUsdt,
