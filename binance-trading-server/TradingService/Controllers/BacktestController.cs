@@ -59,7 +59,7 @@ namespace TradingService.Controllers
 
             return type.Name switch
             {
-                "VReversalStrategyService" => "VReversal 反转策略 (1m爆量+3/5m连跌+1h支撑)",
+                "VReversalStrategyService" => "VReversal 反转策略 (1m入场+15m判定+1d周期)",
                 "VolumeExhaustionReversalStrategyService" => "成交量衰竭反转策略",
                 "HighVolStructureStrategyService" => "爆量超跌反弹策略",
                 _ => type.Name

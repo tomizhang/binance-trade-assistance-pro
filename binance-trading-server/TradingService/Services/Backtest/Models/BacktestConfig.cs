@@ -15,5 +15,6 @@ namespace TradingTerminal.Services.Backtest.Models
         public decimal MakerSlippage { get; set; } = 0.0003m; // 0.03%
         public decimal FeeRate { get; set; } = 0.0005m;       // 0.05%
         public decimal FundingRate { get; set; } = 0.0002m;   // 0.02%
+        public bool EnableMoveStopToBE { get; set; } = true;   // 是否开启移动止损到开仓价(保本)
     }
 }

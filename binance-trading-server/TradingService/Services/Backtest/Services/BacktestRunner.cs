@@ -54,19 +54,23 @@ namespace TradingTerminal.Services.Backtest.Services
             var klines3m = Aggregate1mToMtf(klines1mRaw, "3m");
             var klines5m = Aggregate1mToMtf(klines1mRaw, "5m");
             var klines10m = Aggregate1mToMtf(klines1mRaw, "10m");
+            var klines15m = Aggregate1mToMtf(klines1mRaw, "15m");
             var klines30m = Aggregate1mToMtf(klines1mRaw, "30m");
             var klines1h = Aggregate1mToMtf(klines1mRaw, "1h");
+            var klines1d = Aggregate1mToMtf(klines1mRaw, "1d");
 
             var allSyntheticKlines = new List<IKline>();
             allSyntheticKlines.AddRange(klines1mRaw);
             allSyntheticKlines.AddRange(klines3m);
             allSyntheticKlines.AddRange(klines5m);
             allSyntheticKlines.AddRange(klines10m);
+            allSyntheticKlines.AddRange(klines15m);
             allSyntheticKlines.AddRange(klines30m);
             allSyntheticKlines.AddRange(klines1h);
+            allSyntheticKlines.AddRange(klines1d);
 
             // 3. 构造 Mock 依赖服务
-            var mockWs = new MockBinanceWebSocketService((symbol, interval, limit) =>
+            var mockWs = new MockBinanceWebSocketService(async (symbol, interval, limit) =>
             {
                 long startMs = new DateTimeOffset(config.StartTime).ToUnixTimeMilliseconds();
                 var history = allSyntheticKlines
@@ -74,8 +78,39 @@ namespace TradingTerminal.Services.Backtest.Services
                     .OrderBy(k => k.OpenTime)
                     .TakeLast(limit)
                     .ToList();
+
+                if (history.Count < limit)
+                {
+                    int daysNeeded = interval switch
+                    {
+                        "1d" => limit + 5,
+                        "1h" => (limit / 24) + 2,
+                        "30m" => (limit / 48) + 2,
+                        "15m" => (limit / 96) + 2,
+                        _ => 7
+                    };
+                    DateTime preWarmStart = config.StartTime.AddDays(-daysNeeded);
+                    try
+                    {
+                        var extraKlines = await _downloadService.GetKlinesAsync(symbol, interval, preWarmStart, config.StartTime);
+                        var extraFiltered = extraKlines
+                            .Where(k => k.OpenTime < startMs)
+                            .OrderBy(k => k.OpenTime)
+                            .TakeLast(limit)
+                            .ToList();
+
+                        if (extraFiltered.Count > history.Count)
+                        {
+                            history = extraFiltered;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"[回测运行器] 预热拉取大周期 {interval} 历史数据失败: {ex.Message}");
+                    }
+                }
                 
-                return Task.FromResult(SerializeKlinesToBinanceJson(history));
+                return SerializeKlinesToBinanceJson(history);
             });
 
             var mockConfig = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
@@ -325,7 +360,7 @@ namespace TradingTerminal.Services.Backtest.Services
                 }
 
                 // --- D. 止盈保本损巡检 ---
-                if (mockPositionManager.TryGetPosition(config.Symbol, out var posBE) && !posBE.IsStopMovedToBE)
+                if (config.EnableMoveStopToBE && mockPositionManager.TryGetPosition(config.Symbol, out var posBE) && !posBE.IsStopMovedToBE)
                 {
                     var orderLog = closedOrders.LastOrDefault(o => o.Symbol == config.Symbol && o.CloseTime == null);
                     if (orderLog != null)
@@ -386,7 +421,15 @@ namespace TradingTerminal.Services.Backtest.Services
                         decimal slPrice = 0m;
                         if (posRisk.IsStopMovedToBE)
                         {
-                            slPrice = posRisk.Side == "BUY" ? posRisk.EntryPrice * 1.0005m : posRisk.EntryPrice * 0.9995m;
+                            if (orderLog.StrategyName == "MinVolumeReversalStrategyService")
+                            {
+                                // 1分钟成交量反转策略使用精确开仓均价作为止损
+                                slPrice = posRisk.EntryPrice;
+                            }
+                            else
+                            {
+                                slPrice = posRisk.Side == "BUY" ? posRisk.EntryPrice * 1.0005m : posRisk.EntryPrice * 0.9995m;
+                            }
                         }
                         else
                         {
@@ -700,8 +743,10 @@ namespace TradingTerminal.Services.Backtest.Services
                 "3m" => 3,
                 "5m" => 5,
                 "10m" => 10,
+                "15m" => 15,
                 "30m" => 30,
                 "1h" => 60,
+                "1d" => 1440,
                 _ => 1
             };
             if (minutes == 1) return klines1m;
@@ -783,7 +828,7 @@ namespace TradingTerminal.Services.Backtest.Services
 
         private void PublishClosingMtfBars(IKline k1m, List<IKline> klines1mHistory, MarketEventBus eventBus)
         {
-            var intervals = new[] { 3, 5, 10, 30, 60 };
+            var intervals = new[] { 3, 5, 10, 15, 30, 60, 1440 };
             foreach (var m in intervals)
             {
                 long intervalMs = m * 60 * 1000L;
@@ -799,7 +844,12 @@ namespace TradingTerminal.Services.Backtest.Services
                         var aggregated = new KlineMessage
                         {
                             Symbol = k1m.Symbol,
-                            Interval = m == 60 ? "1h" : $"{m}m",
+                            Interval = m switch
+                            {
+                                60 => "1h",
+                                1440 => "1d",
+                                _ => $"{m}m"
+                            },
                             OpenTime = openTimeLimit,
                             Open = constituentKlines.First().Open,
                             High = constituentKlines.Max(k => k.High),

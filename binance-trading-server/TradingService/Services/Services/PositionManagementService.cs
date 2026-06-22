@@ -250,10 +250,14 @@ namespace TradingTerminal.Services
                 // 动作 A：精准撤销旧止损
                 await _tradeWsService.CancelStopLossOnlyAsync(tracker.Symbol);
 
-                // 动作 B：挂载带手续费补偿的保本损
-                decimal bePriceRaw = tracker.Side == "BUY"
-                    ? tracker.EntryPrice * 1.0005m  // 做多保本略高一点
-                    : tracker.EntryPrice * 0.9995m; // 做空保本略低一点
+                // 动作 B：挂载保本损
+                decimal bePriceRaw = tracker.EntryPrice;
+                if (tracker.StrategyName != "MinVolumeReversalStrategyService")
+                {
+                    bePriceRaw = tracker.Side == "BUY"
+                        ? tracker.EntryPrice * 1.0005m  // 做多保本略高一点
+                        : tracker.EntryPrice * 0.9995m; // 做空保本略低一点
+                }
 
                 decimal bePrice = _tradeWsService.FormatPrice(tracker.Symbol, bePriceRaw);
                 decimal qty = _tradeWsService.FormatQuantity(tracker.Symbol, Math.Abs(tracker.Quantity));

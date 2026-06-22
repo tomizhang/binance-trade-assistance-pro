@@ -8,6 +8,11 @@
       <div class="nav-links">
         <a 
           href="#" 
+          :class="{ active: layoutStore.currentTab === 'workbench' }" 
+          @click.prevent="layoutStore.setTab('workbench')"
+        >工作台</a>
+        <a 
+          href="#" 
           :class="{ active: layoutStore.currentTab === 'dashboard' }" 
           @click.prevent="layoutStore.setTab('dashboard')"
         >交易面板</a>
@@ -25,11 +30,11 @@
     </div>
 
     <div class="nav-right">
-      <div class="global-symbol" title="全局联动标的">
+      <div v-if="layoutStore.currentTab === 'dashboard'" class="global-symbol" title="全局联动标的">
         当前标的: <span>{{ marketStore.currentSymbol }}</span>
       </div>
 
-      <div class="module-adder">
+      <div v-if="layoutStore.currentTab === 'dashboard'" class="module-adder">
         <div class="dropdown">
           <button class="add-btn" @click="showAddMenu = !showAddMenu">
             <span class="plus">+</span> 添加组件
@@ -53,7 +58,7 @@
         </div>
       </div>
 
-      <div class="route-switcher">
+      <div v-if="layoutStore.currentTab === 'dashboard'" class="route-switcher">
         <span class="switcher-label">数据路线</span>
         <div class="segmented-control">
           <div 

@@ -188,6 +188,15 @@
               <label>Maker 滑点 (%)</label>
               <input type="number" v-model.number="form.makerSlippagePercent" min="0" max="1" step="0.01" required @wheel.prevent="handleInputWheel($event, 'makerSlippagePercent', 0.01, 0, 1, 2)" />
             </div>
+            <div class="form-group">
+              <label>保本损选项</label>
+              <div style="display: flex; align-items: center; height: 38px;">
+                <label class="toggle-checkbox-label" style="font-size: 13px; color: #c9d1d9;">
+                  <input type="checkbox" v-model="form.enableMoveStopToBE" />
+                  开启移动止损到开仓价 (保本)
+                </label>
+              </div>
+            </div>
           </div>
 
           <button type="submit" class="submit-btn" :disabled="submitting">
@@ -340,6 +349,14 @@
               </button>
             </div>
 
+            <!-- 新增：查看高低点选项 -->
+            <div class="kline-toggle-options">
+              <label class="toggle-checkbox-label">
+                <input type="checkbox" v-model="showHighLowPoints" @change="toggleHighLowPoints" />
+                显示持仓高低点
+              </label>
+            </div>
+
             <div class="kline-meta-info">
               <span class="symbol-badge">{{ selectedTrade.symbol }}</span>
               <span class="dir-badge" :class="selectedTrade.direction.toLowerCase()">
@@ -375,6 +392,8 @@
             <span>🟢 向上/向下箭头：开仓点位</span>
             <span>🟡 橙黄色箭头/圆形：平仓点位 (止盈/止损/保本/强平)</span>
             <span>🔵 蓝色标记：保本损 (BreakEven)</span>
+            <span>🟡 黄色圆形：持仓最高点 (Peaks)</span>
+            <span>🔵 青蓝色圆形：持仓最低点 (Valleys)</span>
             <span>📊 柱状图：成交量 (Volume)</span>
           </div>
         </div>
@@ -524,6 +543,7 @@ const selectedTrade = ref<any | null>(null);
 const klineTimeframe = ref('1m');
 const klineHoverData = ref<any | null>(null);
 const klineChartData = ref<any[]>([]);
+const showHighLowPoints = ref(true); // 🌟 是否显示最高/最低价格点标记
 let lwVolumeSeries: any = null;
 let lwCandlestickSeries: any = null;
 let isKlineLoadingMore = false;
@@ -649,10 +669,11 @@ const handleClickOutside = (e: MouseEvent) => {
 
 // Dynamic strategies list
 const strategies = ref<any[]>([
-  { name: 'VReversalStrategyService', displayName: 'VReversal 反转策略 (1m爆量+3/5m连跌+1h支撑)' },
+  { name: 'VReversalStrategyService', displayName: 'VReversal 反转策略 (1m入场+15m判定+1d周期)' },
   { name: 'VolumeExhaustionReversalStrategyService', displayName: '成交量衰竭反转策略' },
   { name: 'HighVolStructureStrategyService', displayName: '爆量超跌反弹策略' },
-  { name: 'MinVolumeReversalStrategyService', displayName: '1分钟成交量反转策略' }
+  { name: 'MinVolumeReversalStrategyService', displayName: '1分钟成交量反转策略' },
+  { name: 'VStructureRegressionStrategyService', displayName: 'V型及倒V型形态拟合策略' }
 ]);
 
 const fetchStrategies = async () => {
@@ -718,7 +739,8 @@ const form = reactive({
   takerSlippagePercent: 0.05, // 0.05%
   makerSlippagePercent: 0.03, // 0.03%
   feeRatePercent: 0.05,       // 0.05%
-  fundingRatePercent: 0.02    // 0.02%
+  fundingRatePercent: 0.02,   // 0.02%
+  enableMoveStopToBE: true    // 开启保本移动止损
 });
 
 const statusTextMap: Record<string, string> = {
@@ -777,7 +799,8 @@ const submitBacktest = async () => {
       takerSlippage: form.takerSlippagePercent / 100, // percentage to decimal
       makerSlippage: form.makerSlippagePercent / 100,
       feeRate: form.feeRatePercent / 100,
-      fundingRate: form.fundingRatePercent / 100
+      fundingRate: form.fundingRatePercent / 100,
+      enableMoveStopToBE: form.enableMoveStopToBE
     };
 
     const res = await axios.post(`${baseUrl}/api/backtest/run`, config);
@@ -1084,8 +1107,14 @@ const loadTradeKlines = async () => {
   }
 };
 
+const toggleHighLowPoints = () => {
+  if (selectedTrade.value && klineChartData.value.length > 0) {
+    updateKlineMarkers(klineChartData.value, selectedTrade.value);
+  }
+};
+
 // Update K-line trade execution markers on chart
-const updateKlineMarkers = (klines: any[], trade: any) => {
+const updateKlineMarkers = async (klines: any[], trade: any) => {
   if (!lwCandlestickSeries || klines.length === 0) return;
 
   const markers: any[] = [];
@@ -1104,7 +1133,7 @@ const updateKlineMarkers = (klines: any[], trade: any) => {
     position: isLong ? 'belowBar' : 'aboveBar',
     color: isLong ? '#2ea043' : '#f85149',
     shape: isLong ? 'arrowUp' : 'arrowDown',
-    text: `${isLong ? '开多' : '开空'} (${trade.openPrice.toFixed(2)})`,
+    text: `${isLong ? '开多' : '开空'} (${trade.openPrice.toFixed(4)})`,
     size: 1.5,
   });
 
@@ -1132,10 +1161,87 @@ const updateKlineMarkers = (klines: any[], trade: any) => {
       position: isLong ? 'aboveBar' : 'belowBar',
       color: closeColor,
       shape: closeShape,
-      text: `${closeReasonMap[trade.closeReason] || trade.closeReason} (${trade.closePrice.toFixed(2)})`,
+      text: `${closeReasonMap[trade.closeReason] || trade.closeReason} (${trade.closePrice.toFixed(4)})`,
       size: 1.5,
     });
   }
+
+  // 3. High & Low Points Markers during holding period using AnalysisController
+  if (showHighLowPoints.value) {
+    try {
+      const closeTimeSec = trade.closeTime ? Math.floor(new Date(trade.closeTime).getTime() / 1000) : klines[klines.length - 1].time;
+      const holdKlines = klines.filter(k => k.time >= openTimeSec && k.time <= closeTimeSec);
+      
+      if (holdKlines.length > 10) { // AnalysisController peaks requires req.LeftLen + req.RightLen bars (default 5+5=10)
+        const times = holdKlines.map(k => k.time * 1000);
+        const highs = holdKlines.map(k => k.high);
+        const lows = holdKlines.map(k => k.low);
+
+        const response = await axios.post(`${baseUrl}/api/analysis/peaks`, {
+          times,
+          highs,
+          lows,
+          leftLen: 5,
+          rightLen: 5
+        });
+
+        if (response.data) {
+          const apiPeaks = response.data.peaks || [];
+          const apiValleys = response.data.valleys || [];
+
+          apiPeaks.forEach((p: any) => {
+            markers.push({
+              time: Math.floor(p.time / 1000),
+              position: 'aboveBar',
+              color: '#ffc107', // Yellow for local peak
+              shape: 'circle',
+              text: `高 (${p.value.toFixed(4)})`,
+              size: 1.0,
+            });
+          });
+
+          apiValleys.forEach((v: any) => {
+            markers.push({
+              time: Math.floor(v.time / 1000),
+              position: 'belowBar',
+              color: '#17a2b8', // Cyan for local valley
+              shape: 'circle',
+              text: `低 (${v.value.toFixed(4)})`,
+              size: 1.0,
+            });
+          });
+        }
+      }
+      else if (holdKlines.length > 0) {
+        // Fallback: If hold period is too short, just draw the single global max/min in the period
+        const maxHighKline = holdKlines.reduce((prev, curr) => curr.high > prev.high ? curr : prev);
+        const minLowKline = holdKlines.reduce((prev, curr) => curr.low < prev.low ? curr : prev);
+
+        markers.push({
+          time: maxHighKline.time,
+          position: 'aboveBar',
+          color: '#ffc107',
+          shape: 'circle',
+          text: `最高 (${maxHighKline.high.toFixed(4)})`,
+          size: 1.0,
+        });
+
+        markers.push({
+          time: minLowKline.time,
+          position: 'belowBar',
+          color: '#17a2b8',
+          shape: 'circle',
+          text: `最低 (${minLowKline.low.toFixed(4)})`,
+          size: 1.0,
+        });
+      }
+    } catch (err) {
+      console.error('获取局部高低波值失败', err);
+    }
+  }
+
+  // Sort markers chronologically to avoid lightweight-charts rendering order warning/bug
+  markers.sort((a, b) => a.time - b.time);
 
   lwCandlestickSeries.setMarkers(markers);
 };
@@ -2025,6 +2131,31 @@ onUnmounted(() => {
 .tf-btn.active {
   background-color: #2ea043;
   color: #ffffff;
+}
+
+.kline-toggle-options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #0d1117;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  font-size: 12px;
+  color: #8b949e;
+  user-select: none;
+}
+
+.toggle-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.toggle-checkbox-label input {
+  cursor: pointer;
+  accent-color: #2ea043;
 }
 
 .trade-kline-chart {

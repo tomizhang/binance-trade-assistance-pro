@@ -2,9 +2,9 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
 export const useLayoutStore = defineStore('layout', () => {
-  const currentTab = ref<'dashboard' | 'backtest' | 'assets'>('dashboard');
+  const currentTab = ref<'workbench' | 'dashboard' | 'backtest' | 'assets'>('workbench');
 
-  const setTab = (tab: 'dashboard' | 'backtest' | 'assets') => {
+  const setTab = (tab: 'workbench' | 'dashboard' | 'backtest' | 'assets') => {
     currentTab.value = tab;
   };
 
@@ -13,3 +13,4 @@ export const useLayoutStore = defineStore('layout', () => {
     setTab
   };
 });
+

@@ -135,6 +135,15 @@ try
     builder.Services.AddSingleton<VReversalStrategyService>();
     builder.Services.AddHostedService(provider => provider.GetRequiredService<VReversalStrategyService>());
 
+    // 🌟 注册新增的：V型及倒V型形态拟合策略
+    builder.Services.AddSingleton<VStructureRegressionStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<VStructureRegressionStrategyService>());
+
+    // 🌟 注册新增的：V型及倒V型形态拟合策略
+    builder.Services.AddSingleton<YangFanReversalStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<YangFanReversalStrategyService>());
+
+
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)    // 🌟 注册新增的：1m爆量 + 3/5m连跌 + 1h支撑 反转策略
     builder.Services.AddSingleton<HighVolStructureStrategyService>();
     builder.Services.AddHostedService(provider => provider.GetRequiredService<HighVolStructureStrategyService>());

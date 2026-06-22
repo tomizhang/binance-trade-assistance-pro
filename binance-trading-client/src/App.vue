@@ -2,6 +2,7 @@
   <div id="app" class="app-container">
     <div class="main-content">
       <TopNavBar /> 
+      <Workbench v-if="layoutStore.currentTab === 'workbench'" />
       <Dashboard v-show="layoutStore.currentTab === 'dashboard'" />
       <BacktestView v-if="layoutStore.currentTab === 'backtest'" />
       <div v-else-if="layoutStore.currentTab === 'assets'" class="coming-soon">
@@ -12,10 +13,11 @@
   </div>
 </template>
 <script setup lang="ts">
+import Workbench from '@/views/Workbench.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import BacktestView from '@/views/BacktestView.vue'
 import ToastContainer from '@/components/ToastContainer.vue';
-import { onMounted } from 'vue';
+import { watch } from 'vue';
 import { useMarketStore } from '@/store/market';
 import { useLayoutStore } from '@/store/layout';
 import TopNavBar from '@/components/TopNavBar.vue';
@@ -23,10 +25,12 @@ import TopNavBar from '@/components/TopNavBar.vue';
 const marketStore = useMarketStore();
 const layoutStore = useLayoutStore();
 
-onMounted(()=>{
-  marketStore.fetchExchangeInfo()
-  marketStore.connectUserDataStream(); // 🌟 连接私有账户数据流
-});
+watch(() => layoutStore.currentTab, (newTab) => {
+  if (newTab === 'dashboard') {
+    marketStore.fetchExchangeInfo();
+    marketStore.connectUserDataStream();
+  }
+}, { immediate: true });
 </script>
 
 <style>

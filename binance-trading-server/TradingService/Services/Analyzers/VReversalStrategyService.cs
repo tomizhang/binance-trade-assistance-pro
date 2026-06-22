@@ -13,9 +13,9 @@ namespace TradingTerminal.Services
 {
     /// <summary>
     /// 🌟 V形态/倒V形态 流动性回扫猎杀策略 (Liquidity Sweep Hunter) - 宏观大周期版
-    /// 核心逻辑：基于 30m 和 1h 的大级别阻力/支撑，精准狙击做市商 +0.5%/-0.5% 的扫损假突破
+    /// 核心逻辑：基于 15m 和 1d 的大级别阻力/支撑，精准狙击做市商 +0.5%/-0.5% 的扫损假突破
     /// </summary>
-    [System.ComponentModel.DisplayName("VReversal 反转策略 (1m爆量+3/5m连跌+1h支撑)")]
+    [System.ComponentModel.DisplayName("VReversal 反转策略 (1m入场+15m判定+1d周期)")]
     public class VReversalStrategyService : StrategyBase
     {
         private class VObservationState
@@ -57,8 +57,8 @@ namespace TradingTerminal.Services
             this.IsOrderEnabled = true; // 开启实盘执行
             this.IsStrategyEnabled = true;
 #endif
-            // 🌟 订阅 1m 用于微观狙击，订阅 30m 和 1h 用于宏观阻力/支撑
-            this._timeframes = new[] { "1m", "30m", "1h" };
+            // 🌟 订阅 1m 用于微观狙击，订阅 15m 和 1d 用于宏观阻力/支撑
+            this._timeframes = new[] { "1m", "15m", "1d" };
         }
 
         // ==========================================
@@ -72,12 +72,12 @@ namespace TradingTerminal.Services
             var klines1m = await FetchHistoryAsync(symbol, "1m", 500);
             _1mBuffer[symbol] = klines1m;
 
-            var klines30m = await FetchHistoryAsync(symbol, "30m", 150);
-            var klines1h = await FetchHistoryAsync(symbol, "1h", 150);
+            var klines15m = await FetchHistoryAsync(symbol, "15m", 150);
+            var klines1d = await FetchHistoryAsync(symbol, "1d", 150);
 
             var tfData = _tfBuffers.GetOrAdd(symbol, _ => new ConcurrentDictionary<string, List<IKline>>());
-            if (klines30m.Any()) tfData["30m"] = klines30m;
-            if (klines1h.Any()) tfData["1h"] = klines1h;
+            if (klines15m.Any()) tfData["15m"] = klines15m;
+            if (klines1d.Any()) tfData["1d"] = klines1d;
 
             RecalculateMultiTimeframePivots(symbol);
         }
@@ -250,7 +250,7 @@ namespace TradingTerminal.Services
                                 MaxObservationCandles = maxObs
                             };
 
-                            _logger.LogWarning($"👀 [{symbol}] 逼近 30m/1h 宏观前高 {peak:F4}。入角:{entryAngle:F1}°。部署流动性红线: {sweepPrice:F4} (+0.5%)");
+                            _logger.LogWarning($"👀 [{symbol}] 逼近 15m/1d 宏观前高 {peak:F4}。入角:{entryAngle:F1}°。部署流动性红线: {sweepPrice:F4} (+0.5%)");
                             return;
                         }
                     }
@@ -285,7 +285,7 @@ namespace TradingTerminal.Services
                                 MaxObservationCandles = maxObs
                             };
 
-                            _logger.LogWarning($"👀 [{symbol}] 逼近 30m/1h 宏观前低 {valley:F4}。入角:{entryAngle:F1}°。部署流动性红线: {sweepPrice:F4} (-0.5%)");
+                            _logger.LogWarning($"👀 [{symbol}] 逼近 15m/1d 宏观前低 {valley:F4}。入角:{entryAngle:F1}°。部署流动性红线: {sweepPrice:F4} (-0.5%)");
                             return;
                         }
                     }
@@ -333,7 +333,7 @@ namespace TradingTerminal.Services
         }
 
         // ==========================================
-        // 🌟 30m/1h 宏观支撑压力合并提取 
+        // 🌟 15m/1d 宏观支撑压力合并提取 
         // ==========================================
         private void RecalculateMultiTimeframePivots(string symbol)
         {
@@ -342,7 +342,7 @@ namespace TradingTerminal.Services
             var allHighs = new List<decimal>();
             var allLows = new List<decimal>();
 
-            foreach (var tf in new[] { "30m", "1h" })
+            foreach (var tf in new[] { "15m", "1d" })
             {
                 if (tfData.TryGetValue(tf, out var buffer) && buffer.Count > 10)
                 {

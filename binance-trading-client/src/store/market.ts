@@ -248,8 +248,11 @@ export const useMarketStore = defineStore('market', () => {
   };
 
   let listenKeyTimer: ReturnType<typeof setInterval> | null = null;
+  const isUserDataStreamConnecting = ref(false);
 
   const connectUserDataStream = async () => {
+    if (isUserDataStreamConnecting.value) return;
+    isUserDataStreamConnecting.value = true;
     try {
       await refreshAccountBalance();
       const infoRes = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/account/info`);
@@ -274,6 +277,7 @@ export const useMarketStore = defineStore('market', () => {
         catch (e) { console.error('ListenKey 保活失败'); }
       }, 28 * 60 * 1000);
     } catch (e) {
+      isUserDataStreamConnecting.value = false;
       setTimeout(connectUserDataStream, 5000);
     }
     await fetchInitialRiskConfig();

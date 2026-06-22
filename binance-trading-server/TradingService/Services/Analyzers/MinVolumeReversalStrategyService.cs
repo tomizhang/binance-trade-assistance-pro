@@ -19,7 +19,7 @@ namespace TradingTerminal.Services
         private readonly ConcurrentDictionary<string, DateTime> _lastTradeTime = new();
 
         // 策略参数
-        private readonly int _volumePeriod = 20; // 计算最近量的均值的K线周期
+        private readonly int _volumePeriod = 15; // 计算最近量的均值的K线周期
         private readonly decimal _volumeMultiplier = 3.0m; // 1分钟爆量倍数
         private readonly int _slopePeriod = 5; // 计算最近K线斜率的周期
         private readonly decimal _stopLossDistance = 0.015m; // 止损距离 1.5%
