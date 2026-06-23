@@ -120,10 +120,19 @@ namespace TradingTerminal.Services
 
                     while (_tradeWs.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
                     {
-                        var result = await _tradeWs.ReceiveAsync(new ArraySegment<byte>(buffer), stoppingToken);
+                        using var ms = new System.IO.MemoryStream();
+                        WebSocketReceiveResult result;
+                        do
+                        {
+                            result = await _tradeWs.ReceiveAsync(new ArraySegment<byte>(buffer), stoppingToken);
+                            if (result.MessageType == WebSocketMessageType.Close) break;
+                            ms.Write(buffer, 0, result.Count);
+                        }
+                        while (!result.EndOfMessage);
+
                         if (result.MessageType == WebSocketMessageType.Close) break;
 
-                        var jsonResponse = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        var jsonResponse = Encoding.UTF8.GetString(ms.ToArray());
 
                         using var doc = JsonDocument.Parse(jsonResponse);
                         if (doc.RootElement.TryGetProperty("id", out var idElement))

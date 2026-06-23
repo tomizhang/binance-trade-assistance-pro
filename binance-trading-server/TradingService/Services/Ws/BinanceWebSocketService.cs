@@ -114,10 +114,19 @@ namespace TradingTerminal.Services
 
                     while (_publicWs.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
                     {
-                        var result = await _publicWs.ReceiveAsync(new ArraySegment<byte>(buffer), stoppingToken);
+                        using var ms = new System.IO.MemoryStream();
+                        WebSocketReceiveResult result;
+                        do
+                        {
+                            result = await _publicWs.ReceiveAsync(new ArraySegment<byte>(buffer), stoppingToken);
+                            if (result.MessageType == WebSocketMessageType.Close) break;
+                            ms.Write(buffer, 0, result.Count);
+                        }
+                        while (!result.EndOfMessage);
+
                         if (result.MessageType == WebSocketMessageType.Close) break;
 
-                        var rawJson = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        var rawJson = Encoding.UTF8.GetString(ms.ToArray());
                         ProcessAndRouteMarketData(rawJson, stoppingToken);
                     }
                 }
@@ -141,6 +150,15 @@ namespace TradingTerminal.Services
                     if (streamName.Contains("miniTicker") || streamName.Contains("markPrice"))
                     {
                         await _hubContext.Clients.All.SendAsync("ReceiveMarketData", jsonMessage, stoppingToken);
+                    }
+                    else if (streamName.Contains("@aggTrade"))
+                    {
+                        await _hubContext.Clients.Group(streamName).SendAsync("ReceiveMarketData", jsonMessage, stoppingToken);
+                    }
+                    else if (streamName.Contains("@depth"))
+                    {
+                        _logger.LogInformation($"[行情中枢] 收到并转发深度数据: {streamName}");
+                        await _hubContext.Clients.Group(streamName).SendAsync("ReceiveMarketData", jsonMessage, stoppingToken);
                     }
                     else if (streamName.Contains("@kline_"))
                     {
@@ -258,6 +276,7 @@ namespace TradingTerminal.Services
 
         private async Task SendWsCommandAsync(IEnumerable<string> streams, string method)
         {
+            _logger.LogInformation($"[BinanceWS] 发送命令 {method}，目标流: {string.Join(", ", streams)}");
             var payload = new { method, @params = streams, id = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
             var json = JsonSerializer.Serialize(payload);
             await _publicWs.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
@@ -265,6 +284,7 @@ namespace TradingTerminal.Services
 
         public async Task SubscribeFrontendAsync(string connectionId, string stream)
         {
+            _logger.LogInformation($"[Hub订阅] 连接 {connectionId} 请求订阅 {stream}");
             var subs = _clientSubs.GetOrAdd(connectionId, _ => new HashSet<string>());
             bool added; lock (subs) { added = subs.Add(stream); }
             if (added) await ChangeStreamSubscriptionAsync(stream, 1);
@@ -272,6 +292,7 @@ namespace TradingTerminal.Services
 
         public async Task UnsubscribeFrontendAsync(string connectionId, string stream)
         {
+            _logger.LogInformation($"[Hub退订] 连接 {connectionId} 请求退订 {stream}");
             if (_clientSubs.TryGetValue(connectionId, out var subs))
             {
                 bool removed; lock (subs) { removed = subs.Remove(stream); }
