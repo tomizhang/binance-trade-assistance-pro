@@ -112,6 +112,11 @@ function processMarketData(payload: any) {
       broadcastToPorts('TICKERS_DATA', payload);
     } else if (stream.includes('@kline_')) {
       broadcastToPorts('KLINE_DATA', payload);
+    } else if (stream.includes('@aggTrade')) {
+      broadcastToPorts('AGGTRADE_DATA', payload);
+    } else if (stream.includes('@depth')) {
+      console.log('Worker: broadcasting DEPTH_DATA for stream', stream);
+      broadcastToPorts('DEPTH_DATA', payload);
     }
   } else {
     if (Array.isArray(payload)) {
@@ -223,8 +228,18 @@ function connectUserDataStream() {
         break;
 
       case 'SUBSCRIBE':
+        console.log('Worker: SUBSCRIBE request for stream:', stream, 'currentDataSource:', currentDataSource);
         if (stream && !activeSubscriptions.has(stream)) {
           activeSubscriptions.add(stream);
+          if (currentDataSource === 'backend' && signalRConnection?.state === signalR.HubConnectionState.Connected) {
+            console.log('Worker: Invoking Subscribe on backend Hub for:', stream);
+            signalRConnection.invoke("Subscribe", stream).catch(console.error);
+          } else if (currentDataSource === 'binance' && publicWs?.readyState === WebSocket.OPEN) {
+            console.log('Worker: Sending SUBSCRIBE to Binance WS for:', stream);
+            publicWs.send(JSON.stringify({ method: 'SUBSCRIBE', params: [stream], id: Date.now() }));
+          }
+        } else if (stream && activeSubscriptions.has(stream)) {
+          console.log('Worker: Already subscribed to stream, checking connection to force re-subscribe if needed');
           if (currentDataSource === 'backend' && signalRConnection?.state === signalR.HubConnectionState.Connected) {
             signalRConnection.invoke("Subscribe", stream).catch(console.error);
           } else if (currentDataSource === 'binance' && publicWs?.readyState === WebSocket.OPEN) {

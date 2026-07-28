@@ -7,4 +7,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Binance.Net" Version="13.0.1" />
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.9" />
+  </ItemGroup>
+
 </Project>

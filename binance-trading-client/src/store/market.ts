@@ -173,6 +173,13 @@ export const useMarketStore = defineStore('market', () => {
       else if (type === 'KLINE_DATA') handleKlineData(payload);
       else if (type === 'ACCOUNT_DATA') handleAccountData(payload);
       else if (type === 'BACKEND_LATENCY') backendLatency.value = payload;
+      else if (type === 'AGGTRADE_DATA') {
+        window.dispatchEvent(new CustomEvent('aggtrade-update', { detail: payload }));
+      }
+      else if (type === 'DEPTH_DATA') {
+        console.log('Store: DEPTH_DATA received, dispatching depth-update event:', payload.stream);
+        window.dispatchEvent(new CustomEvent('depth-update', { detail: payload }));
+      }
       else if (type === 'STRATEGY_ALERT') {
         console.log('🚨 [前端雷达] 捕获主力异动:', payload);
 
@@ -419,6 +426,29 @@ export const useMarketStore = defineStore('market', () => {
     }
   };
 
+  const subscribeStream = (streamName: string) => {
+    initWorker();
+    const currentCount = mySubscriptions.get(streamName) || 0;
+    mySubscriptions.set(streamName, currentCount + 1);
+    if (currentCount === 0) {
+      worker?.port.postMessage({ type: 'SUBSCRIBE', stream: streamName });
+    }
+  };
+
+  const unsubscribeStream = (streamName: string) => {
+    if (!worker) return;
+    const currentCount = mySubscriptions.get(streamName) || 0;
+    if (currentCount > 0) {
+      const newCount = currentCount - 1;
+      if (newCount === 0) {
+        mySubscriptions.delete(streamName);
+        worker.port.postMessage({ type: 'UNSUBSCRIBE', stream: streamName });
+      } else {
+        mySubscriptions.set(streamName, newCount);
+      }
+    }
+  };
+
   const baseAvailableBalance = ref(0); 
   const baseTotalUnrealizedPnl = ref(0); 
 
@@ -453,6 +483,7 @@ export const useMarketStore = defineStore('market', () => {
 
   return {
     marketTickers, latestKlines, connectAllTickers, connectWs, subscribeKline, unsubscribeKline,
+    subscribeStream, unsubscribeStream,
     isSyncEnabled, toggleSync, crosshairData, setCrosshair, clearCrosshair,
     globalLines, addGlobalLine, clearGlobalLines, globalChartType, setGlobalChartType,
     usdtBalance, currentSymbol, setCurrentSymbol,

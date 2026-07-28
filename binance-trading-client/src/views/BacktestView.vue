@@ -673,7 +673,9 @@ const strategies = ref<any[]>([
   { name: 'VolumeExhaustionReversalStrategyService', displayName: '成交量衰竭反转策略' },
   { name: 'HighVolStructureStrategyService', displayName: '爆量超跌反弹策略' },
   { name: 'MinVolumeReversalStrategyService', displayName: '1分钟成交量反转策略' },
-  { name: 'VStructureRegressionStrategyService', displayName: 'V型及倒V型形态拟合策略' }
+  { name: 'VStructureRegressionStrategyService', displayName: 'V型及倒V型形态拟合策略' },
+  { name: 'MtfTouchReversalStrategyService', displayName: '多周期高低点触及反转策略' },
+  { name: 'MtfRetestReversalStrategyService', displayName: '5m高低点双棒确认反转策略' }
 ]);
 
 const fetchStrategies = async () => {

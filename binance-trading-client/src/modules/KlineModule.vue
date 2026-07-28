@@ -91,6 +91,10 @@
           🔗 同步
         </button>
 
+        <button class="sync-btn" :class="{ active: showAnalysisWindow }" @click="toggleAnalysisWindow" title="极速分析 (Tick/1s)">
+          📡 极速分析
+        </button>
+
         <span class="divider" v-if="activeOpenOrders.length > 0">|</span>
         <button 
           v-if="activeOpenOrders.length > 0"
@@ -277,26 +281,62 @@
         </g>
       </svg>
 
-      <div 
-        class="chart-container no-drag" 
-        :class="{ 
-          'is-resizing': isHoveringShape || draggingShapeId,
-          'is-hovering-position': isHoveringPositionLine || isDraggingPosition 
-        }"
-        ref="chartContainer"
-        @pointerdown.stop="onPointerDown"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
-        @pointerleave="onPointerUp"
-        @wheel.stop
-        @contextmenu.prevent
-      ></div>
+      <div class="charts-split-container">
+        <div 
+          class="chart-container no-drag" 
+          :class="{ 
+            'is-resizing': isHoveringShape || draggingShapeId,
+            'is-hovering-position': isHoveringPositionLine || isDraggingPosition 
+          }"
+          ref="chartContainer"
+          @pointerdown.stop="onPointerDown"
+          @pointermove="onPointerMove"
+          @pointerup="onPointerUp"
+          @pointerleave="onPointerUp"
+          @wheel.stop
+          @contextmenu.prevent
+        ></div>
+
+        <!-- 极速分析侧边窗口 -->
+        <div v-if="showAnalysisWindow" class="analysis-window no-drag">
+          <div class="analysis-header">
+            <span class="analysis-title">📡 极速分析 ({{ symbol }})</span>
+            <div class="analysis-controls">
+              <label class="analysis-checkbox-label" title="以K线形式显示买卖盘总深度变化">
+                <input type="checkbox" v-model="showDepthChart" />
+                📊 深度 K线
+              </label>
+              <select v-model="analysisInterval" class="analysis-select">
+                <option value="1s">1秒 K线</option>
+                <option value="1t">1 Tick</option>
+                <option value="10t">10 Ticks</option>
+                <option value="30t">30 Ticks</option>
+              </select>
+              <button class="analysis-close-btn" @click="toggleAnalysisWindow" title="关闭极速分析">✕</button>
+            </div>
+          </div>
+          <div class="analysis-chart-container" :class="{ 'has-depth': showDepthChart }">
+            <div id="analysis-price-chart" ref="analysisChartContainer">
+              <div v-if="analysisCandles.length === 0" class="analysis-loading">
+                <div class="loader-spinner"></div>
+                <span>等待实时交易流数据流入...</span>
+              </div>
+            </div>
+            <div v-show="showDepthChart" id="analysis-depth-chart" ref="analysisDepthChartContainer">
+              <div v-if="depthCandles.length === 0" class="analysis-loading">
+                <div class="loader-spinner"></div>
+                <span>等待深度数据流入...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { createChart, CrosshairMode, LineStyle, IChartApi } from 'lightweight-charts';
 import { useMarketStore } from '@/store/market';
 import { MarketAPI } from '@/api/market'; 
@@ -1273,6 +1313,427 @@ const hardReload = async () => {
 };
 defineExpose({ hardReload });
 
+// ==========================================
+// 🌟 极速分析 (Tick / 1秒 K线) 引擎
+// ==========================================
+const showAnalysisWindow = ref(false);
+const showDepthChart = ref(false);
+const analysisInterval = ref<'1s' | '1t' | '10t' | '30t'>('1s');
+const analysisChartContainer = ref<HTMLElement | null>(null);
+const analysisDepthChartContainer = ref<HTMLElement | null>(null);
+
+let analysisChart: IChartApi | null = null;
+let analysisCandleSeries: any = null;
+let analysisResizeObserver: ResizeObserver | null = null;
+
+let depthChart: IChartApi | null = null;
+let depthCandleSeries: any = null;
+let depthResizeObserver: ResizeObserver | null = null;
+
+let rawTrades: any[] = [];
+const analysisCandles = ref<any[]>([]);
+const depthCandles = ref<any[]>([]);
+let depthVirtualTime = 1000000;
+
+const toggleAnalysisWindow = () => {
+  showAnalysisWindow.value = !showAnalysisWindow.value;
+  nextTick(() => {
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 50);
+  });
+};
+
+const processIncomingTrade = (trade: any) => {
+  const price = parseFloat(trade.p);
+  const qty = parseFloat(trade.q);
+  const timeMs = trade.T; // 交易时间戳
+
+  rawTrades.push({ price, qty, timeMs });
+  if (rawTrades.length > 5000) {
+    rawTrades.shift();
+  }
+
+  if (analysisInterval.value === '1s') {
+    const timeSec = Math.floor(timeMs / 1000);
+    let lastCandle = analysisCandles.value[analysisCandles.value.length - 1];
+
+    if (lastCandle && lastCandle.time === timeSec) {
+      lastCandle.high = Math.max(lastCandle.high, price);
+      lastCandle.low = Math.min(lastCandle.low, price);
+      lastCandle.close = price;
+      lastCandle.volume += qty;
+    } else {
+      const newCandle = {
+        time: timeSec,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: qty
+      };
+      analysisCandles.value.push(newCandle);
+      if (analysisCandles.value.length > 300) {
+        analysisCandles.value.shift();
+      }
+    }
+  } else {
+    // Tick 聚合: '1t' | '10t' | '30t'
+    let groupSize = 1;
+    if (analysisInterval.value === '10t') groupSize = 10;
+    else if (analysisInterval.value === '30t') groupSize = 30;
+
+    let lastCandle = analysisCandles.value[analysisCandles.value.length - 1];
+    let tickIndex = lastCandle ? lastCandle.time : 1000000;
+
+    if (lastCandle && lastCandle.tickCount < groupSize) {
+      lastCandle.high = Math.max(lastCandle.high, price);
+      lastCandle.low = Math.min(lastCandle.low, price);
+      lastCandle.close = price;
+      lastCandle.volume += qty;
+      lastCandle.tickCount += 1;
+    } else {
+      const newCandle = {
+        time: tickIndex + 1,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: qty,
+        tickCount: 1
+      };
+      analysisCandles.value.push(newCandle);
+      if (analysisCandles.value.length > 300) {
+        analysisCandles.value.shift();
+      }
+    }
+  }
+
+  updateAnalysisChart();
+};
+
+const processIncomingDepth = (depthData: any) => {
+  console.log('KlineModule: processIncomingDepth received bids/asks count:', depthData.b?.length, depthData.a?.length);
+  const bids = depthData.b || [];
+  const asks = depthData.a || [];
+
+  let totalBidQty = 0;
+  let totalAskQty = 0;
+  for (const b of bids) {
+    totalBidQty += parseFloat(b[1]);
+  }
+  for (const a of asks) {
+    totalAskQty += parseFloat(a[1]);
+  }
+
+  const netDepth = totalBidQty - totalAskQty;
+  depthVirtualTime += 1;
+
+  const newCandle = {
+    time: depthVirtualTime,
+    open: 0,
+    high: totalBidQty,
+    low: -totalAskQty,
+    close: netDepth
+  };
+
+  depthCandles.value.push(newCandle);
+  if (depthCandles.value.length > 300) {
+    depthCandles.value.shift();
+  }
+
+  updateDepthChart();
+};
+
+const rebuildAnalysisCandles = () => {
+  analysisCandles.value = [];
+  if (rawTrades.length === 0) {
+    if (analysisCandleSeries) {
+      analysisCandleSeries.setData([]);
+    }
+    return;
+  }
+
+  const list: any[] = [];
+  if (analysisInterval.value === '1s') {
+    const candlesMap: Record<number, any> = {};
+    for (const trade of rawTrades) {
+      const timeSec = Math.floor(trade.timeMs / 1000);
+      if (!candlesMap[timeSec]) {
+        candlesMap[timeSec] = {
+          time: timeSec,
+          open: trade.price,
+          high: trade.price,
+          low: trade.price,
+          close: trade.price,
+          volume: trade.qty
+        };
+      } else {
+        const c = candlesMap[timeSec];
+        c.high = Math.max(c.high, trade.price);
+        c.low = Math.min(c.low, trade.price);
+        c.close = trade.price;
+        c.volume += trade.qty;
+      }
+    }
+    list.push(...Object.values(candlesMap).sort((a, b) => a.time - b.time));
+  } else {
+    let groupSize = 1;
+    if (analysisInterval.value === '10t') groupSize = 10;
+    else if (analysisInterval.value === '30t') groupSize = 30;
+
+    let currentCandle: any = null;
+    let virtualTime = 1000000;
+
+    for (const trade of rawTrades) {
+      if (!currentCandle || currentCandle.tickCount >= groupSize) {
+        virtualTime += 1;
+        currentCandle = {
+          time: virtualTime,
+          open: trade.price,
+          high: trade.price,
+          low: trade.price,
+          close: trade.price,
+          volume: trade.qty,
+          tickCount: 1
+        };
+        list.push(currentCandle);
+      } else {
+        currentCandle.high = Math.max(currentCandle.high, trade.price);
+        currentCandle.low = Math.min(currentCandle.low, trade.price);
+        currentCandle.close = trade.price;
+        currentCandle.volume += trade.qty;
+        currentCandle.tickCount += 1;
+      }
+    }
+  }
+
+  analysisCandles.value = list.slice(-300);
+
+  if (analysisCandleSeries) {
+    analysisCandleSeries.setData(analysisCandles.value.map(c => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close
+    })));
+  }
+};
+
+const updateAnalysisChart = () => {
+  if (!analysisCandleSeries || analysisCandles.value.length === 0) return;
+  const lastCandle = analysisCandles.value[analysisCandles.value.length - 1];
+  analysisCandleSeries.update({
+    time: lastCandle.time,
+    open: lastCandle.open,
+    high: lastCandle.high,
+    low: lastCandle.low,
+    close: lastCandle.close
+  });
+};
+
+const updateDepthChart = () => {
+  if (!depthCandleSeries || depthCandles.value.length === 0) return;
+  const lastCandle = depthCandles.value[depthCandles.value.length - 1];
+  depthCandleSeries.update(lastCandle);
+};
+
+const initAnalysisChart = () => {
+  if (!analysisChartContainer.value) return;
+
+  analysisChart = createChart(analysisChartContainer.value, {
+    layout: { textColor: '#8b949e', background: { type: 'solid' as any, color: '#0d1117' } },
+    grid: { vertLines: { color: '#21262d', style: LineStyle.Dotted }, horzLines: { color: '#21262d', style: LineStyle.Dotted } },
+    crosshair: { mode: CrosshairMode.Normal, vertLine: { labelBackgroundColor: '#1f6feb' }, horzLine: { labelBackgroundColor: '#1f6feb' } },
+    timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: true, visible: analysisInterval.value === '1s' },
+    rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.1, bottom: 0.1 } }
+  });
+
+  const precisionConfig = getPrecisionConfig();
+  analysisCandleSeries = analysisChart.addCandlestickSeries({
+    upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
+    priceFormat: { type: 'price', precision: precisionConfig.precision, minMove: precisionConfig.minMove }
+  });
+
+  rebuildAnalysisCandles();
+
+  if (analysisResizeObserver) analysisResizeObserver.disconnect();
+  analysisResizeObserver = new ResizeObserver(entries => {
+    if (entries[0].contentRect.width === 0 || !analysisChartContainer.value) return;
+    analysisChart?.applyOptions({
+      width: analysisChartContainer.value.clientWidth,
+      height: analysisChartContainer.value.clientHeight
+    });
+  });
+  analysisResizeObserver.observe(analysisChartContainer.value);
+};
+
+const initDepthChart = () => {
+  if (!analysisDepthChartContainer.value) return;
+
+  depthChart = createChart(analysisDepthChartContainer.value, {
+    layout: { textColor: '#8b949e', background: { type: 'solid' as any, color: '#0d1117' } },
+    grid: { vertLines: { color: '#21262d', style: LineStyle.Dotted }, horzLines: { color: '#21262d', style: LineStyle.Dotted } },
+    crosshair: { mode: CrosshairMode.Normal, vertLine: { labelBackgroundColor: '#1f6feb' }, horzLine: { labelBackgroundColor: '#1f6feb' } },
+    timeScale: { borderColor: '#30363d', timeVisible: false, visible: false },
+    rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.1, bottom: 0.1 } }
+  });
+
+  depthCandleSeries = depthChart.addCandlestickSeries({
+    upColor: '#2ea043', downColor: '#f85149', borderVisible: false, wickUpColor: '#2ea043', wickDownColor: '#f85149',
+    priceFormat: { type: 'volume' }
+  });
+
+  depthCandleSeries.createPriceLine({
+    price: 0,
+    color: '#8b949e',
+    lineWidth: 1,
+    lineStyle: LineStyle.Dashed,
+    axisLabelVisible: true,
+    title: '平衡线'
+  });
+
+  if (depthCandles.value.length > 0) {
+    depthCandleSeries.setData(depthCandles.value);
+  }
+
+  // 同步平移/缩放
+  let isSyncing = false;
+  if (analysisChart && depthChart) {
+    analysisChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (isSyncing || !range) return;
+      isSyncing = true;
+      depthChart?.timeScale().setVisibleLogicalRange(range);
+      setTimeout(() => { isSyncing = false; }, 20);
+    });
+
+    depthChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (isSyncing || !range) return;
+      isSyncing = true;
+      analysisChart?.timeScale().setVisibleLogicalRange(range);
+      setTimeout(() => { isSyncing = false; }, 20);
+    });
+  }
+
+  if (depthResizeObserver) depthResizeObserver.disconnect();
+  depthResizeObserver = new ResizeObserver(entries => {
+    if (entries[0].contentRect.width === 0 || !analysisDepthChartContainer.value) return;
+    depthChart?.applyOptions({
+      width: analysisDepthChartContainer.value.clientWidth,
+      height: analysisDepthChartContainer.value.clientHeight
+    });
+  });
+  depthResizeObserver.observe(analysisDepthChartContainer.value);
+};
+
+const disposeAnalysisChart = () => {
+  if (analysisResizeObserver) analysisResizeObserver.disconnect();
+  analysisResizeObserver = null;
+  if (analysisChart) {
+    analysisChart.remove();
+    analysisChart = null;
+  }
+  analysisCandleSeries = null;
+};
+
+const disposeDepthChart = () => {
+  if (depthResizeObserver) depthResizeObserver.disconnect();
+  depthResizeObserver = null;
+  if (depthChart) {
+    depthChart.remove();
+    depthChart = null;
+  }
+  depthCandleSeries = null;
+};
+
+const handleAggTradeUpdate = (e: Event) => {
+  const detail = (e as CustomEvent).detail;
+  if (detail.stream === `${props.symbol.toLowerCase()}@aggTrade`) {
+    processIncomingTrade(detail.data);
+  }
+};
+
+const handleDepthUpdate = (e: Event) => {
+  const detail = (e as CustomEvent).detail;
+  console.log(`KlineModule: handleDepthUpdate received event for stream ${detail.stream}, current props.symbol: ${props.symbol}`);
+  if (detail.stream.startsWith(`${props.symbol.toLowerCase()}@depth`)) {
+    processIncomingDepth(detail.data);
+  }
+};
+
+watch(showAnalysisWindow, async (newVal) => {
+  if (newVal) {
+    await nextTick();
+    initAnalysisChart();
+    marketStore.subscribeStream(`${props.symbol.toLowerCase()}@aggTrade`);
+    window.addEventListener('aggtrade-update', handleAggTradeUpdate);
+    if (showDepthChart.value) {
+      await nextTick();
+      initDepthChart();
+      marketStore.subscribeStream(`${props.symbol.toLowerCase()}@depth20@100ms`);
+      window.addEventListener('depth-update', handleDepthUpdate);
+    }
+  } else {
+    window.removeEventListener('aggtrade-update', handleAggTradeUpdate);
+    window.removeEventListener('depth-update', handleDepthUpdate);
+    marketStore.unsubscribeStream(`${props.symbol.toLowerCase()}@aggTrade`);
+    marketStore.unsubscribeStream(`${props.symbol.toLowerCase()}@depth20@100ms`);
+    disposeAnalysisChart();
+    disposeDepthChart();
+    rawTrades = [];
+    analysisCandles.value = [];
+    depthCandles.value = [];
+  }
+});
+
+watch(showDepthChart, async (newVal) => {
+  if (newVal) {
+    await nextTick();
+    initDepthChart();
+    if (showAnalysisWindow.value) {
+      marketStore.subscribeStream(`${props.symbol.toLowerCase()}@depth20@100ms`);
+      window.addEventListener('depth-update', handleDepthUpdate);
+    }
+  } else {
+    window.removeEventListener('depth-update', handleDepthUpdate);
+    marketStore.unsubscribeStream(`${props.symbol.toLowerCase()}@depth20@100ms`);
+    disposeDepthChart();
+    depthCandles.value = [];
+  }
+  nextTick(() => {
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 50);
+  });
+});
+
+watch(analysisInterval, () => {
+  if (analysisChart) {
+    analysisChart.timeScale().applyOptions({
+      visible: analysisInterval.value === '1s'
+    });
+    rebuildAnalysisCandles();
+  }
+});
+
+watch(() => props.symbol, (newSymbol, oldSymbol) => {
+  if (showAnalysisWindow.value) {
+    if (oldSymbol) {
+      marketStore.unsubscribeStream(`${oldSymbol.toLowerCase()}@aggTrade`);
+      marketStore.unsubscribeStream(`${oldSymbol.toLowerCase()}@depth20@100ms`);
+    }
+    marketStore.subscribeStream(`${newSymbol.toLowerCase()}@aggTrade`);
+    if (showDepthChart.value) {
+      marketStore.subscribeStream(`${newSymbol.toLowerCase()}@depth20@100ms`);
+    }
+    rawTrades = [];
+    analysisCandles.value = [];
+    depthCandles.value = [];
+    rebuildAnalysisCandles();
+  }
+});
+
 onMounted(async () => {
   if (!chartContainer.value) return;
   window.addEventListener('sync-logical-range', onSyncRange);
@@ -1338,7 +1799,15 @@ onUnmounted(() => {
   cancelAnimationFrame(animationFrameId);
   window.removeEventListener('sync-logical-range', onSyncRange);
   window.removeEventListener('sync-drawing', onSyncDrawing);
+  window.removeEventListener('aggtrade-update', handleAggTradeUpdate);
+  window.removeEventListener('depth-update', handleDepthUpdate);
   marketStore.unsubscribeKline(props.symbol, currentTf.value);
+  if (showAnalysisWindow.value) {
+    marketStore.unsubscribeStream(`${props.symbol.toLowerCase()}@aggTrade`);
+    marketStore.unsubscribeStream(`${props.symbol.toLowerCase()}@depth20@100ms`);
+    disposeAnalysisChart();
+    disposeDepthChart();
+  }
   disposeCharts();
 });
 </script>
@@ -1435,4 +1904,24 @@ onUnmounted(() => {
 .line-settings-panel .action-btn { background: transparent; border: 1px solid #30363d; color: #c9d1d9; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: 0.2s; }
 .line-settings-panel .action-btn:hover { background: #30363d; }
 .line-settings-panel .delete-btn:hover { border-color: #f85149; color: #f85149; }
+
+.charts-split-container { display: flex; flex: 1; width: 100%; height: 100%; position: relative; overflow: hidden; }
+.main-chart { flex: 1; height: 100%; position: relative; }
+.analysis-window { width: 320px; border-left: 1px solid #21262d; background: #0d1117; display: flex; flex-direction: column; height: 100%; flex-shrink: 0; }
+.analysis-header { height: 32px; background: #161b22; border-bottom: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; flex-shrink: 0; }
+.analysis-title { font-size: 11px; font-weight: bold; color: #8b949e; }
+.analysis-controls { display: flex; align-items: center; gap: 6px; }
+.analysis-select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 2px 4px; font-size: 11px; outline: none; cursor: pointer; }
+.analysis-close-btn { background: transparent; border: none; color: #8b949e; cursor: pointer; font-size: 12px; }
+.analysis-close-btn:hover { color: #f85149; }
+.analysis-chart-container { flex: 1; width: 100%; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+#analysis-price-chart { width: 100%; height: 100%; position: relative; }
+#analysis-depth-chart { width: 100%; height: 0; border-top: 1px solid #21262d; position: relative; }
+.analysis-chart-container.has-depth #analysis-price-chart { height: 65%; }
+.analysis-chart-container.has-depth #analysis-depth-chart { height: 35%; }
+.analysis-checkbox-label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8b949e; cursor: pointer; user-select: none; }
+.analysis-checkbox-label input { cursor: pointer; }
+.analysis-loading { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(13, 17, 23, 0.85); color: #8b949e; font-size: 12px; gap: 12px; z-index: 10; pointer-events: none; }
+.loader-spinner { width: 24px; height: 24px; border: 2px solid #21262d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

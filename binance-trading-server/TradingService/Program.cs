@@ -143,6 +143,17 @@ try
     builder.Services.AddSingleton<YangFanReversalStrategyService>();
     builder.Services.AddHostedService(provider => provider.GetRequiredService<YangFanReversalStrategyService>());
 
+    // 🌟 注册新增的：多周期高低点触及反转策略
+    builder.Services.AddSingleton<CustomStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<CustomStrategyService>());
+
+    // 🌟 注册新增的：多周期高低点触碰及双棒确认反转策略
+    builder.Services.AddSingleton<MtfTouchReversalStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<MtfTouchReversalStrategyService>());
+
+    builder.Services.AddSingleton<MtfRetestReversalStrategyService>();
+    builder.Services.AddHostedService(provider => provider.GetRequiredService<MtfRetestReversalStrategyService>());
+
 
     // 注册跨域策略 (开发阶段允许前端 Vue 请求)    // 🌟 注册新增的：1m爆量 + 3/5m连跌 + 1h支撑 反转策略
     builder.Services.AddSingleton<HighVolStructureStrategyService>();
