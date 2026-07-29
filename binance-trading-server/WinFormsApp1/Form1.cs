@@ -1,38 +1,45 @@
-// ¼ÙÉè PivotHelper Î»ÓÚ ConsoleApp1 ÃüÃû¿Õ¼äÖĞ
 using ConsoleApp1;
 using ScottPlot;
 using ScottPlot.Colormaps;
 using ScottPlot.Plottables;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace WinFormsApp1
 {
     public partial class Form1 : Form
     {
-        readonly System.Windows.Forms.Timer AddNewDataTimer = new() { Interval = 10, Enabled = true };
-        readonly System.Windows.Forms.Timer UpdatePlotTimer = new() { Interval = 50, Enabled = true };
+        readonly System.Windows.Forms.Timer AddNewDataTimer = new() { Interval = 20, Enabled = true };
+        readonly System.Windows.Forms.Timer UpdatePlotTimer = new() { Interval = 30, Enabled = true };
 
-        // ÉùÃ÷Àà³ÉÔ±±äÁ¿
+        // ScottPlot å˜é‡
         private DataStreamer Streamer1;
         private VerticalLine VLine;
 
-        // ¡¾ĞÂÔö±äÁ¿¡¿ÓÃÓÚÒÆ¶¯Ê±ÏÔÊ¾µãÎ»µÄ Crosshair (Ê®×Ö×¼ĞÇ) ºÍÎÄ±¾±ê×¢
+        // åå­—å‡†æ˜Ÿä¸ Text æ ‡æ³¨
         private Crosshair MyCrosshair;
         private ScottPlot.Plottables.Text MyTooltipText;
 
-        // Ä£ÄâÊı¾İÉú³ÉÆ÷
+        // éšæœºæ•°æ®å¤‡ç”¨å‘ç”Ÿå™¨
         private RandomWalker Walker1 = new RandomWalker(seed: 0, mult: 1);
 
-        // --- ÎªÁËĞÔÄÜÓÅ»¯¶ø¸´ÓÃµÄÄÚ´æ»º³åÇø£¬±ÜÃâ GC Æµ·±´¥·¢ ---
+        // --- é˜Ÿåˆ—æ–¹å¼æ¥å…¥ ScottPlot ---
+        private readonly ConcurrentQueue<BinanceFuturesKlineItem> _klineQueue = new();
+        private readonly SymbolDataProvider _dataProvider = new SymbolDataProvider(maxDegreeOfParallelism: 5);
+        private CancellationTokenSource? _fetchCts;
+        private long _totalEnqueuedCount = 0;
+        private string _currentSymbol = "BTCUSDT";
+
+        // --- å†…å­˜ç¼“å­˜åŒº ---
         private readonly List<int> _peaksBuffer = new(64);
         private readonly List<int> _valleysBuffer = new(64);
-
-        // ÓÃÓÚ¹ÜÀíµ±Ç°»­ÃæÖĞ»æÖÆµÄ Marker ºÍÑÓÉìÏß
         private readonly List<IPlottable> _currentOverlayPlottables = new(256);
-
         private decimal[] _highsCache = new decimal[1000];
         private decimal[] _lowsCache = new decimal[1000];
 
@@ -40,58 +47,71 @@ namespace WinFormsApp1
         {
             InitializeComponent();
 
-            // 1. ´´½¨ DataStreamer£¬ÈİÁ¿ÉèÖÃÎª 1000 ¸öÊı¾İµã
+            // 1. åˆå§‹åŒ– ComboBox é»˜è®¤é€‰é¡¹
+            InitControls();
+
+            // 2. åˆå§‹åŒ– ScottPlot DataStreamer (1000 æ•°æ®ç‚¹)
             Streamer1 = formsPlot1.Plot.Add.DataStreamer(1000);
-
-            // 2. Ä¬ÈÏÉèÖÃÎª¡¾Ïò×óÆ½»¬¹ö¶¯Ä£Ê½¡¿
             Streamer1.ViewScrollLeft();
-
-            // 3. ÑùÊ½ÅäÖÃ
             Streamer1.LineStyle.Color = ScottPlot.Colors.Blue;
-            Streamer1.LegendText = "ĞÅºÅÍ¨µÀ A (¸ßµã¼ì²â)";
+            Streamer1.LegendText = "æ”¶ç›˜ä»· (Close Price)";
 
-            // 4. Ìí¼Ó´¹Ö±Ö¸Ê¾Ïß
+            // 3. æŒ‡ç¤ºçº¿ä¸åå­—æ˜Ÿ
             VLine = formsPlot1.Plot.Add.VerticalLine(0, 2, ScottPlot.Colors.Red);
             VLine.IsVisible = false;
 
-            // ¡¾ĞŞ¸´ÎÊÌâ 1¡¿£ºÆôÓÃ½»»¥£¨ÔÊĞíÊó±ê¹öÂÖ·Å´óËõĞ¡¡¢ÓÒ¼üÍÏ×§Ëõ·ÅµÈ£©
             formsPlot1.UserInputProcessor.Enable();
 
-            // ¡¾¹¦ÄÜ 2¡¿£ºÌí¼Ó Crosshair Ê®×ÖÖ¸Ê¾Ïß
             MyCrosshair = formsPlot1.Plot.Add.Crosshair(0, 0);
-            MyCrosshair.IsVisible = false; // ³õÊ¼Òş²Ø
+            MyCrosshair.IsVisible = false;
             MyCrosshair.LineColor = ScottPlot.Colors.DarkGray.WithAlpha(0.8);
             MyCrosshair.LineWidth = 1f;
 
-            // ¡¾ĞŞ¸´ÎÊÌâ 2¡¿£º´´½¨¶ÀÁ¢µÄ Text ¶ÔÏóÓÃÓÚÔÚ×¼ĞÇÅÔÏÔÊ¾×ø±êµãÎ»ĞÅÏ¢
             MyTooltipText = formsPlot1.Plot.Add.Text("", 0, 0);
             MyTooltipText.IsVisible = false;
             MyTooltipText.LabelFontSize = 12;
             MyTooltipText.LabelFontColor = ScottPlot.Colors.Black;
             MyTooltipText.LabelBackgroundColor = ScottPlot.Colors.Yellow.WithAlpha(0.8);
 
-            // ¡¾¹¦ÄÜ 2¡¿£º°ó¶¨Êó±êÒÆ¶¯ÓëÀë¿ªÊÂ¼ş
             formsPlot1.MouseMove += FormsPlot1_MouseMove;
             formsPlot1.MouseLeave += FormsPlot1_MouseLeave;
 
-            // 7. Timer 1£ºÊı¾İ²É¼¯¶¨Ê±Æ÷
-            AddNewDataTimer.Interval = 20; // 20ms
+            // 4. å®šæ—¶å™¨ 1ï¼šä» ConcurrentQueue é˜Ÿåˆ—ä¸­æ¶ˆè´¹ K çº¿æ•°æ®å¹¶æ¥å…¥ ScottPlot
+            AddNewDataTimer.Interval = 15; // 15ms
             AddNewDataTimer.Tick += (s, e) =>
             {
-                int count = 5; // Ã¿´Î×·¼Ó 5 ¸öµã
-                Streamer1.AddRange(Walker1.Next(count));
+                if (!_klineQueue.IsEmpty)
+                {
+                    // æ‰¹é‡ä»é˜Ÿåˆ—ä¸­æå–æ•°æ®ç‚¹æ¥å…¥ ScottPlot
+                    int batchSize = chkAutoPlay.Checked ? 3 : _klineQueue.Count;
+                    List<double> valuesToAdd = new();
+
+                    for (int i = 0; i < batchSize && _klineQueue.TryDequeue(out var kline); i++)
+                    {
+                        valuesToAdd.Add((double)kline.Close);
+                    }
+
+                    if (valuesToAdd.Count > 0)
+                    {
+                        Streamer1.AddRange(valuesToAdd);
+                    }
+                }
+                //else if (chkAutoPlay.Checked && _totalEnqueuedCount == 0)
+                //{
+                //    // å¦‚æœé˜Ÿåˆ—ä¸ºç©ºä¸”æ²¡æœ‰åœ¨çº¿è¯·æ±‚ï¼Œç”Ÿæˆå¤‡ç”¨æ¼”ç¤ºæ•°æ®
+                //    Streamer1.AddRange(Walker1.Next(2));
+                //}
             };
 
-            // 8. Timer 2£ºUI äÖÈ¾Ë¢ĞÂ¶¨Ê±Æ÷
+            // 5. å®šæ—¶å™¨ 2ï¼šUI æ¸²æŸ“åˆ·æ–°
             UpdatePlotTimer.Interval = 30; // 30ms (~33 FPS)
             UpdatePlotTimer.Tick += (s, e) =>
             {
                 if (Streamer1.HasNewData)
                 {
                     long totalCount = Streamer1.Data.CountTotal;
-                    formsPlot1.Plot.Title($"ÒÑ´¦ÀíÊı¾İµã: {totalCount:N0}");
+                    formsPlot1.Plot.Title($"[{_currentSymbol}] å·²æ¥å…¥æ•°æ®ç‚¹: {totalCount:N0} | é˜Ÿåˆ—å‰©ä½™: {_klineQueue.Count}");
 
-                    // µ±Êı¾İÁ¿´ïµ½ 500 ¸öÒÔÉÏÊ±£¬ÊµÊ±¼ÆËã¸ßµÍµã²¢»æÖÆÑÓÉìÏß
                     if (totalCount >= 500)
                     {
                         UpdatePivotMarkersAndLines();
@@ -115,21 +135,141 @@ namespace WinFormsApp1
             UpdatePlotTimer.Start();
         }
 
-        #region ¡¾¹¦ÄÜ 2 ½»»¥À©Õ¹¡¿£ºÊó±êÒÆ¶¯ÏÔÊ¾µãÎ»ĞÅÏ¢
+        private void InitControls()
+        {
+            if (cmbSymbol.SelectedIndex < 0) cmbSymbol.SelectedIndex = 0;
+            if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 3; // é»˜è®¤ 15m
+            if (cmbTimeRange.SelectedIndex < 0) cmbTimeRange.SelectedIndex = 2; // é»˜è®¤ æœ€è¿‘24å°æ—¶
+        }
+
+        /// <summary>
+        /// ç‚¹å‡»æŒ‰é’®ï¼šå¤šçº¿ç¨‹è·å–å¸ç§å†å²æ•°æ®å¹¶é‡‡ç”¨é˜Ÿåˆ—æ¥å…¥ ScottPlot
+        /// </summary>
+        private async void btnFetch_Click(object sender, EventArgs e)
+        {
+            string symbol = cmbSymbol.Text.Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(symbol))
+            {
+                MessageBox.Show("è¯·è¾“å…¥æˆ–é€‰æ‹©æ­£ç¡®çš„å¸ç§åç§°ï¼ˆå¦‚ BTCUSDTï¼‰", "æç¤º", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string intervalStr = cmbInterval.SelectedItem?.ToString() ?? "15m";
+            if (!FuturesKlineIntervalExtensions.TryParseInterval(intervalStr, out var interval))
+            {
+                interval = FuturesKlineInterval.Min15;
+            }
+
+            // è®¡ç®—èµ·å§‹ä¸ç»“æŸæ—¶é—´
+            DateTime endTime = DateTime.UtcNow;
+            DateTime startTime = cmbTimeRange.SelectedIndex switch
+            {
+                0 => endTime.AddHours(-1),
+                1 => endTime.AddHours(-6),
+                2 => endTime.AddHours(-24),
+                3 => endTime.AddDays(-3),
+                4 => endTime.AddDays(-7),
+                5 => endTime.AddDays(-30),
+                _ => endTime.AddHours(-24)
+            };
+
+            // å–æ¶ˆä¸Šä¸€æ¬¡æœªå®Œæˆçš„è·å–è¯·æ±‚
+            _fetchCts?.Cancel();
+            _fetchCts = new CancellationTokenSource();
+            var token = _fetchCts.Token;
+
+            // é‡ç½®çŠ¶æ€ä¸é˜Ÿåˆ—
+            _currentSymbol = symbol;
+            Streamer1.LegendText = $"{symbol} {intervalStr} (Close)";
+            btnFetch.Enabled = false;
+            lblStatus.Text = $"æ­£åœ¨é€šè¿‡å¤šçº¿ç¨‹å¹¶å‘ä¸‹è½½ [{symbol}] {intervalStr} å†å²æ•°æ®...";
+
+            // æ¸…ç©ºå½“å‰é˜Ÿåˆ—
+            while (_klineQueue.TryDequeue(out _)) { }
+            _totalEnqueuedCount = 0;
+
+            try
+            {
+                int fetchedCount = 0;
+                var progress = new Progress<FetchStatusReport>(report =>
+                {
+                    lblStatus.Text = $"çŠ¶æ€: {report.Message}\næ­£åœ¨æ’é˜Ÿ/ä¸‹è½½: {report.Symbol}\n" +
+                                     $"æ—¶é—´æ®µ: {report.StartTime:MM-dd HH:mm} ~ {report.EndTime:MM-dd HH:mm}";
+                });
+
+                // ä½¿ç”¨ã€ç”Ÿäº§è€…-æ¶ˆè´¹è€…æ¨¡å¼ã€‘æœ‰åºæµå¼æ‹‰å–æ•°æ®ï¼Œå¹¶å®æ—¶å‹å…¥ ConcurrentQueue é˜Ÿåˆ—
+                await foreach (var kline in _dataProvider.StreamSymbolDataChronologicalAsync(
+                    symbol, interval, startTime, endTime, token))
+                {
+                    _klineQueue.Enqueue(kline);
+                    Interlocked.Increment(ref _totalEnqueuedCount);
+                    fetchedCount++;
+
+                    if (fetchedCount % 100 == 0)
+                    {
+                        lblStatus.Text = $"å·²é€šè¿‡ç”Ÿäº§è€…-æ¶ˆè´¹è€…é˜Ÿåˆ—æ¥æ”¶ [{symbol}] {fetchedCount} æ¡å†å² K çº¿...";
+                    }
+                }
+
+                lblStatus.Text = $"æ•°æ®è·å–æˆåŠŸï¼\nå¸ç§: {symbol}\nå‘¨æœŸ: {intervalStr}\næ€»è®¡: {fetchedCount} æ¡ K çº¿\næ­£åœ¨æ¥å…¥ ScottPlot å®æ—¶æ’­æ”¾...";
+            }
+            catch (OperationCanceledException)
+            {
+                lblStatus.Text = "å·²å–æ¶ˆè·å–æ•°æ®";
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = $"è·å–å‡ºé”™: {ex.Message}";
+                MessageBox.Show($"è·å–å†å²æ•°æ®å¤±è´¥: {ex.Message}", "é”™è¯¯", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnFetch.Enabled = true;
+            }
+        }
+
+        /// <summary>
+        /// é‡ç½®/å¤ä½å›¾è¡¨æŒ‰é’®äº‹ä»¶ handler
+        /// </summary>
+        private void button1_Click(object sender, EventArgs e)
+        {
+            // 1. å–æ¶ˆåœ¨é€”çš„ç½‘ç»œä¸‹è½½ä»»åŠ¡
+            _fetchCts?.Cancel();
+
+            // 2. æ¸…ç©º ConcurrentQueue æ•°æ®é˜Ÿåˆ—
+            while (_klineQueue.TryDequeue(out _)) { }
+            _totalEnqueuedCount = 0;
+
+            // 3. æ¸…ç©ºé«˜ä½ç‚¹ Marker åŠå»¶ä¼¸çº¿ overlay
+            foreach (var item in _currentOverlayPlottables)
+            {
+                formsPlot1.Plot.Remove(item);
+            }
+            _currentOverlayPlottables.Clear();
+
+            // 4. é‡ç½® ScottPlot DataStreamer æ•°æ®
+            Streamer1.Data.Clear();
+
+            // 5. å¤ä½è§†å›¾ä¸è‡ªåŠ¨ç¼©æ”¾
+            //formsPlot1.Plot.Axes.Autoscale();
+            formsPlot1.Plot.Title("å›¾è¡¨å·²é‡ç½®");
+
+            // 6. æ¢å¤æŒ‰é’®ä¸çŠ¶æ€
+            btnFetch.Enabled = true;
+            lblStatus.Text = "å›¾è¡¨ä¸é˜Ÿåˆ—æ•°æ®å·²é‡ç½®å®Œæˆï¼Œè¯·é‡æ–°é€‰æ‹©å¸ç§åç‚¹å‡»ã€è·å–å¸ç§å†å²æ•°æ®ã€‘ã€‚";
+
+            // 7. åˆ·æ–°ç•Œé¢
+            formsPlot1.Refresh();
+        }
 
         private void FormsPlot1_MouseMove(object sender, MouseEventArgs e)
         {
-            // ×ª»»Îª ScottPlot ×ø±êÏµµÄ Pixel ¸ñÊ½
             Pixel mousePixel = new Pixel(e.X, e.Y);
-
-            // »ñÈ¡Êó±êÔÚµ±Ç°Í¼±íÖĞµÄÂß¼­Êı¾İ×ø±ê (X, Y)
             Coordinates coordinates = formsPlot1.Plot.GetCoordinates(mousePixel);
 
-            // ¸üĞÂ Crosshair Î»ÖÃ
             MyCrosshair.Position = coordinates;
             MyCrosshair.IsVisible = true;
 
-            // ¸üĞÂÎÄ±¾¿òÎ»ÖÃÓëÏÔÊ¾ÄÚÈİ
             MyTooltipText.Location = coordinates;
             MyTooltipText.LabelText = $" X: {coordinates.X:F1}, Y: {coordinates.Y:F2} ";
             MyTooltipText.IsVisible = true;
@@ -139,20 +279,13 @@ namespace WinFormsApp1
 
         private void FormsPlot1_MouseLeave(object sender, EventArgs e)
         {
-            // Êó±êÒÆ³ö¿Ø¼ş·¶Î§Ê±Òş²ØÌáÊ¾ÏßºÍÎÄ×Ö
             MyCrosshair.IsVisible = false;
             MyTooltipText.IsVisible = false;
             formsPlot1.Refresh();
         }
 
-        #endregion
-
-        /// <summary>
-        /// ÊµÊ±¼ÆËã¸ßµÍµã£¬²¢ÔÚµ±Ç°´°¿ÚÖĞ»æÖÆËùÓĞ¸ß¸ßÁ¬Ïß/µÍµÍÁ¬ÏßµÄÑÓÉìÏß
-        /// </summary>
         private void UpdatePivotMarkersAndLines()
         {
-            // 1. Çå³ıÉÏÒ»Ö¡»æÖÆµÄËùÓĞ Marker ºÍÑÓÉìÏß
             foreach (var item in _currentOverlayPlottables)
             {
                 formsPlot1.Plot.Remove(item);
@@ -169,7 +302,6 @@ namespace WinFormsApp1
                 _lowsCache = new decimal[length];
             }
 
-            // 2. Ó³Éäµ±Ç°ÊÓ¿ÚÎïÀíÊı¾İ
             for (int i = 0; i < length; i++)
             {
                 int physicalIndex = (nextIndex + i) % length;
@@ -177,7 +309,6 @@ namespace WinFormsApp1
                 _lowsCache[i] = SafeToDecimal(streamer1Data[physicalIndex]);
             }
 
-            // 3. ¼ÆËã Peak ºÍ Valley Ë÷Òı
             PivotHelper.CalculatePeaksFast(
                 _highsCache.AsSpan(0, length),
                 _lowsCache.AsSpan(0, length),
@@ -187,7 +318,6 @@ namespace WinFormsApp1
                 rightLen: 5
             );
 
-            // 4. ±ê×¢ Peak Marker
             foreach (int peakIdx in _peaksBuffer)
             {
                 int physicalIndex = (nextIndex + peakIdx) % length;
@@ -202,7 +332,6 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(marker);
             }
 
-            // 5. ±ê×¢ Valley Marker
             foreach (int valleyIdx in _valleysBuffer)
             {
                 int physicalIndex = (nextIndex + valleyIdx) % length;
@@ -217,21 +346,14 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(marker);
             }
 
-            // 6. »ùÓÚµ±Ç°´°¿ÚÄÚµÄËùÓĞ Peak Á½Á½»æÖÆÑÓÉìÇ÷ÊÆÏß
             DrawExtensionLines(_peaksBuffer, streamer1Data, nextIndex, length, ScottPlot.Colors.Red.WithAlpha(0.6));
-
-            // 7. »ùÓÚµ±Ç°´°¿ÚÄÚµÄËùÓĞ Valley Á½Á½»æÖÆÑÓÉìÇ÷ÊÆÏß
             DrawExtensionLines(_valleysBuffer, streamer1Data, nextIndex, length, ScottPlot.Colors.Green.WithAlpha(0.6));
         }
 
-        /// <summary>
-        /// ¸ù¾İÁ½µã¼ÆËãÑÓÉìÏß£¬²¢½«Ïß»æÖÆÀ©Õ¹µ½ÓÒ±ß½ç (x = length - 1)
-        /// </summary>
         private void DrawExtensionLines(List<int> pivotIndices, double[] rawData, int nextIndex, int length, ScottPlot.Color lineColor)
         {
             if (pivotIndices.Count < 2) return;
 
-            // ÒÀ´Î±éÀúµ±Ç°´°¿ÚÖĞµÄÏàÁÚÁ½¸ö¸ßµã/µÍµã£¬»æÖÆÑÓÉìÏß
             for (int i = 0; i < pivotIndices.Count - 1; i++)
             {
                 int idx1 = pivotIndices[i];
@@ -243,17 +365,12 @@ namespace WinFormsApp1
                 double x2 = idx2;
                 double y2 = rawData[(nextIndex + idx2) % length];
 
-                // ·ÀÖ¹Á½µã X ÖØµşÒı·¢³ıÁã´íÎó
                 if (Math.Abs(x2 - x1) < 1e-5) continue;
 
-                // ¼ÆËãĞ±ÂÊ k
                 double k = (y2 - y1) / (x2 - x1);
-
-                // ½«Á¬Ïß´ÓÆğµã x1 ÏòÓÒÑÓ³¤ÖÁÊÓ¿Ú×îÓÒ¶Ë (x = length - 1)
                 double xEnd = length - 1;
                 double yEnd = y1 + k * (xEnd - x1);
 
-                // Ìí¼ÓÏß¶Î (Line) µ½Í¼±íÖĞ
                 var line = formsPlot1.Plot.Add.Line(x1, y1, xEnd, yEnd);
                 line.LineStyle.Color = lineColor;
                 line.LineStyle.Width = 1f;
@@ -277,40 +394,11 @@ namespace WinFormsApp1
             return (decimal)value;
         }
 
-        #region Êı¾İÁ÷¿ØÖÆ½Ó¿Ú (ÔİÍ£ / ¼ÓËÙ / ¼õËÙ / »Ö¸´)
-
-        private const int MIN_INTERVAL = 1;   // ×î¸ßËÙ¶È (Êı¾İ²É¼¯¼ä¸ô 1ms)
-        private const int MAX_INTERVAL = 200; // ×îµÍËÙ¶È (Êı¾İ²É¼¯¼ä¸ô 200ms)
-        private const int STEP_INTERVAL = 5;  // Ã¿´Î¼Ó¼õËÙµ÷½ÚµÄ²½³¤ (ms)
+        #region è¿è¡Œæ§åˆ¶ (æš‚åœ / æ¢å¤)
 
         public void TogglePause()
         {
             AddNewDataTimer.Enabled = !AddNewDataTimer.Enabled;
-        }
-
-        public void Pause(bool pause)
-        {
-            AddNewDataTimer.Enabled = !pause;
-        }
-
-        public void SpeedUp()
-        {
-            int newInterval = AddNewDataTimer.Interval - STEP_INTERVAL;
-            AddNewDataTimer.Interval = Math.Max(MIN_INTERVAL, newInterval);
-        }
-
-        public void SlowDown()
-        {
-            int newInterval = AddNewDataTimer.Interval + STEP_INTERVAL;
-            AddNewDataTimer.Interval = Math.Min(MAX_INTERVAL, newInterval);
-        }
-
-        public string GetCurrentSpeedInfo()
-        {
-            bool isRunning = AddNewDataTimer.Enabled;
-            return isRunning
-                ? $"×´Ì¬: ÔËĞĞÖĞ | ²É¼¯¼ä¸ô: {AddNewDataTimer.Interval} ms (Ô¼ {1000.0 / AddNewDataTimer.Interval:F0} ´Î/Ãë)"
-                : "×´Ì¬: ÒÑÔİÍ£";
         }
 
         #endregion
@@ -318,6 +406,7 @@ namespace WinFormsApp1
         private void btn_puase_Click(object sender, EventArgs e)
         {
             TogglePause();
+            btn_puase.Text = AddNewDataTimer.Enabled ? "æš‚åœæ•°æ®æ’­æ”¾" : "æ¢å¤æ•°æ®æ’­æ”¾";
         }
     }
 
