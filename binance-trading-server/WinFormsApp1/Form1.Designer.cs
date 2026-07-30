@@ -165,24 +165,50 @@ namespace WinFormsApp1
             lblStatus.TabIndex = 10;
             lblStatus.Text = "就绪: 请选择币种与周期后点击【获取币种历史数据】";
             // 
-            // chkAutoPlay
+            // lblPlaySpeed
             // 
-            chkAutoPlay.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            chkAutoPlay.AutoSize = true;
-            chkAutoPlay.Checked = true;
-            chkAutoPlay.CheckState = CheckState.Checked;
-            chkAutoPlay.Location = new Point(820, 360);
-            chkAutoPlay.Name = "chkAutoPlay";
-            chkAutoPlay.Size = new Size(147, 21);
-            chkAutoPlay.TabIndex = 11;
-            chkAutoPlay.Text = "队列数据平滑播放接入";
-            chkAutoPlay.UseVisualStyleBackColor = true;
+            lblPlaySpeed.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblPlaySpeed.AutoSize = true;
+            lblPlaySpeed.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            lblPlaySpeed.Location = new Point(820, 390);
+            lblPlaySpeed.Name = "lblPlaySpeed";
+            lblPlaySpeed.Size = new Size(84, 17);
+            lblPlaySpeed.TabIndex = 12;
+            lblPlaySpeed.Text = "4. 播放速度倍速:";
+            // 
+            // cmbPlaySpeed
+            // 
+            cmbPlaySpeed.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            cmbPlaySpeed.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbPlaySpeed.FormattingEnabled = true;
+            cmbPlaySpeed.Items.AddRange(new object[] { "0.5x (慢速)", "1.0x (标准)", "2.0x (快速)", "5.0x (极速)", "10.0x (飞速)", "全速 (瞬时完成)" });
+            cmbPlaySpeed.Location = new Point(820, 410);
+            cmbPlaySpeed.Name = "cmbPlaySpeed";
+            cmbPlaySpeed.Size = new Size(185, 25);
+            cmbPlaySpeed.TabIndex = 13;
+            // 
+            // lblTrendState
+            // 
+            lblTrendState.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
+            lblTrendState.BorderStyle = BorderStyle.FixedSingle;
+            lblTrendState.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
+            lblTrendState.ForeColor = Color.DimGray;
+            lblTrendState.Location = new Point(820, 450);
+            lblTrendState.Name = "lblTrendState";
+            lblTrendState.Size = new Size(185, 45);
+            lblTrendState.TabIndex = 14;
+            lblTrendState.Text = "趋势状态: 计算中...";
+            lblTrendState.TextAlign = ContentAlignment.MiddleCenter;
             // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1027, 737);
+            Controls.Add(lblTrendState);
+            Controls.Add(cmbPlaySpeed);
+            Controls.Add(lblPlaySpeed);
             Controls.Add(chkAutoPlay);
             Controls.Add(lblStatus);
             Controls.Add(btnFetch);
@@ -215,5 +241,8 @@ namespace WinFormsApp1
         private Button btnFetch;
         private Label lblStatus;
         private CheckBox chkAutoPlay;
+        private Label lblTrendState =new Label();
+        private Label lblPlaySpeed = new Label();
+        private ComboBox cmbPlaySpeed=new ComboBox();
     }
 }

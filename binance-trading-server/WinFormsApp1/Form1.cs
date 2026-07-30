@@ -80,16 +80,40 @@ namespace WinFormsApp1
             formsPlot1.MouseMove += FormsPlot1_MouseMove;
             formsPlot1.MouseLeave += FormsPlot1_MouseLeave;
 
-            // 4. 定时器 1：从 ConcurrentQueue 队列中消费 K 线数据并接入 ScottPlot
-            AddNewDataTimer.Interval = 15; // 15ms
+            // 4. 定时器 1：根据选择的播放速度倍速，从 ConcurrentQueue 队列中消费 K 线数据并接入 ScottPlot
+            AddNewDataTimer.Interval = 20; // 20ms 默认
             AddNewDataTimer.Tick += (s, e) =>
             {
                 if (!_klineQueue.IsEmpty)
                 {
-                    // 批量从队列中提取数据点接入 ScottPlot
-                    int batchSize = chkAutoPlay.Checked ? 3 : _klineQueue.Count;
-                    List<double> valuesToAdd = new();
+                    int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
 
+                    // 动态调整定时器间隔 (0.5x=35ms, 1.0x=20ms, 2.0x=15ms, 5.0x/10.0x/全速=10ms)
+                    int targetInterval = speedIndex switch
+                    {
+                        0 => 35,
+                        1 => 20,
+                        2 => 15,
+                        _ => 10
+                    };
+                    if (AddNewDataTimer.Interval != targetInterval)
+                    {
+                        AddNewDataTimer.Interval = targetInterval;
+                    }
+
+                    // 动态计算每次提取的 BatchSize 批量大小
+                    int batchSize = speedIndex switch
+                    {
+                        0 => 1,                 // 0.5x (慢速: 每 Tick 1 点)
+                        1 => 2,                 // 1.0x (标准: 每 Tick 2 点)
+                        2 => 5,                 // 2.0x (快速: 每 Tick 5 点)
+                        3 => 15,                // 5.0x (极速: 每 Tick 15 点)
+                        4 => 40,                // 10.0x (飞速: 每 Tick 40 点)
+                        5 => _klineQueue.Count, // 全速 (瞬时全量完成)
+                        _ => 2
+                    };
+
+                    List<double> valuesToAdd = new();
                     for (int i = 0; i < batchSize && _klineQueue.TryDequeue(out var kline); i++)
                     {
                         valuesToAdd.Add((double)kline.Close);
@@ -100,11 +124,6 @@ namespace WinFormsApp1
                         Streamer1.AddRange(valuesToAdd);
                     }
                 }
-                //else if (chkAutoPlay.Checked && _totalEnqueuedCount == 0)
-                //{
-                //    // 如果队列为空且没有在线请求，生成备用演示数据
-                //    Streamer1.AddRange(Walker1.Next(2));
-                //}
             };
 
             // 5. 定时器 2：UI 渲染刷新
@@ -144,6 +163,7 @@ namespace WinFormsApp1
             if (cmbSymbol.SelectedIndex < 0) cmbSymbol.SelectedIndex = 0;
             if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 3; // 默认 15m
             if (cmbTimeRange.SelectedIndex < 0) cmbTimeRange.SelectedIndex = 2; // 默认 最近24小时
+            if (cmbPlaySpeed.SelectedIndex < 0) cmbPlaySpeed.SelectedIndex = 1; // 默认 1.0x (标准)
         }
 
         /// <summary>
@@ -404,15 +424,22 @@ namespace WinFormsApp1
             public double X2 { get; set; }
             public double Y2 { get; set; }
             public double K { get; set; }
+            public double NormK { get; set; }
             public bool IsPeak { get; set; }
+            public bool IsBroken { get; set; }
+            public int TouchCount { get; set; } = 2; // 默认由 2 个极值点构成
             public bool Keep { get; set; }
             public bool IsLatest { get; set; }
+
+            public double GetY(double x) => Y1 + K * (x - X1);
         }
 
         /// <summary>
-        /// 趋势线规则：
-        /// 1. 收集所有高点向下趋势线 (Resistance: Slope < 0) 与低点向上趋势线 (Support: Slope > 0)
-        /// 2. 凡是与对侧趋势线产生夹角 (楔形/三角形收敛交汇) 的历史趋势线与最新趋势线均予以保留绘制
+        /// 趋势线优化规则：
+        /// 1. 斜率过大过滤：归一化斜率 > 5%/根的过陡斜线予以过滤排除。
+        /// 2. 触碰次数 >= 3 确认：有 3 次及以上极点落在/碰撞趋势线附近的强化保留。
+        /// 3. 碰撞权重加深：碰撞触碰次数越多，趋势线颜色越深、线宽越粗 (加深权重)。
+        /// 4. 破位废弃：价格穿透击穿后的趋势线抛弃排除。
         /// </summary>
         private void DrawAngleTrendLines(List<int> peakIndices, List<int> valleyIndices, double[] rawData, int nextIndex, int length)
         {
@@ -421,7 +448,7 @@ namespace WinFormsApp1
             var downPeakLines = new List<AngleTrendLineInfo>();
             var upValleyLines = new List<AngleTrendLineInfo>();
 
-            // 1. 收集所有高点向下的历史趋势线 (Slope < 0)
+            // 1. 收集高点向下趋势线 (Slope < 0)，过滤斜率过大 (normK > 0.05) 的斜线
             for (int i = 0; i < peakIndices.Count - 1; i++)
             {
                 for (int j = i + 1; j < peakIndices.Count; j++)
@@ -434,20 +461,24 @@ namespace WinFormsApp1
                     double x2 = p2;
                     double y2 = rawData[(nextIndex + p2) % length];
 
-                    if (Math.Abs(x2 - x1) < 1e-5) continue;
+                    if (Math.Abs(x2 - x1) < 2) continue; // 距离小于 2 根 K 线过度密集，排除
                     double k = (y2 - y1) / (x2 - x1);
+                    double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
-                    if (k < 0) // 高点向下
+                    // 规则 1：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
+                    if (normK > 0.05) continue;
+
+                    if (k < 0) // 高点向下 (下降阻力线)
                     {
                         downPeakLines.Add(new AngleTrendLineInfo
                         {
-                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, IsPeak = true, Keep = false
+                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, NormK = normK, IsPeak = true
                         });
                     }
                 }
             }
 
-            // 2. 收集所有低点向上的历史趋势线 (Slope > 0)
+            // 2. 收集低点向上趋势线 (Slope > 0)，过滤斜率过大 (normK > 0.05) 的斜线
             for (int i = 0; i < valleyIndices.Count - 1; i++)
             {
                 for (int j = i + 1; j < valleyIndices.Count; j++)
@@ -460,26 +491,82 @@ namespace WinFormsApp1
                     double x2 = v2;
                     double y2 = rawData[(nextIndex + v2) % length];
 
-                    if (Math.Abs(x2 - x1) < 1e-5) continue;
+                    if (Math.Abs(x2 - x1) < 2) continue; // 距离小于 2 根 K 线过度密集，排除
                     double k = (y2 - y1) / (x2 - x1);
+                    double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
-                    if (k > 0) // 低点向上
+                    // 规则 1：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
+                    if (normK > 0.05) continue;
+
+                    if (k > 0) // 低点向上 (上升支撑线)
                     {
                         upValleyLines.Add(new AngleTrendLineInfo
                         {
-                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, IsPeak = false, Keep = false
+                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, NormK = normK, IsPeak = false
                         });
                     }
                 }
             }
 
-            // 3. 匹配夹角：当任意高点向下线与低点向上线产生收敛交汇（交点 X >= 起始点）时，标记保留
-            foreach (var down in downPeakLines)
+            var allCandidates = downPeakLines.Concat(upValleyLines).ToList();
+            var allPivots = peakIndices.Select(p => (X: (double)p, Y: rawData[(nextIndex + p) % length]))
+                .Concat(valleyIndices.Select(v => (X: (double)v, Y: rawData[(nextIndex + v) % length]))).ToList();
+
+            // 3. 执行【价格穿透破位校验】与【规则 2 & 3：碰撞触碰次数统计与加权】
+            foreach (var line in allCandidates)
             {
-                foreach (var up in upValleyLines)
+                int startX = (int)Math.Max(0, line.X1);
+
+                // 3.1 检查之后的价格是否穿越破位
+                for (int x = startX + 1; x < length; x++)
+                {
+                    double price = rawData[(nextIndex + x) % length];
+                    double lineY = line.GetY(x);
+
+                    if (line.IsPeak && price > lineY + 1e-4) // 高点阻力线被价格向上突破
+                    {
+                        line.IsBroken = true;
+                        break;
+                    }
+                    else if (!line.IsPeak && price < lineY - 1e-4) // 低点支撑线被价格跌破
+                    {
+                        line.IsBroken = true;
+                        break;
+                    }
+                }
+
+                if (line.IsBroken) continue; // 破位线排除
+
+                // 3.2 统计其它高低点在趋势线附近的碰撞触碰次数 (偏差 <= 0.6%)
+                foreach (var pivot in allPivots)
+                {
+                    if (Math.Abs(pivot.X - line.X1) < 1e-3 || Math.Abs(pivot.X - line.X2) < 1e-3) continue;
+
+                    double expectedY = line.GetY(pivot.X);
+                    double relDiff = Math.Abs(pivot.Y - expectedY) / Math.Max(Math.Abs(pivot.Y), 1.0);
+
+                    if (relDiff <= 0.006) // 0.6% 容差范围内的碰撞
+                    {
+                        line.TouchCount++;
+                    }
+                }
+
+                // 规则 2：触碰碰撞次数 >= 3 次的强有效趋势线保留
+                if (line.TouchCount >= 3)
+                {
+                    line.Keep = true;
+                }
+            }
+
+            // 4. 收敛夹角判定 (未破位且形成收敛夹角的趋势线予以保留)
+            var validDownLines = downPeakLines.Where(d => !d.IsBroken).ToList();
+            var validUpLines = upValleyLines.Where(u => !u.IsBroken).ToList();
+
+            foreach (var down in validDownLines)
+            {
+                foreach (var up in validUpLines)
                 {
                     double xIntersect = (up.Y1 - down.Y1 + down.K * down.X1 - up.K * up.X1) / (down.K - up.K);
-
                     double validStart = Math.Min(down.X1, up.X1);
                     if (xIntersect >= validStart)
                     {
@@ -489,41 +576,47 @@ namespace WinFormsApp1
                 }
             }
 
-            // 标记最新的线以使用高亮样式
-            if (downPeakLines.Any(d => d.Keep))
+            // 标记最新的有效线
+            if (validDownLines.Any(d => d.Keep))
             {
-                downPeakLines.Where(d => d.Keep).Last().IsLatest = true;
+                validDownLines.Where(d => d.Keep).Last().IsLatest = true;
             }
-            if (upValleyLines.Any(u => u.Keep))
+            if (validUpLines.Any(u => u.Keep))
             {
-                upValleyLines.Where(u => u.Keep).Last().IsLatest = true;
+                validUpLines.Where(u => u.Keep).Last().IsLatest = true;
             }
 
-            // 4. 渲染所有保留的历史与最新夹角趋势线
-            var allKeepLines = downPeakLines.Where(d => d.Keep).Concat(upValleyLines.Where(u => u.Keep));
+            // 5. 渲染趋势线 (规则 3：根据碰撞触碰次数 TouchCount 动态加深颜色与线宽)
+            var finalKeepLines = allCandidates.Where(c => c.Keep && !c.IsBroken);
 
-            foreach (var lineData in allKeepLines)
+            foreach (var lineData in finalKeepLines)
             {
                 double xLeft = -5000;
-                double yLeft = lineData.Y1 + lineData.K * (xLeft - lineData.X1);
+                double yLeft = lineData.GetY(xLeft);
                 double xRight = length - 1 + 5000;
-                double yRight = lineData.Y1 + lineData.K * (xRight - lineData.X1);
+                double yRight = lineData.GetY(xRight);
 
                 var line = formsPlot1.Plot.Add.Line(xLeft, yLeft, xRight, yRight);
 
+                // 规则 3：碰撞触碰次数越多，仅加深颜色深度 (Alpha/暗度)，线宽与其它样式保持不变
+                float lineWidth = lineData.IsLatest ? 1.5f : 1.2f;
+
+                byte alpha = lineData.TouchCount switch
+                {
+                    >= 4 => (byte)255, // 碰撞 4 次及以上：最高透明度/最深颜色
+                    3 => (byte)200,    // 碰撞 3 次：较深颜色
+                    _ => lineData.IsLatest ? (byte)210 : (byte)110 // 2 次碰撞：标准/浅色
+                };
+
                 if (lineData.IsPeak)
                 {
-                    line.LineStyle.Color = lineData.IsLatest
-                        ? ScottPlot.Colors.Red.WithAlpha(0.9)
-                        : ScottPlot.Colors.Red.WithAlpha(0.35);
-                    line.LineStyle.Width = lineData.IsLatest ? 1.8f : 1.0f;
+                    line.LineStyle.Color = ScottPlot.Colors.Red.WithAlpha(alpha / 255.0f);
+                    line.LineStyle.Width = 0.5f;
                 }
                 else
                 {
-                    line.LineStyle.Color = lineData.IsLatest
-                        ? ScottPlot.Colors.Green.WithAlpha(0.9)
-                        : ScottPlot.Colors.Green.WithAlpha(0.35);
-                    line.LineStyle.Width = lineData.IsLatest ? 1.8f : 1.0f;
+                    line.LineStyle.Color = ScottPlot.Colors.Green.WithAlpha(alpha / 255.0f);
+                    line.LineStyle.Width = 0.5f;
                 }
 
                 line.LineStyle.Pattern = LinePattern.Solid;
