@@ -393,37 +393,140 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(marker);
             }
 
-            DrawExtensionLines(_peaksBuffer, streamer1Data, nextIndex, length, ScottPlot.Colors.Red.WithAlpha(0.6));
-            DrawExtensionLines(_valleysBuffer, streamer1Data, nextIndex, length, ScottPlot.Colors.Green.WithAlpha(0.6));
+            // 5. 绘制产生夹角的最近高点向下趋势线与低点向上趋势线
+            DrawAngleTrendLines(_peaksBuffer, _valleysBuffer, streamer1Data, nextIndex, length);
         }
 
-
-        private void DrawExtensionLines(List<int> pivotIndices, double[] rawData, int nextIndex, int length, ScottPlot.Color lineColor)
+        private class AngleTrendLineInfo
         {
-            if (pivotIndices.Count < 2) return;
+            public double X1 { get; set; }
+            public double Y1 { get; set; }
+            public double X2 { get; set; }
+            public double Y2 { get; set; }
+            public double K { get; set; }
+            public bool IsPeak { get; set; }
+            public bool Keep { get; set; }
+            public bool IsLatest { get; set; }
+        }
 
-            for (int i = 0; i < pivotIndices.Count - 1; i++)
+        /// <summary>
+        /// 趋势线规则：
+        /// 1. 收集所有高点向下趋势线 (Resistance: Slope < 0) 与低点向上趋势线 (Support: Slope > 0)
+        /// 2. 凡是与对侧趋势线产生夹角 (楔形/三角形收敛交汇) 的历史趋势线与最新趋势线均予以保留绘制
+        /// </summary>
+        private void DrawAngleTrendLines(List<int> peakIndices, List<int> valleyIndices, double[] rawData, int nextIndex, int length)
+        {
+            if (peakIndices == null || valleyIndices == null) return;
+
+            var downPeakLines = new List<AngleTrendLineInfo>();
+            var upValleyLines = new List<AngleTrendLineInfo>();
+
+            // 1. 收集所有高点向下的历史趋势线 (Slope < 0)
+            for (int i = 0; i < peakIndices.Count - 1; i++)
             {
-                int idx1 = pivotIndices[i];
-                int idx2 = pivotIndices[i + 1];
+                for (int j = i + 1; j < peakIndices.Count; j++)
+                {
+                    int p1 = peakIndices[i];
+                    int p2 = peakIndices[j];
 
-                double x1 = idx1;
-                double y1 = rawData[(nextIndex + idx1) % length];
+                    double x1 = p1;
+                    double y1 = rawData[(nextIndex + p1) % length];
+                    double x2 = p2;
+                    double y2 = rawData[(nextIndex + p2) % length];
 
-                double x2 = idx2;
-                double y2 = rawData[(nextIndex + idx2) % length];
+                    if (Math.Abs(x2 - x1) < 1e-5) continue;
+                    double k = (y2 - y1) / (x2 - x1);
 
-                if (Math.Abs(x2 - x1) < 1e-5) continue;
+                    if (k < 0) // 高点向下
+                    {
+                        downPeakLines.Add(new AngleTrendLineInfo
+                        {
+                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, IsPeak = true, Keep = false
+                        });
+                    }
+                }
+            }
 
-                double k = (y2 - y1) / (x2 - x1);
-                double xEnd = length - 1;
-                double yEnd = y1 + k * (xEnd - x1);
+            // 2. 收集所有低点向上的历史趋势线 (Slope > 0)
+            for (int i = 0; i < valleyIndices.Count - 1; i++)
+            {
+                for (int j = i + 1; j < valleyIndices.Count; j++)
+                {
+                    int v1 = valleyIndices[i];
+                    int v2 = valleyIndices[j];
 
-                var line = formsPlot1.Plot.Add.Line(x1, y1, xEnd, yEnd);
-                line.LineStyle.Color = lineColor;
-                line.LineStyle.Width = 1f;
+                    double x1 = v1;
+                    double y1 = rawData[(nextIndex + v1) % length];
+                    double x2 = v2;
+                    double y2 = rawData[(nextIndex + v2) % length];
+
+                    if (Math.Abs(x2 - x1) < 1e-5) continue;
+                    double k = (y2 - y1) / (x2 - x1);
+
+                    if (k > 0) // 低点向上
+                    {
+                        upValleyLines.Add(new AngleTrendLineInfo
+                        {
+                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, IsPeak = false, Keep = false
+                        });
+                    }
+                }
+            }
+
+            // 3. 匹配夹角：当任意高点向下线与低点向上线产生收敛交汇（交点 X >= 起始点）时，标记保留
+            foreach (var down in downPeakLines)
+            {
+                foreach (var up in upValleyLines)
+                {
+                    double xIntersect = (up.Y1 - down.Y1 + down.K * down.X1 - up.K * up.X1) / (down.K - up.K);
+
+                    double validStart = Math.Min(down.X1, up.X1);
+                    if (xIntersect >= validStart)
+                    {
+                        down.Keep = true;
+                        up.Keep = true;
+                    }
+                }
+            }
+
+            // 标记最新的线以使用高亮样式
+            if (downPeakLines.Any(d => d.Keep))
+            {
+                downPeakLines.Where(d => d.Keep).Last().IsLatest = true;
+            }
+            if (upValleyLines.Any(u => u.Keep))
+            {
+                upValleyLines.Where(u => u.Keep).Last().IsLatest = true;
+            }
+
+            // 4. 渲染所有保留的历史与最新夹角趋势线
+            var allKeepLines = downPeakLines.Where(d => d.Keep).Concat(upValleyLines.Where(u => u.Keep));
+
+            foreach (var lineData in allKeepLines)
+            {
+                double xLeft = -5000;
+                double yLeft = lineData.Y1 + lineData.K * (xLeft - lineData.X1);
+                double xRight = length - 1 + 5000;
+                double yRight = lineData.Y1 + lineData.K * (xRight - lineData.X1);
+
+                var line = formsPlot1.Plot.Add.Line(xLeft, yLeft, xRight, yRight);
+
+                if (lineData.IsPeak)
+                {
+                    line.LineStyle.Color = lineData.IsLatest
+                        ? ScottPlot.Colors.Red.WithAlpha(0.9)
+                        : ScottPlot.Colors.Red.WithAlpha(0.35);
+                    line.LineStyle.Width = lineData.IsLatest ? 1.8f : 1.0f;
+                }
+                else
+                {
+                    line.LineStyle.Color = lineData.IsLatest
+                        ? ScottPlot.Colors.Green.WithAlpha(0.9)
+                        : ScottPlot.Colors.Green.WithAlpha(0.35);
+                    line.LineStyle.Width = lineData.IsLatest ? 1.8f : 1.0f;
+                }
+
                 line.LineStyle.Pattern = LinePattern.Solid;
-
                 _currentOverlayPlottables.Add(line);
             }
         }
