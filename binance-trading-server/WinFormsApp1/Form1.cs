@@ -16,7 +16,7 @@ namespace WinFormsApp1
     public partial class Form1 : Form
     {
         readonly System.Windows.Forms.Timer AddNewDataTimer = new() { Interval = 20, Enabled = true };
-        readonly System.Windows.Forms.Timer UpdatePlotTimer = new() { Interval = 30, Enabled = true };
+        readonly System.Windows.Forms.Timer UpdatePlotTimer = new() { Interval = 60, Enabled = true };
 
         // ScottPlot 变量
         private DataStreamer Streamer1;
@@ -42,6 +42,10 @@ namespace WinFormsApp1
         private readonly List<IPlottable> _currentOverlayPlottables = new(256);
         private decimal[] _highsCache = new decimal[1000];
         private decimal[] _lowsCache = new decimal[1000];
+
+        // 按需/事件驱动图层渲染签名
+        private string _lastPivotSignature = string.Empty;
+        private bool _forceUpdatePivotOverlays = false;
 
         public Form1()
         {
@@ -112,7 +116,7 @@ namespace WinFormsApp1
                     long totalCount = Streamer1.Data.CountTotal;
                     formsPlot1.Plot.Title($"[{_currentSymbol}] 已接入数据点: {totalCount:N0} | 队列剩余: {_klineQueue.Count}");
 
-                    if (totalCount >= 500)
+                    if (totalCount >= 100)
                     {
                         UpdatePivotMarkersAndLines();
                     }
@@ -241,6 +245,8 @@ namespace WinFormsApp1
             _totalEnqueuedCount = 0;
 
             // 3. 清空高低点 Marker 及延伸线 overlay
+            _lastPivotSignature = string.Empty;
+            _forceUpdatePivotOverlays = true;
             foreach (var item in _currentOverlayPlottables)
             {
                 formsPlot1.Plot.Remove(item);
@@ -313,12 +319,6 @@ namespace WinFormsApp1
 
         private void UpdatePivotMarkersAndLines()
         {
-            foreach (var item in _currentOverlayPlottables)
-            {
-                formsPlot1.Plot.Remove(item);
-            }
-            _currentOverlayPlottables.Clear();
-
             double[] streamer1Data = Streamer1.Data.Data;
             int length = streamer1Data.Length;
             int nextIndex = Streamer1.Data.NextIndex;
@@ -336,6 +336,7 @@ namespace WinFormsApp1
                 _lowsCache[i] = SafeToDecimal(streamer1Data[physicalIndex]);
             }
 
+            // 1. 高速计算当前高低点 Pivot
             PivotHelper.CalculatePeaksFast(
                 _highsCache.AsSpan(0, length),
                 _lowsCache.AsSpan(0, length),
@@ -344,6 +345,25 @@ namespace WinFormsApp1
                 leftLen: 5,
                 rightLen: 5
             );
+
+            // 2. 检查极值点结构签名 (生成由高低点个数与最新极值点索引组成的 key)
+            string currentSignature = $"{_peaksBuffer.Count}_{(_peaksBuffer.Count > 0 ? _peaksBuffer[^1] : 0)}_{_valleysBuffer.Count}_{(_valleysBuffer.Count > 0 ? _valleysBuffer[^1] : 0)}";
+
+            // 3. 【按需/事件驱动懒渲染】：若高低点结构没有任何改变，无需重复擦除与绘制趋势线，直接跳过！
+            if (currentSignature == _lastPivotSignature && !_forceUpdatePivotOverlays)
+            {
+                return;
+            }
+
+            _lastPivotSignature = currentSignature;
+            _forceUpdatePivotOverlays = false;
+
+            // 4. 仅当有新高点/低点出现时，重新刷新渲染 Marker 标记与趋势延伸线
+            foreach (var item in _currentOverlayPlottables)
+            {
+                formsPlot1.Plot.Remove(item);
+            }
+            _currentOverlayPlottables.Clear();
 
             foreach (int peakIdx in _peaksBuffer)
             {
