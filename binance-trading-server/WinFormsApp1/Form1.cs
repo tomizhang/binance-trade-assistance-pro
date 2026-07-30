@@ -126,7 +126,7 @@ namespace WinFormsApp1
                     {
                         VLine.IsVisible = false;
                     }
-
+                    UpdateYAxisLimits();
                     formsPlot1.Refresh();
                 }
             };
@@ -261,7 +261,34 @@ namespace WinFormsApp1
             // 7. 刷新界面
             formsPlot1.Refresh();
         }
+        /// <summary>
+        /// 动态设置 Y 轴可见范围为当前数据 Y 最小值 - 1000 到 Y 最大值 + 1000
+        /// </summary>
+        private void UpdateYAxisLimits()
+        {
+            double[] streamer1Data = Streamer1.Data.Data;
+            if (streamer1Data == null || streamer1Data.Length == 0) return;
 
+            double yMin = double.MaxValue;
+            double yMax = double.MinValue;
+
+            for (int i = 0; i < streamer1Data.Length; i++)
+            {
+                double val = streamer1Data[i];
+                if (val != 0 && !double.IsNaN(val) && !double.IsInfinity(val))
+                {
+                    if (val < yMin) yMin = val;
+                    if (val > yMax) yMax = val;
+                }
+            }
+
+            if (yMin <= yMax && yMin != double.MaxValue)
+            {
+                double targetMin = yMin - 1000;
+                double targetMax = yMax + 1000;
+                formsPlot1.Plot.Axes.SetLimitsY(targetMin, targetMax);
+            }
+        }
         private void FormsPlot1_MouseMove(object sender, MouseEventArgs e)
         {
             Pixel mousePixel = new Pixel(e.X, e.Y);
@@ -350,6 +377,7 @@ namespace WinFormsApp1
             DrawExtensionLines(_valleysBuffer, streamer1Data, nextIndex, length, ScottPlot.Colors.Green.WithAlpha(0.6));
         }
 
+
         private void DrawExtensionLines(List<int> pivotIndices, double[] rawData, int nextIndex, int length, ScottPlot.Color lineColor)
         {
             if (pivotIndices.Count < 2) return;
@@ -379,6 +407,7 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(line);
             }
         }
+
 
         private static decimal SafeToDecimal(double value)
         {
