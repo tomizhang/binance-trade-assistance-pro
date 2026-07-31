@@ -10,6 +10,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Color = System.Drawing.Color;
 
 namespace WinFormsApp1
 {
@@ -47,6 +48,10 @@ namespace WinFormsApp1
         private string _lastPivotSignature = string.Empty;
         private bool _forceUpdatePivotOverlays = false;
 
+        readonly System.Windows.Forms.Timer RewindTimer = new() { Interval = 20, Enabled = false };
+        private readonly List<BinanceFuturesKlineItem> _historyKlines = new(10000);
+        private bool _isRewinding = false;
+
         public Form1()
         {
             InitializeComponent();
@@ -57,6 +62,7 @@ namespace WinFormsApp1
             // 2. 初始化 ScottPlot DataStreamer (1000 数据点)
             Streamer1 = formsPlot1.Plot.Add.DataStreamer(1000);
             Streamer1.ViewScrollLeft();
+            Streamer1.ManageAxisLimits = false;
             Streamer1.LineStyle.Color = ScottPlot.Colors.Blue;
             Streamer1.LegendText = "收盘价 (Close Price)";
 
@@ -80,11 +86,14 @@ namespace WinFormsApp1
             formsPlot1.MouseMove += FormsPlot1_MouseMove;
             formsPlot1.MouseLeave += FormsPlot1_MouseLeave;
 
+            // 回退定时器
+            RewindTimer.Tick += (s, e) => PerformRewindStep();
+
             // 4. 定时器 1：根据选择的播放速度倍速，从 ConcurrentQueue 队列中消费 K 线数据并接入 ScottPlot
             AddNewDataTimer.Interval = 20; // 20ms 默认
             AddNewDataTimer.Tick += (s, e) =>
             {
-                if (!_klineQueue.IsEmpty)
+                if (!_isRewinding && !_klineQueue.IsEmpty)
                 {
                     int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
 
@@ -117,6 +126,7 @@ namespace WinFormsApp1
                     for (int i = 0; i < batchSize && _klineQueue.TryDequeue(out var kline); i++)
                     {
                         valuesToAdd.Add((double)kline.Close);
+                        _historyKlines.Add(kline);
                     }
 
                     if (valuesToAdd.Count > 0)
@@ -161,9 +171,9 @@ namespace WinFormsApp1
         private void InitControls()
         {
             if (cmbSymbol.SelectedIndex < 0) cmbSymbol.SelectedIndex = 0;
-            if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 3; // 默认 15m
+            if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 0; // 默认 15m
             if (cmbTimeRange.SelectedIndex < 0) cmbTimeRange.SelectedIndex = 2; // 默认 最近24小时
-            if (cmbPlaySpeed.SelectedIndex < 0) cmbPlaySpeed.SelectedIndex = 1; // 默认 1.0x (标准)
+            if (cmbPlaySpeed.SelectedIndex < 0) cmbPlaySpeed.SelectedIndex = 0; // 默认 1.0x (标准)
         }
 
         /// <summary>
@@ -208,8 +218,9 @@ namespace WinFormsApp1
             btnFetch.Enabled = false;
             lblStatus.Text = $"正在通过多线程并发下载 [{symbol}] {intervalStr} 历史数据...";
 
-            // 清空当前队列
+            // 清空当前队列与历史缓存
             while (_klineQueue.TryDequeue(out _)) { }
+            _historyKlines.Clear();
             _totalEnqueuedCount = 0;
 
             try
@@ -260,8 +271,9 @@ namespace WinFormsApp1
             // 1. 取消在途的网络下载任务
             _fetchCts?.Cancel();
 
-            // 2. 清空 ConcurrentQueue 数据队列
+            // 2. 清空 ConcurrentQueue 数据队列与历史
             while (_klineQueue.TryDequeue(out _)) { }
+            _historyKlines.Clear();
             _totalEnqueuedCount = 0;
 
             // 3. 清空高低点 Marker 及延伸线 overlay
@@ -276,45 +288,183 @@ namespace WinFormsApp1
             // 4. 重置 ScottPlot DataStreamer 数据
             Streamer1.Data.Clear();
 
-            // 5. 复位视图与自动缩放
-            //formsPlot1.Plot.Axes.Autoscale();
+            // 5. 复位视图与标题
             formsPlot1.Plot.Title("图表已重置");
 
             // 6. 恢复按钮与状态
             btnFetch.Enabled = true;
             lblStatus.Text = "图表与队列数据已重置完成，请重新选择币种后点击【获取币种历史数据】。";
+            lblTrendState.Text = "趋势状态: 未计算";
+            lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
+            lblTrendState.ForeColor = Color.DimGray;
 
             // 7. 刷新界面
             formsPlot1.Refresh();
         }
+
+        #region 单击步长回退数据处理逻辑
+
+        private void btnRewind_Click(object? sender, EventArgs e)
+        {
+            PerformRewindStep();
+        }
+
+        private void PerformRewindStep()
+        {
+            if (_historyKlines.Count == 0) return;
+
+            int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
+            int rewindStep = speedIndex switch
+            {
+                0 => 2,                 // 0.5x 慢速回退 2 点
+                1 => 4,                 // 1.0x 标准回退 4 点
+                2 => 10,                // 2.0x 快速回退 10 点
+                3 => 30,                // 5.0x 极速回退 30 点
+                4 => 80,                // 10.0x 飞速回退 80 点
+                5 => _historyKlines.Count, // 全速 (瞬时全量回退)
+                _ => 4
+            };
+
+            rewindStep = Math.Min(rewindStep, _historyKlines.Count);
+
+            // 从历史记录中弹出最后 N 个已播放的数据点
+            int startIndex = _historyKlines.Count - rewindStep;
+            var rewoundItems = _historyKlines.GetRange(startIndex, rewindStep);
+            _historyKlines.RemoveRange(startIndex, rewindStep);
+
+            // 将被回退的数据倒序重新压回队列最前端，以便继续正向顺序播放
+            var remainingQueue = _klineQueue.ToList();
+            while (_klineQueue.TryDequeue(out _)) { }
+
+            foreach (var item in rewoundItems)
+            {
+                _klineQueue.Enqueue(item);
+            }
+            foreach (var item in remainingQueue)
+            {
+                _klineQueue.Enqueue(item);
+            }
+
+            // 清空 ScottPlot 并全量重新灌入剩余回退后的历史数据点
+            Streamer1.Data.Clear();
+            _forceUpdatePivotOverlays = true;
+
+            if (_historyKlines.Count > 0)
+            {
+                Streamer1.AddRange(_historyKlines.Select(k => (double)k.Close));
+                UpdatePivotMarkersAndLines();
+            }
+            else
+            {
+                foreach (var item in _currentOverlayPlottables)
+                {
+                    formsPlot1.Plot.Remove(item);
+                }
+                _currentOverlayPlottables.Clear();
+                lblTrendState.Text = "趋势状态: 观望盘整";
+                lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
+                lblTrendState.ForeColor = Color.DimGray;
+            }
+
+            // 优先计算视口可见范围 Y 轴极限，再刷新图形呈现
+            UpdateYAxisLimits();
+            formsPlot1.Plot.Title($"[{_currentSymbol}] 已回退步长: {rewindStep} 点 | 剩余: {_historyKlines.Count:N0} 点 | 待播放队列: {_klineQueue.Count}");
+            formsPlot1.Refresh();
+        }
+
+        #endregion
+
+        #region 单击步长向前推进处理逻辑
+
+        private void btnStepForward_Click(object? sender, EventArgs e)
+        {
+            PerformForwardStep();
+        }
+
+        private void PerformForwardStep()
+        {
+            if (_klineQueue.IsEmpty) return;
+
+            int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
+            int forwardStep = speedIndex switch
+            {
+                0 => 2,                 // 0.5x 慢速向前 2 点
+                1 => 4,                 // 1.0x 标准向前 4 点
+                2 => 10,                // 2.0x 快速向前 10 点
+                3 => 30,                // 5.0x 极速向前 30 点
+                4 => 80,                // 10.0x 飞速向前 80 点
+                5 => _klineQueue.Count, // 全速 (瞬时全量向前)
+                _ => 4
+            };
+
+            List<double> valuesToAdd = new();
+            for (int i = 0; i < forwardStep && _klineQueue.TryDequeue(out var kline); i++)
+            {
+                valuesToAdd.Add((double)kline.Close);
+                _historyKlines.Add(kline);
+            }
+
+            if (valuesToAdd.Count > 0)
+            {
+                Streamer1.AddRange(valuesToAdd);
+                _forceUpdatePivotOverlays = true;
+                UpdatePivotMarkersAndLines();
+                UpdateYAxisLimits();
+                formsPlot1.Plot.Title($"[{_currentSymbol}] 已单步向前: {valuesToAdd.Count} 点 | 总计渲染: {_historyKlines.Count:N0} 点 | 队列剩余: {_klineQueue.Count}");
+                formsPlot1.Refresh();
+            }
+        }
+
+        #endregion
+
         /// <summary>
-        /// 动态设置 Y 轴可见范围为当前数据 Y 最小值 - 1000 到 Y 最大值 + 1000
+        /// 动态设置 Y 轴可见范围为当前视口可见 K 线波幅 (含 8% 留白边距)
         /// </summary>
         private void UpdateYAxisLimits()
         {
-            double[] streamer1Data = Streamer1.Data.Data;
-            if (streamer1Data == null || streamer1Data.Length == 0) return;
-
             double yMin = double.MaxValue;
             double yMax = double.MinValue;
 
-            for (int i = 0; i < streamer1Data.Length; i++)
+            // 1. 精准取当前视口内可见的最多 1000 个 K 线数据点计算高低边界
+            if (_historyKlines != null && _historyKlines.Count > 0)
             {
-                double val = streamer1Data[i];
-                if (val != 0 && !double.IsNaN(val) && !double.IsInfinity(val))
+                int visibleCount = Math.Min(1000, _historyKlines.Count);
+                int startIndex = _historyKlines.Count - visibleCount;
+
+                for (int i = startIndex; i < _historyKlines.Count; i++)
                 {
-                    if (val < yMin) yMin = val;
-                    if (val > yMax) yMax = val;
+                    double close = (double)_historyKlines[i].Close;
+                    if (close < yMin) yMin = close;
+                    if (close > yMax) yMax = close;
                 }
             }
 
+            // 2. 如果历史数据为空，降级从 Streamer 原始数据数组计算
+            if (yMin == double.MaxValue || yMax == double.MinValue)
+            {
+                double[] streamer1Data = Streamer1.Data.Data;
+                if (streamer1Data != null && streamer1Data.Length > 0)
+                {
+                    for (int i = 0; i < streamer1Data.Length; i++)
+                    {
+                        double val = streamer1Data[i];
+                        if (val != 0 && !double.IsNaN(val) && !double.IsInfinity(val))
+                        {
+                            if (val < yMin) yMin = val;
+                            if (val > yMax) yMax = val;
+                        }
+                    }
+                }
+            }
+
+            // 3. 动态更新 Y 轴可见极限 (按 8% 波幅留白，最小留白 10.0)
             if (yMin <= yMax && yMin != double.MaxValue)
             {
-                double targetMin = yMin - 1000;
-                double targetMax = yMax + 1000;
-                formsPlot1.Plot.Axes.SetLimitsY(targetMin, targetMax);
+                double padding = Math.Max((yMax - yMin) * 0.08, 10.0);
+                formsPlot1.Plot.Axes.SetLimitsY(yMin - padding, yMax + padding);
             }
         }
+
         private void FormsPlot1_MouseMove(object sender, MouseEventArgs e)
         {
             Pixel mousePixel = new Pixel(e.X, e.Y);
@@ -472,7 +622,13 @@ namespace WinFormsApp1
                     {
                         downPeakLines.Add(new AngleTrendLineInfo
                         {
-                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, NormK = normK, IsPeak = true
+                            X1 = x1,
+                            Y1 = y1,
+                            X2 = x2,
+                            Y2 = y2,
+                            K = k,
+                            NormK = normK,
+                            IsPeak = true
                         });
                     }
                 }
@@ -502,7 +658,13 @@ namespace WinFormsApp1
                     {
                         upValleyLines.Add(new AngleTrendLineInfo
                         {
-                            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, K = k, NormK = normK, IsPeak = false
+                            X1 = x1,
+                            Y1 = y1,
+                            X2 = x2,
+                            Y2 = y2,
+                            K = k,
+                            NormK = normK,
+                            IsPeak = false
                         });
                     }
                 }

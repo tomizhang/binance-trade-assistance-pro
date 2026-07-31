@@ -201,11 +201,43 @@ namespace WinFormsApp1
             lblTrendState.Text = "趋势状态: 计算中...";
             lblTrendState.TextAlign = ContentAlignment.MiddleCenter;
             // 
+            // btnRewind
+            // 
+            btnRewind.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnRewind.BackColor = Color.FromArgb(255, 140, 0);
+            btnRewind.FlatStyle = FlatStyle.Flat;
+            btnRewind.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            btnRewind.ForeColor = Color.White;
+            btnRewind.Location = new Point(820, 600);
+            btnRewind.Name = "btnRewind";
+            btnRewind.Size = new Size(90, 32);
+            btnRewind.TabIndex = 15;
+            btnRewind.Text = "⏪ 单击回退";
+            btnRewind.UseVisualStyleBackColor = false;
+            btnRewind.Click += btnRewind_Click;
+            // 
+            // btnStepForward
+            // 
+            btnStepForward.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnStepForward.BackColor = Color.FromArgb(46, 139, 87);
+            btnStepForward.FlatStyle = FlatStyle.Flat;
+            btnStepForward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            btnStepForward.ForeColor = Color.White;
+            btnStepForward.Location = new Point(915, 600);
+            btnStepForward.Name = "btnStepForward";
+            btnStepForward.Size = new Size(90, 32);
+            btnStepForward.TabIndex = 16;
+            btnStepForward.Text = "⏩ 单击向前";
+            btnStepForward.UseVisualStyleBackColor = false;
+            btnStepForward.Click += btnStepForward_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1027, 737);
+            Controls.Add(btnStepForward);
+            Controls.Add(btnRewind);
             Controls.Add(lblTrendState);
             Controls.Add(cmbPlaySpeed);
             Controls.Add(lblPlaySpeed);
@@ -241,8 +273,10 @@ namespace WinFormsApp1
         private Button btnFetch;
         private Label lblStatus;
         private CheckBox chkAutoPlay;
-        private Label lblTrendState =new Label();
-        private Label lblPlaySpeed = new Label();
+        private Label lblTrendState=new Label();
+        private Label lblPlaySpeed=new Label();
         private ComboBox cmbPlaySpeed=new ComboBox();
+        private Button btnRewind=new Button();
+        private Button btnStepForward=new Button();
     }
 }
