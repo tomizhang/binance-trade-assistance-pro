@@ -51,6 +51,7 @@ namespace WinFormsApp1
         readonly System.Windows.Forms.Timer RewindTimer = new() { Interval = 20, Enabled = false };
         private readonly List<BinanceFuturesKlineItem> _historyKlines = new(10000);
         private bool _isRewinding = false;
+        private readonly TrendlineStrategyEngine _strategyEngine = new();
 
         public Form1()
         {
@@ -221,6 +222,7 @@ namespace WinFormsApp1
             // 清空当前队列与历史缓存
             while (_klineQueue.TryDequeue(out _)) { }
             _historyKlines.Clear();
+            _strategyEngine.Reset();
             _totalEnqueuedCount = 0;
 
             try
@@ -274,6 +276,7 @@ namespace WinFormsApp1
             // 2. 清空 ConcurrentQueue 数据队列与历史
             while (_klineQueue.TryDequeue(out _)) { }
             _historyKlines.Clear();
+            _strategyEngine.Reset();
             _totalEnqueuedCount = 0;
 
             // 3. 清空高低点 Marker 及延伸线 overlay
@@ -784,36 +787,223 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(line);
             }
 
-            // 6. 统计趋势状态面板
-            int fallingCount = finalKeepLines.Count(l => l.K < 0);
-            int risingCount = finalKeepLines.Count(l => l.K > 0);
+            // 6. 策略评测：统计【当前最新高点/低点】发射/关联的有效趋势线数量
+            double currentPrice = rawData[(nextIndex + length - 1) % length];
+            int activeRedCount = validPeakLines.Count(d => d.Keep && !d.IsBroken);
+            int activeGreenCount = validValleyLines.Count(u => u.Keep && !u.IsBroken);
 
-            if (fallingCount > risingCount)
+            int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
+            int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
+
+            // 统计穿过/源于【当前最新高点】的有效红线数量
+            int latestPeakRedLinesCount = 0;
+            if (latestPeakX >= 0)
             {
-                lblTrendState.Text = $"📉 趋势状态: 看空期\n(下倾趋势线 {fallingCount} 条 > 上倾 {risingCount} 条)";
-                lblTrendState.BackColor = Color.FromArgb(255, 230, 230);
-                lblTrendState.ForeColor = Color.DarkRed;
+                latestPeakRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken &&
+                    (Math.Abs(d.X1 - latestPeakX) < 0.1 || Math.Abs(d.X2 - latestPeakX) < 0.1));
             }
-            else if (risingCount > fallingCount)
+
+            // 统计穿过/源于【当前最新低点】的有效绿线数量
+            int latestValleyGreenLinesCount = 0;
+            if (latestValleyX >= 0)
             {
-                lblTrendState.Text = $"📈 趋势状态: 看多期\n(上倾趋势线 {risingCount} 条 > 下倾 {fallingCount} 条)";
+                latestValleyGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken &&
+                    (Math.Abs(u.X1 - latestValleyX) < 0.1 || Math.Abs(u.X2 - latestValleyX) < 0.1));
+            }
+
+            int totalKlinesCount = _historyKlines.Count;
+            int latestKlineIndex = totalKlinesCount - 1;
+
+            _strategyEngine.Evaluate(latestKlineIndex, currentPrice, latestPeakX, latestPeakRedLinesCount, latestValleyX, latestValleyGreenLinesCount);
+
+            // 7. 动态计算 X 轴与 Y 轴坐标并渲染交易 Marker 标记 (使用带背景框的层级避让气泡，防覆盖叠加)
+            double yMinVal = double.MaxValue;
+            double yMaxVal = double.MinValue;
+            if (_historyKlines != null && _historyKlines.Count > 0)
+            {
+                int visCount = Math.Min(1000, _historyKlines.Count);
+                int startIdx = _historyKlines.Count - visCount;
+                for (int i = startIdx; i < _historyKlines.Count; i++)
+                {
+                    double closeVal = (double)_historyKlines[i].Close;
+                    if (closeVal < yMinVal) yMinVal = closeVal;
+                    if (closeVal > yMaxVal) yMaxVal = closeVal;
+                }
+            }
+            if (yMinVal == double.MaxValue || yMaxVal == double.MinValue)
+            {
+                yMinVal = currentPrice - 100;
+                yMaxVal = currentPrice + 100;
+            }
+            double priceRange = Math.Max(yMaxVal - yMinVal, 10.0);
+            double verticalOffset = priceRange * 0.015; // 1.5% 视口波幅基准避让间距
+
+            foreach (var trade in _strategyEngine.CompletedTrades)
+            {
+                // 7.1 开仓标记 (判断开仓 Bar 是否在当前视口内)
+                int entryBarsAgo = latestKlineIndex - trade.EntryKlineIndex;
+                double entryX = (length - 1) - entryBarsAgo;
+
+                if (entryX >= 0 && entryX < length)
+                {
+                    var openMarker = formsPlot1.Plot.Add.Marker(entryX, trade.EntryPrice);
+                    openMarker.Size = 10;
+                    if (trade.Type == StrategyPositionType.Long)
+                    {
+                        openMarker.Shape = MarkerShape.FilledTriangleUp;
+                        openMarker.Color = ScottPlot.Colors.Green;
+                        double textY = trade.EntryPrice - verticalOffset * 1.5;
+                        var openText = formsPlot1.Plot.Add.Text($"[BUY LONG] Open @ {trade.EntryPrice:F1}", entryX, textY);
+                        openText.LabelFontSize = 9;
+                        openText.LabelFontColor = ScottPlot.Colors.DarkGreen;
+                        openText.LabelBackgroundColor = ScottPlot.Colors.White.WithAlpha(0.9);
+                        openText.LabelBorderColor = ScottPlot.Colors.DarkGreen;
+                        openText.LabelBorderWidth = 1f;
+                        openText.LabelAlignment = ScottPlot.Alignment.UpperCenter;
+                        _currentOverlayPlottables.Add(openText);
+                    }
+                    else
+                    {
+                        openMarker.Shape = MarkerShape.FilledTriangleDown;
+                        openMarker.Color = ScottPlot.Colors.Red;
+                        double textY = trade.EntryPrice + verticalOffset * 1.5;
+                        var openText = formsPlot1.Plot.Add.Text($"[SELL SHORT] Open @ {trade.EntryPrice:F1}", entryX, textY);
+                        openText.LabelFontSize = 9;
+                        openText.LabelFontColor = ScottPlot.Colors.DarkRed;
+                        openText.LabelBackgroundColor = ScottPlot.Colors.White.WithAlpha(0.9);
+                        openText.LabelBorderColor = ScottPlot.Colors.DarkRed;
+                        openText.LabelBorderWidth = 1f;
+                        openText.LabelAlignment = ScottPlot.Alignment.LowerCenter;
+                        _currentOverlayPlottables.Add(openText);
+                    }
+                    _currentOverlayPlottables.Add(openMarker);
+                }
+
+                // 7.2 平仓标记 (判断平仓 Bar 是否在当前视口内)
+                int exitBarsAgo = latestKlineIndex - trade.ExitKlineIndex;
+                double exitX = (length - 1) - exitBarsAgo;
+
+                if (exitX >= 0 && exitX < length)
+                {
+                    var exitMarker = formsPlot1.Plot.Add.Marker(exitX, trade.ExitPrice);
+                    exitMarker.Size = 10;
+                    if (trade.IsProfit)
+                    {
+                        exitMarker.Shape = MarkerShape.FilledDiamond;
+                        exitMarker.Color = ScottPlot.Colors.Gold;
+                        double textY = trade.ExitPrice + verticalOffset * 2.8;
+                        var exitText = formsPlot1.Plot.Add.Text($"{trade.ExitReason} @ {trade.ExitPrice:F1}", exitX, textY);
+                        exitText.LabelFontSize = 9;
+                        exitText.LabelFontColor = ScottPlot.Colors.DarkGoldenRod;
+                        exitText.LabelBackgroundColor = ScottPlot.Colors.White.WithAlpha(0.9);
+                        exitText.LabelBorderColor = ScottPlot.Colors.Gold;
+                        exitText.LabelBorderWidth = 1f;
+                        exitText.LabelAlignment = ScottPlot.Alignment.LowerCenter;
+                        _currentOverlayPlottables.Add(exitText);
+                    }
+                    else
+                    {
+                        exitMarker.Shape = MarkerShape.Cross;
+                        exitMarker.Color = ScottPlot.Colors.Purple;
+                        double textY = trade.ExitPrice - verticalOffset * 2.8;
+                        var exitText = formsPlot1.Plot.Add.Text($"{trade.ExitReason} @ {trade.ExitPrice:F1}", exitX, textY);
+                        exitText.LabelFontSize = 9;
+                        exitText.LabelFontColor = ScottPlot.Colors.Purple;
+                        exitText.LabelBackgroundColor = ScottPlot.Colors.White.WithAlpha(0.9);
+                        exitText.LabelBorderColor = ScottPlot.Colors.Purple;
+                        exitText.LabelBorderWidth = 1f;
+                        exitText.LabelAlignment = ScottPlot.Alignment.UpperCenter;
+                        _currentOverlayPlottables.Add(exitText);
+                    }
+                    _currentOverlayPlottables.Add(exitMarker);
+                }
+            }
+
+            // 7.3 当前活动持仓 Marker 标记及 1% 止盈/1% 止损水准虚线
+            if (_strategyEngine.CurrentPosition != StrategyPositionType.None)
+            {
+                int activeBarsAgo = latestKlineIndex - _strategyEngine.EntryKlineIndex;
+                double activeX = (length - 1) - activeBarsAgo;
+
+                if (activeX >= 0 && activeX < length)
+                {
+                    var activeOpenMarker = formsPlot1.Plot.Add.Marker(activeX, _strategyEngine.EntryPrice);
+                    activeOpenMarker.Size = 12;
+
+                    if (_strategyEngine.CurrentPosition == StrategyPositionType.Long)
+                    {
+                        activeOpenMarker.Shape = MarkerShape.FilledTriangleUp;
+                        activeOpenMarker.Color = ScottPlot.Colors.Green;
+                        double textY = _strategyEngine.EntryPrice - verticalOffset * 1.5;
+                        var activeText = formsPlot1.Plot.Add.Text($"[HOLD LONG] Entry @ {_strategyEngine.EntryPrice:F1}", activeX, textY);
+                        activeText.LabelFontSize = 10;
+                        activeText.LabelFontColor = ScottPlot.Colors.White;
+                        activeText.LabelBackgroundColor = ScottPlot.Colors.Green;
+                        activeText.LabelBorderColor = ScottPlot.Colors.DarkGreen;
+                        activeText.LabelBorderWidth = 1f;
+                        activeText.LabelAlignment = ScottPlot.Alignment.UpperCenter;
+                        _currentOverlayPlottables.Add(activeText);
+                    }
+                    else
+                    {
+                        activeOpenMarker.Shape = MarkerShape.FilledTriangleDown;
+                        activeOpenMarker.Color = ScottPlot.Colors.Red;
+                        double textY = _strategyEngine.EntryPrice + verticalOffset * 1.5;
+                        var activeText = formsPlot1.Plot.Add.Text($"[HOLD SHORT] Entry @ {_strategyEngine.EntryPrice:F1}", activeX, textY);
+                        activeText.LabelFontSize = 10;
+                        activeText.LabelFontColor = ScottPlot.Colors.White;
+                        activeText.LabelBackgroundColor = ScottPlot.Colors.Red;
+                        activeText.LabelBorderColor = ScottPlot.Colors.DarkRed;
+                        activeText.LabelBorderWidth = 1f;
+                        activeText.LabelAlignment = ScottPlot.Alignment.LowerCenter;
+                        _currentOverlayPlottables.Add(activeText);
+                    }
+                    _currentOverlayPlottables.Add(activeOpenMarker);
+                }
+
+                // 1% 止盈水准线
+                var tpLine = formsPlot1.Plot.Add.Line(-5000, _strategyEngine.TakeProfitPrice, length + 5000, _strategyEngine.TakeProfitPrice);
+                tpLine.LineStyle.Color = ScottPlot.Colors.Gold;
+                tpLine.LineStyle.Pattern = LinePattern.Dashed;
+                _currentOverlayPlottables.Add(tpLine);
+
+                // 1% 止损水准线
+                var slLine = formsPlot1.Plot.Add.Line(-5000, _strategyEngine.StopLossPrice, length + 5000, _strategyEngine.StopLossPrice);
+                slLine.LineStyle.Color = ScottPlot.Colors.Purple;
+                slLine.LineStyle.Pattern = LinePattern.Dashed;
+                _currentOverlayPlottables.Add(slLine);
+            }
+
+            // 8. 统计策略状态面板与战绩 (使用纯英文格式，彻底消除中文字体乱码问题)
+            int totalTrades = _strategyEngine.CompletedTrades.Count;
+            int winCount = _strategyEngine.CompletedTrades.Count(t => t.IsProfit);
+            double winRate = totalTrades > 0 ? (double)winCount / totalTrades * 100 : 0;
+
+            if (_strategyEngine.CurrentPosition == StrategyPositionType.Long)
+            {
+                lblTrendState.Text = $"[STRATEGY: LONG] Entry: {_strategyEngine.EntryPrice:F1}\n(TP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1})\nTrades: {totalTrades} (Win: {winCount} Loss: {totalTrades - winCount} WinRate: {winRate:F0}%)";
                 lblTrendState.BackColor = Color.FromArgb(230, 255, 230);
                 lblTrendState.ForeColor = Color.DarkGreen;
             }
-            else if (fallingCount > 0 && risingCount > 0)
+            else if (_strategyEngine.CurrentPosition == StrategyPositionType.Short)
             {
-                lblTrendState.Text = $"⚖️ 趋势状态: 震荡期\n(上倾 {risingCount} 条 / 下倾 {fallingCount} 条)";
-                lblTrendState.BackColor = Color.FromArgb(255, 248, 220);
-                lblTrendState.ForeColor = Color.DarkOrange;
+                lblTrendState.Text = $"[STRATEGY: SHORT] Entry: {_strategyEngine.EntryPrice:F1}\n(TP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1})\nTrades: {totalTrades} (Win: {winCount} Loss: {totalTrades - winCount} WinRate: {winRate:F0}%)";
+                lblTrendState.BackColor = Color.FromArgb(255, 230, 230);
+                lblTrendState.ForeColor = Color.DarkRed;
+            }
+            else if (totalTrades > 0)
+            {
+                lblTrendState.Text = $"[STRATEGY: STANDBY]\nTrades: {totalTrades} (Win: {winCount} Loss: {totalTrades - winCount} WinRate: {winRate:F0}%)";
+                lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
+                lblTrendState.ForeColor = Color.DimGray;
             }
             else
             {
-                lblTrendState.Text = "⚖️ 趋势状态: 观望盘整";
+                lblTrendState.Text = $"[STRATEGY: MONITORING]\n(Red Lines >= 5 -> Short | Green Lines >= 5 -> Long)\nRed: {activeRedCount} | Green: {activeGreenCount}";
                 lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
                 lblTrendState.ForeColor = Color.DimGray;
             }
         }
-
 
         private static decimal SafeToDecimal(double value)
         {
@@ -844,6 +1034,153 @@ namespace WinFormsApp1
             btn_puase.Text = AddNewDataTimer.Enabled ? "暂停数据播放" : "恢复数据播放";
         }
     }
+
+    #region 趋势线量化策略引擎类
+
+    public enum StrategyPositionType
+    {
+        None,
+        Long,
+        Short
+    }
+
+    public class TradeRecord
+    {
+        public StrategyPositionType Type { get; set; }
+        public double EntryPrice { get; set; }
+        public int EntryKlineIndex { get; set; } // 对应 _historyKlines 中的绝对全局索引
+        public double ExitPrice { get; set; }
+        public int ExitKlineIndex { get; set; }  // 对应 _historyKlines 中的绝对全局索引
+        public bool IsProfit { get; set; }
+        public double ProfitPct { get; set; }
+        public string ExitReason { get; set; } = string.Empty;
+    }
+
+    public class TrendlineStrategyEngine
+    {
+        public StrategyPositionType CurrentPosition { get; private set; } = StrategyPositionType.None;
+        public double EntryPrice { get; private set; }
+        public int EntryKlineIndex { get; private set; }
+        public double TakeProfitPrice { get; private set; }
+        public double StopLossPrice { get; private set; }
+
+        private int _lastEvaluatedPeakX = -1;
+        private int _lastEvaluatedValleyX = -1;
+
+        public List<TradeRecord> CompletedTrades { get; } = new();
+
+        public void Reset()
+        {
+            CurrentPosition = StrategyPositionType.None;
+            EntryPrice = 0;
+            EntryKlineIndex = 0;
+            TakeProfitPrice = 0;
+            StopLossPrice = 0;
+            _lastEvaluatedPeakX = -1;
+            _lastEvaluatedValleyX = -1;
+            CompletedTrades.Clear();
+        }
+
+        public void Evaluate(int currentKlineIndex, double currentPrice, int latestPeakX, int latestPeakRedLinesCount, int latestValleyX, int latestValleyGreenLinesCount)
+        {
+            if (currentKlineIndex < 0) return;
+
+            // 1. 校验现有持仓的 1.0% 止盈 / 1.0% 止损
+            if (CurrentPosition == StrategyPositionType.Long)
+            {
+                if (currentPrice >= TakeProfitPrice)
+                {
+                    CompletedTrades.Add(new TradeRecord
+                    {
+                        Type = StrategyPositionType.Long,
+                        EntryPrice = EntryPrice,
+                        EntryKlineIndex = EntryKlineIndex,
+                        ExitPrice = currentPrice,
+                        ExitKlineIndex = currentKlineIndex,
+                        IsProfit = true,
+                        ProfitPct = (currentPrice - EntryPrice) / EntryPrice * 100,
+                        ExitReason = "[TP (+1.0%)]"
+                    });
+                    CurrentPosition = StrategyPositionType.None;
+                }
+                else if (currentPrice <= StopLossPrice)
+                {
+                    CompletedTrades.Add(new TradeRecord
+                    {
+                        Type = StrategyPositionType.Long,
+                        EntryPrice = EntryPrice,
+                        EntryKlineIndex = EntryKlineIndex,
+                        ExitPrice = currentPrice,
+                        ExitKlineIndex = currentKlineIndex,
+                        IsProfit = false,
+                        ProfitPct = (currentPrice - EntryPrice) / EntryPrice * 100,
+                        ExitReason = "[SL (-1.0%)]"
+                    });
+                    CurrentPosition = StrategyPositionType.None;
+                }
+            }
+            else if (CurrentPosition == StrategyPositionType.Short)
+            {
+                if (currentPrice <= TakeProfitPrice)
+                {
+                    CompletedTrades.Add(new TradeRecord
+                    {
+                        Type = StrategyPositionType.Short,
+                        EntryPrice = EntryPrice,
+                        EntryKlineIndex = EntryKlineIndex,
+                        ExitPrice = currentPrice,
+                        ExitKlineIndex = currentKlineIndex,
+                        IsProfit = true,
+                        ProfitPct = (EntryPrice - currentPrice) / EntryPrice * 100,
+                        ExitReason = "[TP (+1.0%)]"
+                    });
+                    CurrentPosition = StrategyPositionType.None;
+                }
+                else if (currentPrice >= StopLossPrice)
+                {
+                    CompletedTrades.Add(new TradeRecord
+                    {
+                        Type = StrategyPositionType.Short,
+                        EntryPrice = EntryPrice,
+                        EntryKlineIndex = EntryKlineIndex,
+                        ExitPrice = currentPrice,
+                        ExitKlineIndex = currentKlineIndex,
+                        IsProfit = false,
+                        ProfitPct = (EntryPrice - currentPrice) / EntryPrice * 100,
+                        ExitReason = "[SL (-1.0%)]"
+                    });
+                    CurrentPosition = StrategyPositionType.None;
+                }
+            }
+
+            // 2. 如果当前无持仓，校验开仓规则：
+            // 当【当前最新高点】发射/穿过的红线 >= 5 条，在下一根 K 线开空；
+            // 当【当前最新低点】发射/穿过的绿线 >= 5 条，在下一根 K 线开多
+            if (CurrentPosition == StrategyPositionType.None)
+            {
+                if (latestPeakX >= 0 && latestPeakRedLinesCount >= 5 && latestPeakX != _lastEvaluatedPeakX)
+                {
+                    _lastEvaluatedPeakX = latestPeakX;
+                    CurrentPosition = StrategyPositionType.Short;
+                    EntryPrice = currentPrice;
+                    EntryKlineIndex = currentKlineIndex;
+                    TakeProfitPrice = currentPrice * 0.99; // 1% 止盈
+                    StopLossPrice = currentPrice * 1.01;   // 1% 止损
+                }
+                else if (latestValleyX >= 0 && latestValleyGreenLinesCount >= 5 && latestValleyX != _lastEvaluatedValleyX)
+                {
+                    _lastEvaluatedValleyX = latestValleyX;
+                    CurrentPosition = StrategyPositionType.Long;
+                    EntryPrice = currentPrice;
+                    EntryKlineIndex = currentKlineIndex;
+                    TakeProfitPrice = currentPrice * 1.01; // 1% 止盈
+                    StopLossPrice = currentPrice * 0.99;   // 1% 止损
+                }
+            }
+        }
+    }
+
+    #endregion
 
     public class RandomWalker
     {
