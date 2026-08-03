@@ -586,19 +586,22 @@ namespace WinFormsApp1
 
         /// <summary>
         /// 趋势线优化规则：
-        /// 1. 斜率过大过滤：归一化斜率 > 5%/根的过陡斜线予以过滤排除。
-        /// 2. 触碰次数 >= 3 确认：有 3 次及以上极点落在/碰撞趋势线附近的强化保留。
-        /// 3. 碰撞权重加深：碰撞触碰次数越多，趋势线颜色越深、线宽越粗 (加深权重)。
-        /// 4. 破位废弃：价格穿透击穿后的趋势线抛弃排除。
+        /// 1. 高点趋势线：同时包含高点向下 (K < 0 下降阻力线) 与 高点向上 (K > 0 上升阻力线)。
+        /// 2. 低点趋势线：同时包含低点向上 (K > 0 上升支撑线) 与 低点向下 (K < 0 下降支撑线)。
+        /// 3. 斜率过大过滤：归一化斜率 > 5%/根的过陡斜线予以过滤排除。
+        /// 4. 破位废弃：价格穿透击穿后的趋势线抛弃排除 (高点线被向上突破 / 低点线被向下跌破)。
+        /// 5. 触碰次数 >= 3 强化：有 3 次及以上极点碰撞/回踩趋势线的保留绘制。
+        /// 6. 收敛夹角保留：形成交汇收敛夹角的所有趋势线予以保留。
+        /// 7. 碰撞权重加深：碰撞触碰次数越多，趋势线颜色不透明度越深。
         /// </summary>
         private void DrawAngleTrendLines(List<int> peakIndices, List<int> valleyIndices, double[] rawData, int nextIndex, int length)
         {
             if (peakIndices == null || valleyIndices == null) return;
 
-            var downPeakLines = new List<AngleTrendLineInfo>();
-            var upValleyLines = new List<AngleTrendLineInfo>();
+            var peakLines = new List<AngleTrendLineInfo>();
+            var valleyLines = new List<AngleTrendLineInfo>();
 
-            // 1. 收集高点向下趋势线 (Slope < 0)，过滤斜率过大 (normK > 0.05) 的斜线
+            // 1. 收集高点趋势线 (连接任意两个高点，包含 K < 0 向下与 K > 0 向上)
             for (int i = 0; i < peakIndices.Count - 1; i++)
             {
                 for (int j = i + 1; j < peakIndices.Count; j++)
@@ -615,26 +618,23 @@ namespace WinFormsApp1
                     double k = (y2 - y1) / (x2 - x1);
                     double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
-                    // 规则 1：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
+                    // 规则 3：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
                     if (normK > 0.05) continue;
 
-                    if (k < 0) // 高点向下 (下降阻力线)
+                    peakLines.Add(new AngleTrendLineInfo
                     {
-                        downPeakLines.Add(new AngleTrendLineInfo
-                        {
-                            X1 = x1,
-                            Y1 = y1,
-                            X2 = x2,
-                            Y2 = y2,
-                            K = k,
-                            NormK = normK,
-                            IsPeak = true
-                        });
-                    }
+                        X1 = x1,
+                        Y1 = y1,
+                        X2 = x2,
+                        Y2 = y2,
+                        K = k,
+                        NormK = normK,
+                        IsPeak = true
+                    });
                 }
             }
 
-            // 2. 收集低点向上趋势线 (Slope > 0)，过滤斜率过大 (normK > 0.05) 的斜线
+            // 2. 收集低点趋势线 (连接任意两个低点，包含 K > 0 向上与 K < 0 向下)
             for (int i = 0; i < valleyIndices.Count - 1; i++)
             {
                 for (int j = i + 1; j < valleyIndices.Count; j++)
@@ -651,30 +651,27 @@ namespace WinFormsApp1
                     double k = (y2 - y1) / (x2 - x1);
                     double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
-                    // 规则 1：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
+                    // 规则 3：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
                     if (normK > 0.05) continue;
 
-                    if (k > 0) // 低点向上 (上升支撑线)
+                    valleyLines.Add(new AngleTrendLineInfo
                     {
-                        upValleyLines.Add(new AngleTrendLineInfo
-                        {
-                            X1 = x1,
-                            Y1 = y1,
-                            X2 = x2,
-                            Y2 = y2,
-                            K = k,
-                            NormK = normK,
-                            IsPeak = false
-                        });
-                    }
+                        X1 = x1,
+                        Y1 = y1,
+                        X2 = x2,
+                        Y2 = y2,
+                        K = k,
+                        NormK = normK,
+                        IsPeak = false
+                    });
                 }
             }
 
-            var allCandidates = downPeakLines.Concat(upValleyLines).ToList();
+            var allCandidates = peakLines.Concat(valleyLines).ToList();
             var allPivots = peakIndices.Select(p => (X: (double)p, Y: rawData[(nextIndex + p) % length]))
                 .Concat(valleyIndices.Select(v => (X: (double)v, Y: rawData[(nextIndex + v) % length]))).ToList();
 
-            // 3. 执行【价格穿透破位校验】与【规则 2 & 3：碰撞触碰次数统计与加权】
+            // 3. 执行【价格穿透破位校验】与【碰撞触碰次数统计与加权】
             foreach (var line in allCandidates)
             {
                 int startX = (int)Math.Max(0, line.X1);
@@ -685,12 +682,12 @@ namespace WinFormsApp1
                     double price = rawData[(nextIndex + x) % length];
                     double lineY = line.GetY(x);
 
-                    if (line.IsPeak && price > lineY + 1e-4) // 高点阻力线被价格向上突破
+                    if (line.IsPeak && price > lineY + 1e-4) // 高点线被向上突破 (阻力线失效)
                     {
                         line.IsBroken = true;
                         break;
                     }
-                    else if (!line.IsPeak && price < lineY - 1e-4) // 低点支撑线被价格跌破
+                    else if (!line.IsPeak && price < lineY - 1e-4) // 低点线被向下跌破 (支撑线失效)
                     {
                         line.IsBroken = true;
                         break;
@@ -713,42 +710,44 @@ namespace WinFormsApp1
                     }
                 }
 
-                // 规则 2：触碰碰撞次数 >= 3 次的强有效趋势线保留
+                // 规则 5：触碰碰撞次数 >= 3 次的强有效趋势线保留
                 if (line.TouchCount >= 3)
                 {
                     line.Keep = true;
                 }
             }
 
-            // 4. 收敛夹角判定 (未破位且形成收敛夹角的趋势线予以保留)
-            var validDownLines = downPeakLines.Where(d => !d.IsBroken).ToList();
-            var validUpLines = upValleyLines.Where(u => !u.IsBroken).ToList();
+            // 4. 收敛夹角判定 (未破位且形成收敛交汇夹角的所有趋势线予以保留)
+            var validPeakLines = peakLines.Where(d => !d.IsBroken).ToList();
+            var validValleyLines = valleyLines.Where(u => !u.IsBroken).ToList();
 
-            foreach (var down in validDownLines)
+            foreach (var peak in validPeakLines)
             {
-                foreach (var up in validUpLines)
+                foreach (var valley in validValleyLines)
                 {
-                    double xIntersect = (up.Y1 - down.Y1 + down.K * down.X1 - up.K * up.X1) / (down.K - up.K);
-                    double validStart = Math.Min(down.X1, up.X1);
+                    if (Math.Abs(peak.K - valley.K) < 1e-5) continue;
+
+                    double xIntersect = (valley.Y1 - peak.Y1 + peak.K * peak.X1 - valley.K * valley.X1) / (peak.K - valley.K);
+                    double validStart = Math.Min(peak.X1, valley.X1);
                     if (xIntersect >= validStart)
                     {
-                        down.Keep = true;
-                        up.Keep = true;
+                        peak.Keep = true;
+                        valley.Keep = true;
                     }
                 }
             }
 
             // 标记最新的有效线
-            if (validDownLines.Any(d => d.Keep))
+            if (validPeakLines.Any(d => d.Keep))
             {
-                validDownLines.Where(d => d.Keep).Last().IsLatest = true;
+                validPeakLines.Where(d => d.Keep).Last().IsLatest = true;
             }
-            if (validUpLines.Any(u => u.Keep))
+            if (validValleyLines.Any(u => u.Keep))
             {
-                validUpLines.Where(u => u.Keep).Last().IsLatest = true;
+                validValleyLines.Where(u => u.Keep).Last().IsLatest = true;
             }
 
-            // 5. 渲染趋势线 (规则 3：根据碰撞触碰次数 TouchCount 动态加深颜色与线宽)
+            // 5. 渲染趋势线 (根据碰撞触碰次数 TouchCount 动态加深颜色)
             var finalKeepLines = allCandidates.Where(c => c.Keep && !c.IsBroken);
 
             foreach (var lineData in finalKeepLines)
@@ -760,29 +759,58 @@ namespace WinFormsApp1
 
                 var line = formsPlot1.Plot.Add.Line(xLeft, yLeft, xRight, yRight);
 
-                // 规则 3：碰撞触碰次数越多，仅加深颜色深度 (Alpha/暗度)，线宽与其它样式保持不变
-                float lineWidth = lineData.IsLatest ? 1.5f : 1.2f;
+                // 碰撞触碰次数越多，仅加深颜色深度 (Alpha/暗度)，线宽与其它样式保持一致
+                float lineWidth = 0.5f;//lineData.IsLatest ? 1.5f : 1.2f;
 
                 byte alpha = lineData.TouchCount switch
                 {
-                    >= 4 => (byte)255, // 碰撞 4 次及以上：最高透明度/最深颜色
-                    3 => (byte)200,    // 碰撞 3 次：较深颜色
+                    >= 4 => (byte)255, // 碰撞 4 次及以上：100% 纯色/最深
+                    3 => (byte)200,    // 碰撞 3 次：较深
                     _ => lineData.IsLatest ? (byte)210 : (byte)110 // 2 次碰撞：标准/浅色
                 };
 
                 if (lineData.IsPeak)
                 {
                     line.LineStyle.Color = ScottPlot.Colors.Red.WithAlpha(alpha / 255.0f);
-                    line.LineStyle.Width = 0.5f;
+                    line.LineStyle.Width = lineWidth;
                 }
                 else
                 {
                     line.LineStyle.Color = ScottPlot.Colors.Green.WithAlpha(alpha / 255.0f);
-                    line.LineStyle.Width = 0.5f;
+                    line.LineStyle.Width = lineWidth;
                 }
 
                 line.LineStyle.Pattern = LinePattern.Solid;
                 _currentOverlayPlottables.Add(line);
+            }
+
+            // 6. 统计趋势状态面板
+            int fallingCount = finalKeepLines.Count(l => l.K < 0);
+            int risingCount = finalKeepLines.Count(l => l.K > 0);
+
+            if (fallingCount > risingCount)
+            {
+                lblTrendState.Text = $"📉 趋势状态: 看空期\n(下倾趋势线 {fallingCount} 条 > 上倾 {risingCount} 条)";
+                lblTrendState.BackColor = Color.FromArgb(255, 230, 230);
+                lblTrendState.ForeColor = Color.DarkRed;
+            }
+            else if (risingCount > fallingCount)
+            {
+                lblTrendState.Text = $"📈 趋势状态: 看多期\n(上倾趋势线 {risingCount} 条 > 下倾 {fallingCount} 条)";
+                lblTrendState.BackColor = Color.FromArgb(230, 255, 230);
+                lblTrendState.ForeColor = Color.DarkGreen;
+            }
+            else if (fallingCount > 0 && risingCount > 0)
+            {
+                lblTrendState.Text = $"⚖️ 趋势状态: 震荡期\n(上倾 {risingCount} 条 / 下倾 {fallingCount} 条)";
+                lblTrendState.BackColor = Color.FromArgb(255, 248, 220);
+                lblTrendState.ForeColor = Color.DarkOrange;
+            }
+            else
+            {
+                lblTrendState.Text = "⚖️ 趋势状态: 观望盘整";
+                lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
+                lblTrendState.ForeColor = Color.DimGray;
             }
         }
 
