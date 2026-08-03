@@ -227,28 +227,32 @@ namespace WinFormsApp1
 
             try
             {
-                int fetchedCount = 0;
                 var progress = new Progress<FetchStatusReport>(report =>
                 {
-                    lblStatus.Text = $"状态: {report.Message}\n正在排队/下载: {report.Symbol}\n" +
+                    lblStatus.Text = $"状态: {report.Message}\n正在下载/合并: {report.Symbol}\n" +
                                      $"时间段: {report.StartTime:MM-dd HH:mm} ~ {report.EndTime:MM-dd HH:mm}";
                 });
 
-                // 使用【生产者-消费者模式】有序流式拉取数据，并实时压入 ConcurrentQueue 队列
-                await foreach (var kline in _dataProvider.StreamSymbolDataChronologicalAsync(
-                    symbol, interval, startTime, endTime, token))
+                // 1. 多线程并发拉取指定时间段的历史 K 线数据
+                List<BinanceFuturesKlineItem> fetchedKlines = await _dataProvider.GetSymbolDataAsync(
+                    symbol, interval, startTime, endTime, useCache: true, progress, token);
+
+                // 2. 核心步骤：对多线程获取的数据按 OpenTimeMs 严格升序排序，确保入队绝对按时间顺序
+                List<BinanceFuturesKlineItem> sortedKlines = fetchedKlines
+                    .GroupBy(k => k.OpenTimeMs)
+                    .Select(g => g.First())
+                    .OrderBy(k => k.OpenTimeMs)
+                    .ToList();
+
+                // 3. 将排好序的数据依次压入 ConcurrentQueue 播放队列
+                foreach (var kline in sortedKlines)
                 {
                     _klineQueue.Enqueue(kline);
                     Interlocked.Increment(ref _totalEnqueuedCount);
-                    fetchedCount++;
-
-                    if (fetchedCount % 100 == 0)
-                    {
-                        lblStatus.Text = $"已通过生产者-消费者队列接收 [{symbol}] {fetchedCount} 条历史 K 线...";
-                    }
                 }
 
-                lblStatus.Text = $"数据获取成功！\n币种: {symbol}\n周期: {intervalStr}\n总计: {fetchedCount} 条 K 线\n正在接入 ScottPlot 实时播放...";
+                int fetchedCount = sortedKlines.Count;
+                lblStatus.Text = $"数据获取成功！已完成多线程排序与队列入队\n币种: {symbol}\n周期: {intervalStr}\n总计: {fetchedCount} 条 K 线\n正在接入 ScottPlot 实时播放...";
             }
             catch (OperationCanceledException)
             {
@@ -319,7 +323,7 @@ namespace WinFormsApp1
             int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
             int rewindStep = speedIndex switch
             {
-                0 => 2,                 // 0.5x 慢速回退 2 点
+                0 => 1,                 // 0.5x 慢速回退 2 点
                 1 => 4,                 // 1.0x 标准回退 4 点
                 2 => 10,                // 2.0x 快速回退 10 点
                 3 => 30,                // 5.0x 极速回退 30 点
@@ -391,7 +395,7 @@ namespace WinFormsApp1
             int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
             int forwardStep = speedIndex switch
             {
-                0 => 2,                 // 0.5x 慢速向前 2 点
+                0 => 1,                 // 0.5x 慢速向前 2 点
                 1 => 4,                 // 1.0x 标准向前 4 点
                 2 => 10,                // 2.0x 快速向前 10 点
                 3 => 30,                // 5.0x 极速向前 30 点
