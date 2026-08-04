@@ -101,7 +101,7 @@ namespace WinFormsApp1
                     // 动态调整定时器间隔 (0.5x=35ms, 1.0x=20ms, 2.0x=15ms, 5.0x/10.0x/全速=10ms)
                     int targetInterval = speedIndex switch
                     {
-                        0 => 35,
+                        0 => 235,
                         1 => 20,
                         2 => 15,
                         _ => 10
@@ -576,6 +576,10 @@ namespace WinFormsApp1
 
         private class AngleTrendLineInfo
         {
+            public int Pivot1Index { get; set; }
+            public int Pivot2Index { get; set; }
+            public long Pivot1TimeMs { get; set; }
+            public long Pivot2TimeMs { get; set; }
             public double X1 { get; set; }
             public double Y1 { get; set; }
             public double X2 { get; set; }
@@ -630,6 +634,8 @@ namespace WinFormsApp1
 
                     peakLines.Add(new AngleTrendLineInfo
                     {
+                        Pivot1Index = p1,
+                        Pivot2Index = p2,
                         X1 = x1,
                         Y1 = y1,
                         X2 = x2,
@@ -663,6 +669,8 @@ namespace WinFormsApp1
 
                     valleyLines.Add(new AngleTrendLineInfo
                     {
+                        Pivot1Index = v1,
+                        Pivot2Index = v2,
                         X1 = x1,
                         Y1 = y1,
                         X2 = x2,
@@ -767,7 +775,7 @@ namespace WinFormsApp1
                 var line = formsPlot1.Plot.Add.Line(xLeft, yLeft, xRight, yRight);
 
                 // 碰撞触碰次数越多，仅加深颜色深度 (Alpha/暗度)，线宽与其它样式保持一致
-                float lineWidth = 0.5f;//lineData.IsLatest ? 1.5f : 1.2f;
+                float lineWidth = 0.5f;
 
                 byte alpha = lineData.TouchCount switch
                 {
@@ -791,7 +799,7 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(line);
             }
 
-            // 6. 策略评测：统计【当前最新高点/低点】发射/关联的有效趋势线数量
+            // 6. 策略评测：统计【当前最新高点/低点】发射/关联的有效趋势线数量 (使用 Pivot1Index / Pivot2Index 精确整数索引匹配)
             double currentPrice = rawData[(nextIndex + length - 1) % length];
             int activeRedCount = validPeakLines.Count(d => d.Keep && !d.IsBroken);
             int activeGreenCount = validValleyLines.Count(u => u.Keep && !u.IsBroken);
@@ -799,20 +807,20 @@ namespace WinFormsApp1
             int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
             int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
 
-            // 统计穿过/源于【当前最新高点】的有效红线数量
+            // 核心优化：采用 Pivot1Index 和 Pivot2Index 准确进行整数关联匹配，消除浮点误差
             int latestPeakRedLinesCount = 0;
             if (latestPeakX >= 0)
             {
                 latestPeakRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken &&
-                    (Math.Abs(d.X1 - latestPeakX) < 0.1 || Math.Abs(d.X2 - latestPeakX) < 0.1));
+                    (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
             }
 
-            // 统计穿过/源于【当前最新低点】的有效绿线数量
+            // 核心优化：采用 Pivot1Index 和 Pivot2Index 准确进行整数关联匹配，消除浮点误差
             int latestValleyGreenLinesCount = 0;
             if (latestValleyX >= 0)
             {
                 latestValleyGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken &&
-                    (Math.Abs(u.X1 - latestValleyX) < 0.1 || Math.Abs(u.X2 - latestValleyX) < 0.1));
+                    (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
             }
 
             int totalKlinesCount = _historyKlines.Count;
