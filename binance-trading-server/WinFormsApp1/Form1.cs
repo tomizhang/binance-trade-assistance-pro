@@ -147,7 +147,7 @@ namespace WinFormsApp1
                 }
             };
 
-            // 5. 定时器 2：UI 渲染刷新 (UI 仅负责轻量级图表 overlay 渲染呈现，不执行任何重计算)
+            // 5. 定时器 2：UI 渲染刷新 (UI 仅负责轻量级画布刷新，计算与 Overlay 图层生成已在数据 Tick 原子完成)
             UpdatePlotTimer.Interval = 30; // 30ms (~33 FPS)
             UpdatePlotTimer.Tick += (s, e) =>
             {
@@ -155,11 +155,6 @@ namespace WinFormsApp1
                 {
                     long totalCount = Streamer1.Data.CountTotal;
                     formsPlot1.Plot.Title($"[{_currentSymbol}] 已接入数据点: {totalCount:N0} | 队列剩余: {_klineQueue.Count}");
-
-                    if (totalCount >= 100)
-                    {
-                        RenderTrendlineOverlays();
-                    }
 
                     if (Streamer1.Renderer is ScottPlot.DataViews.Wipe)
                     {
@@ -441,6 +436,12 @@ namespace WinFormsApp1
         /// </summary>
         private void UpdateYAxisLimits()
         {
+            // 若用户取消勾选【自动更新 Y 轴范围】，则跳过坐标轴限制重置，保留用户自定义手动缩放与平移状态
+            if (chkAutoFitY != null && !chkAutoFitY.Checked)
+            {
+                return;
+            }
+
             double yMin = double.MaxValue;
             double yMax = double.MinValue;
 
@@ -540,8 +541,11 @@ namespace WinFormsApp1
                 rightLen: 3
             );
 
-            // 2. 收集与计算高低点趋势线
+            // 2. 收集与计算高低点趋势线及策略评测
             ComputeAngleTrendLinesData(_peaksBuffer, _valleysBuffer, streamer1Data, nextIndex, length);
+
+            // 3. 核心改进：计算与 Overlay 图层生成合并在同一次数据 Tick 中原子完成，彻底消除跨帧坐标偏移！
+            RenderTrendlineOverlays();
         }
 
         private class AngleTrendLineInfo

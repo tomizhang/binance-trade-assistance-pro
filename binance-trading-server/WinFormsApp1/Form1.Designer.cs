@@ -231,11 +231,26 @@ namespace WinFormsApp1
             btnStepForward.UseVisualStyleBackColor = false;
             btnStepForward.Click += btnStepForward_Click;
             // 
+            // chkAutoFitY
+            // 
+            chkAutoFitY.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            chkAutoFitY.AutoSize = true;
+            chkAutoFitY.Checked = true;
+            chkAutoFitY.CheckState = CheckState.Checked;
+            chkAutoFitY.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            chkAutoFitY.Location = new Point(820, 505);
+            chkAutoFitY.Name = "chkAutoFitY";
+            chkAutoFitY.Size = new Size(135, 21);
+            chkAutoFitY.TabIndex = 17;
+            chkAutoFitY.Text = "自动更新 Y 轴范围";
+            chkAutoFitY.UseVisualStyleBackColor = true;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1027, 737);
+            Controls.Add(chkAutoFitY);
             Controls.Add(btnStepForward);
             Controls.Add(btnRewind);
             Controls.Add(lblTrendState);
@@ -278,5 +293,6 @@ namespace WinFormsApp1
         private ComboBox cmbPlaySpeed=new ComboBox();
         private Button btnRewind=new Button();
         private Button btnStepForward=new Button();
+        private CheckBox chkAutoFitY=new CheckBox();
     }
 }
