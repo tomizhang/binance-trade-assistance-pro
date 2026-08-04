@@ -5,6 +5,7 @@ using ScottPlot.Plottables;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Threading;
@@ -43,6 +44,10 @@ namespace WinFormsApp1
         private readonly List<IPlottable> _currentOverlayPlottables = new(256);
         private decimal[] _highsCache = new decimal[1000];
         private decimal[] _lowsCache = new decimal[1000];
+        // --- 预计算数据结果缓存 (数据计算与 UI 渲染彻底解耦) ---
+        private readonly List<AngleTrendLineInfo> _cachedLinesToDraw = new(128);
+        private int _cachedActiveRedCount = 0;
+        private int _cachedActiveGreenCount = 0;
 
         // 按需/事件驱动图层渲染签名
         private string _lastPivotSignature = string.Empty;
@@ -52,6 +57,8 @@ namespace WinFormsApp1
         private readonly List<BinanceFuturesKlineItem> _historyKlines = new(10000);
         private bool _isRewinding = false;
         private readonly TrendlineStrategyEngine _strategyEngine = new();
+
+        
 
         public Form1()
         {
@@ -91,7 +98,7 @@ namespace WinFormsApp1
             RewindTimer.Tick += (s, e) => PerformRewindStep();
 
             // 4. 定时器 1：根据选择的播放速度倍速，从 ConcurrentQueue 队列中消费 K 线数据并接入 ScottPlot
-            AddNewDataTimer.Interval = 20; // 20ms 默认
+            AddNewDataTimer.Interval = 100; // 20ms 默认
             AddNewDataTimer.Tick += (s, e) =>
             {
                 if (!_isRewinding && !_klineQueue.IsEmpty)
@@ -101,7 +108,7 @@ namespace WinFormsApp1
                     // 动态调整定时器间隔 (0.5x=35ms, 1.0x=20ms, 2.0x=15ms, 5.0x/10.0x/全速=10ms)
                     int targetInterval = speedIndex switch
                     {
-                        0 => 235,
+                        0 => 150,
                         1 => 20,
                         2 => 15,
                         _ => 10
@@ -133,11 +140,14 @@ namespace WinFormsApp1
                     if (valuesToAdd.Count > 0)
                     {
                         Streamer1.AddRange(valuesToAdd);
+                        
+                        // 核心架构优化：高低点位计算、趋势线运算与策略评测彻底放在数据 Tick 中完成 (计算与 UI 彻底解耦)
+                        PerformTrendlineAnalysisAndEvaluation();
                     }
                 }
             };
 
-            // 5. 定时器 2：UI 渲染刷新
+            // 5. 定时器 2：UI 渲染刷新 (UI 仅负责轻量级图表 overlay 渲染呈现，不执行任何重计算)
             UpdatePlotTimer.Interval = 30; // 30ms (~33 FPS)
             UpdatePlotTimer.Tick += (s, e) =>
             {
@@ -148,7 +158,7 @@ namespace WinFormsApp1
 
                     if (totalCount >= 100)
                     {
-                        UpdatePivotMarkersAndLines();
+                        RenderTrendlineOverlays();
                     }
 
                     if (Streamer1.Renderer is ScottPlot.DataViews.Wipe)
@@ -359,7 +369,8 @@ namespace WinFormsApp1
             if (_historyKlines.Count > 0)
             {
                 Streamer1.AddRange(_historyKlines.Select(k => (double)k.Close));
-                UpdatePivotMarkersAndLines();
+                PerformTrendlineAnalysisAndEvaluation();
+                RenderTrendlineOverlays();
             }
             else
             {
@@ -415,7 +426,8 @@ namespace WinFormsApp1
             {
                 Streamer1.AddRange(valuesToAdd);
                 _forceUpdatePivotOverlays = true;
-                UpdatePivotMarkersAndLines();
+                PerformTrendlineAnalysisAndEvaluation();
+                RenderTrendlineOverlays();
                 UpdateYAxisLimits();
                 formsPlot1.Plot.Title($"[{_currentSymbol}] 已单步向前: {valuesToAdd.Count} 点 | 总计渲染: {_historyKlines.Count:N0} 点 | 队列剩余: {_klineQueue.Count}");
                 formsPlot1.Refresh();
@@ -494,8 +506,13 @@ namespace WinFormsApp1
             formsPlot1.Refresh();
         }
 
-        private void UpdatePivotMarkersAndLines()
+        /// <summary>
+        /// 数据计算层：高低点 Pivot 计算、趋势线筛选算法与策略评测 (彻底与 UI 刷新解耦，在 AddNewDataTimer 数据 Tick 中完成)
+        /// </summary>
+        private void PerformTrendlineAnalysisAndEvaluation()
         {
+            if (Streamer1.Data.CountTotal < 100) return;
+
             double[] streamer1Data = Streamer1.Data.Data;
             int length = streamer1Data.Length;
             int nextIndex = Streamer1.Data.NextIndex;
@@ -519,59 +536,12 @@ namespace WinFormsApp1
                 _lowsCache.AsSpan(0, length),
                 _peaksBuffer,
                 _valleysBuffer,
-                leftLen: 5,
-                rightLen: 5
+                leftLen: 1,
+                rightLen: 3
             );
 
-            // 2. 检查极值点结构签名 (生成由高低点个数与最新极值点索引组成的 key)
-            string currentSignature = $"{_peaksBuffer.Count}_{(_peaksBuffer.Count > 0 ? _peaksBuffer[^1] : 0)}_{_valleysBuffer.Count}_{(_valleysBuffer.Count > 0 ? _valleysBuffer[^1] : 0)}";
-
-            // 3. 【按需/事件驱动懒渲染】：若高低点结构没有任何改变，无需重复擦除与绘制趋势线，直接跳过！
-            if (currentSignature == _lastPivotSignature && !_forceUpdatePivotOverlays)
-            {
-                return;
-            }
-
-            _lastPivotSignature = currentSignature;
-            _forceUpdatePivotOverlays = false;
-
-            // 4. 仅当有新高点/低点出现时，重新刷新渲染 Marker 标记与趋势延伸线
-            foreach (var item in _currentOverlayPlottables)
-            {
-                formsPlot1.Plot.Remove(item);
-            }
-            _currentOverlayPlottables.Clear();
-
-            foreach (int peakIdx in _peaksBuffer)
-            {
-                int physicalIndex = (nextIndex + peakIdx) % length;
-                double x = peakIdx;
-                double y = streamer1Data[physicalIndex];
-
-                var marker = formsPlot1.Plot.Add.Marker(x, y);
-                marker.Shape = MarkerShape.FilledCircle;
-                marker.Size = 4;
-                marker.Color = ScottPlot.Colors.Red;
-
-                _currentOverlayPlottables.Add(marker);
-            }
-
-            foreach (int valleyIdx in _valleysBuffer)
-            {
-                int physicalIndex = (nextIndex + valleyIdx) % length;
-                double x = valleyIdx;
-                double y = streamer1Data[physicalIndex];
-
-                var marker = formsPlot1.Plot.Add.Marker(x, y);
-                marker.Shape = MarkerShape.FilledSquare;
-                marker.Size = 4;
-                marker.Color = ScottPlot.Colors.Green;
-
-                _currentOverlayPlottables.Add(marker);
-            }
-
-            // 5. 绘制产生夹角的最近高点向下趋势线与低点向上趋势线
-            DrawAngleTrendLines(_peaksBuffer, _valleysBuffer, streamer1Data, nextIndex, length);
+            // 2. 收集与计算高低点趋势线
+            ComputeAngleTrendLinesData(_peaksBuffer, _valleysBuffer, streamer1Data, nextIndex, length);
         }
 
         private class AngleTrendLineInfo
@@ -596,16 +566,9 @@ namespace WinFormsApp1
         }
 
         /// <summary>
-        /// 趋势线优化规则：
-        /// 1. 高点趋势线：同时包含高点向下 (K < 0 下降阻力线) 与 高点向上 (K > 0 上升阻力线)。
-        /// 2. 低点趋势线：同时包含低点向上 (K > 0 上升支撑线) 与 低点向下 (K < 0 下降支撑线)。
-        /// 3. 斜率过大过滤：归一化斜率 > 5%/根的过陡斜线予以过滤排除。
-        /// 4. 破位废弃：价格穿透击穿后的趋势线抛弃排除 (高点线被向上突破 / 低点线被向下跌破)。
-        /// 5. 触碰次数 >= 3 强化：有 3 次及以上极点碰撞/回踩趋势线的保留绘制。
-        /// 6. 收敛夹角保留：形成交汇收敛夹角的所有趋势线予以保留。
-        /// 7. 碰撞权重加深：碰撞触碰次数越多，趋势线颜色不透明度越深。
+        /// 数据层算法：收集趋势线候选集、破位校验、碰撞加权、夹角保留与策略评测
         /// </summary>
-        private void DrawAngleTrendLines(List<int> peakIndices, List<int> valleyIndices, double[] rawData, int nextIndex, int length)
+        private void ComputeAngleTrendLinesData(List<int> peakIndices, List<int> valleyIndices, double[] rawData, int nextIndex, int length)
         {
             if (peakIndices == null || valleyIndices == null) return;
 
@@ -625,11 +588,10 @@ namespace WinFormsApp1
                     double x2 = p2;
                     double y2 = rawData[(nextIndex + p2) % length];
 
-                    if (Math.Abs(x2 - x1) < 2) continue; // 距离小于 2 根 K 线过度密集，排除
+                    if (Math.Abs(x2 - x1) < 2) continue;
                     double k = (y2 - y1) / (x2 - x1);
                     double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
-                    // 规则 3：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
                     if (normK > 0.05) continue;
 
                     peakLines.Add(new AngleTrendLineInfo
@@ -660,11 +622,10 @@ namespace WinFormsApp1
                     double x2 = v2;
                     double y2 = rawData[(nextIndex + v2) % length];
 
-                    if (Math.Abs(x2 - x1) < 2) continue; // 距离小于 2 根 K 线过度密集，排除
+                    if (Math.Abs(x2 - x1) < 2) continue;
                     double k = (y2 - y1) / (x2 - x1);
                     double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
-                    // 规则 3：斜率过大 (单根 K 线波动偏差 > 5%) 的倾斜斜线予以抛弃
                     if (normK > 0.05) continue;
 
                     valleyLines.Add(new AngleTrendLineInfo
@@ -691,27 +652,25 @@ namespace WinFormsApp1
             {
                 int startX = (int)Math.Max(0, line.X1);
 
-                // 3.1 检查之后的价格是否穿越破位
                 for (int x = startX + 1; x < length; x++)
                 {
                     double price = rawData[(nextIndex + x) % length];
                     double lineY = line.GetY(x);
 
-                    if (line.IsPeak && price > lineY + 1e-4) // 高点线被向上突破 (阻力线失效)
+                    if (line.IsPeak && price > lineY + 1e-4)
                     {
                         line.IsBroken = true;
                         break;
                     }
-                    else if (!line.IsPeak && price < lineY - 1e-4) // 低点线被向下跌破 (支撑线失效)
+                    else if (!line.IsPeak && price < lineY - 1e-4)
                     {
                         line.IsBroken = true;
                         break;
                     }
                 }
 
-                if (line.IsBroken) continue; // 破位线排除
+                if (line.IsBroken) continue;
 
-                // 3.2 统计其它高低点在趋势线附近的碰撞触碰次数 (偏差 <= 0.6%)
                 foreach (var pivot in allPivots)
                 {
                     if (Math.Abs(pivot.X - line.X1) < 1e-3 || Math.Abs(pivot.X - line.X2) < 1e-3) continue;
@@ -719,13 +678,12 @@ namespace WinFormsApp1
                     double expectedY = line.GetY(pivot.X);
                     double relDiff = Math.Abs(pivot.Y - expectedY) / Math.Max(Math.Abs(pivot.Y), 1.0);
 
-                    if (relDiff <= 0.006) // 0.6% 容差范围内的碰撞
+                    if (relDiff <= 0.006)
                     {
                         line.TouchCount++;
                     }
                 }
 
-                // 规则 5：触碰碰撞次数 >= 3 次的强有效趋势线保留
                 if (line.TouchCount >= 3)
                 {
                     line.Keep = true;
@@ -752,7 +710,6 @@ namespace WinFormsApp1
                 }
             }
 
-            // 标记最新的有效线
             if (validPeakLines.Any(d => d.Keep))
             {
                 validPeakLines.Where(d => d.Keep).Last().IsLatest = true;
@@ -762,10 +719,93 @@ namespace WinFormsApp1
                 validValleyLines.Where(u => u.Keep).Last().IsLatest = true;
             }
 
-            // 5. 渲染趋势线 (根据碰撞触碰次数 TouchCount 动态加深颜色)
-            var finalKeepLines = allCandidates.Where(c => c.Keep && !c.IsBroken);
+            // 更新预计算出的有效线条缓存
+            _cachedLinesToDraw.Clear();
+            _cachedLinesToDraw.AddRange(allCandidates.Where(c => c.Keep && !c.IsBroken));
 
-            foreach (var lineData in finalKeepLines)
+            // 5. 策略评测：统计【当前最新高点/低点】关联的有效趋势线数量并评测开仓
+            double currentPrice = rawData[(nextIndex + length - 1) % length];
+            _cachedActiveRedCount = validPeakLines.Count(d => d.Keep && !d.IsBroken);
+            _cachedActiveGreenCount = validValleyLines.Count(u => u.Keep && !u.IsBroken);
+
+            int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
+            int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
+
+            int latestPeakRedLinesCount = 0;
+            if (latestPeakX >= 0)
+            {
+                latestPeakRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken &&
+                    (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
+            }
+
+            int latestValleyGreenLinesCount = 0;
+            if (latestValleyX >= 0)
+            {
+                latestValleyGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken &&
+                    (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
+            }
+
+            int totalKlinesCount = _historyKlines.Count;
+            int latestKlineIndex = totalKlinesCount - 1;
+
+            _strategyEngine.Evaluate(latestKlineIndex, currentPrice, latestPeakX, latestPeakRedLinesCount, latestValleyX, latestValleyGreenLinesCount);
+        }
+
+        /// <summary>
+        /// UI 渲染层：轻量级读取 pre-calculated 预计算数据并渲染 UI 图层 (在 UpdatePlotTimer 中快速执行)
+        /// </summary>
+        private void RenderTrendlineOverlays()
+        {
+            string currentSignature = $"{_peaksBuffer.Count}_{(_peaksBuffer.Count > 0 ? _peaksBuffer[^1] : 0)}_{_valleysBuffer.Count}_{(_valleysBuffer.Count > 0 ? _valleysBuffer[^1] : 0)}";
+
+            if (currentSignature == _lastPivotSignature && !_forceUpdatePivotOverlays)
+            {
+                return;
+            }
+
+            _lastPivotSignature = currentSignature;
+            _forceUpdatePivotOverlays = false;
+
+            double[] streamer1Data = Streamer1.Data.Data;
+            int length = streamer1Data.Length;
+            int nextIndex = Streamer1.Data.NextIndex;
+
+            foreach (var item in _currentOverlayPlottables)
+            {
+                formsPlot1.Plot.Remove(item);
+            }
+            _currentOverlayPlottables.Clear();
+
+            // 1. 渲染高点 Peak 标记 (红色圆圈)
+            foreach (int peakIdx in _peaksBuffer)
+            {
+                int physicalIndex = (nextIndex + peakIdx) % length;
+                double x = peakIdx;
+                double y = streamer1Data[physicalIndex];
+
+                var marker = formsPlot1.Plot.Add.Marker(x, y);
+                marker.Shape = MarkerShape.FilledCircle;
+                marker.Size = 4;
+                marker.Color = ScottPlot.Colors.Red;
+                _currentOverlayPlottables.Add(marker);
+            }
+
+            // 2. 渲染低点 Valley 标记 (绿色方块)
+            foreach (int valleyIdx in _valleysBuffer)
+            {
+                int physicalIndex = (nextIndex + valleyIdx) % length;
+                double x = valleyIdx;
+                double y = streamer1Data[physicalIndex];
+
+                var marker = formsPlot1.Plot.Add.Marker(x, y);
+                marker.Shape = MarkerShape.FilledSquare;
+                marker.Size = 4;
+                marker.Color = ScottPlot.Colors.Green;
+                _currentOverlayPlottables.Add(marker);
+            }
+
+            // 3. 渲染预计算出的趋势延伸线
+            foreach (var lineData in _cachedLinesToDraw)
             {
                 double xLeft = -5000;
                 double yLeft = lineData.GetY(xLeft);
@@ -773,15 +813,13 @@ namespace WinFormsApp1
                 double yRight = lineData.GetY(xRight);
 
                 var line = formsPlot1.Plot.Add.Line(xLeft, yLeft, xRight, yRight);
-
-                // 碰撞触碰次数越多，仅加深颜色深度 (Alpha/暗度)，线宽与其它样式保持一致
                 float lineWidth = 0.5f;
 
                 byte alpha = lineData.TouchCount switch
                 {
-                    >= 4 => (byte)255, // 碰撞 4 次及以上：100% 纯色/最深
-                    3 => (byte)200,    // 碰撞 3 次：较深
-                    _ => lineData.IsLatest ? (byte)210 : (byte)110 // 2 次碰撞：标准/浅色
+                    >= 4 => (byte)255,
+                    3 => (byte)200,
+                    _ => lineData.IsLatest ? (byte)210 : (byte)110
                 };
 
                 if (lineData.IsPeak)
@@ -799,36 +837,11 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(line);
             }
 
-            // 6. 策略评测：统计【当前最新高点/低点】发射/关联的有效趋势线数量 (使用 Pivot1Index / Pivot2Index 精确整数索引匹配)
-            double currentPrice = rawData[(nextIndex + length - 1) % length];
-            int activeRedCount = validPeakLines.Count(d => d.Keep && !d.IsBroken);
-            int activeGreenCount = validValleyLines.Count(u => u.Keep && !u.IsBroken);
-
-            int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
-            int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
-
-            // 核心优化：采用 Pivot1Index 和 Pivot2Index 准确进行整数关联匹配，消除浮点误差
-            int latestPeakRedLinesCount = 0;
-            if (latestPeakX >= 0)
-            {
-                latestPeakRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken &&
-                    (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
-            }
-
-            // 核心优化：采用 Pivot1Index 和 Pivot2Index 准确进行整数关联匹配，消除浮点误差
-            int latestValleyGreenLinesCount = 0;
-            if (latestValleyX >= 0)
-            {
-                latestValleyGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken &&
-                    (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
-            }
-
+            // 4. 渲染交易 Marker 标记与气泡文本
+            double currentPrice = streamer1Data[(nextIndex + length - 1) % length];
             int totalKlinesCount = _historyKlines.Count;
             int latestKlineIndex = totalKlinesCount - 1;
 
-            _strategyEngine.Evaluate(latestKlineIndex, currentPrice, latestPeakX, latestPeakRedLinesCount, latestValleyX, latestValleyGreenLinesCount);
-
-            // 7. 动态计算 X 轴与 Y 轴坐标并渲染交易 Marker 标记 (使用带背景框的层级避让气泡，防覆盖叠加)
             double yMinVal = double.MaxValue;
             double yMaxVal = double.MinValue;
             if (_historyKlines != null && _historyKlines.Count > 0)
@@ -848,11 +861,10 @@ namespace WinFormsApp1
                 yMaxVal = currentPrice + 100;
             }
             double priceRange = Math.Max(yMaxVal - yMinVal, 10.0);
-            double verticalOffset = priceRange * 0.015; // 1.5% 视口波幅基准避让间距
+            double verticalOffset = priceRange * 0.015;
 
             foreach (var trade in _strategyEngine.CompletedTrades)
             {
-                // 7.1 开仓标记 (判断开仓 Bar 是否在当前视口内)
                 int entryBarsAgo = latestKlineIndex - trade.EntryKlineIndex;
                 double entryX = (length - 1) - entryBarsAgo;
 
@@ -891,7 +903,6 @@ namespace WinFormsApp1
                     _currentOverlayPlottables.Add(openMarker);
                 }
 
-                // 7.2 平仓标记 (判断平仓 Bar 是否在当前视口内)
                 int exitBarsAgo = latestKlineIndex - trade.ExitKlineIndex;
                 double exitX = (length - 1) - exitBarsAgo;
 
@@ -931,7 +942,6 @@ namespace WinFormsApp1
                 }
             }
 
-            // 7.3 当前活动持仓 Marker 标记及 1% 止盈/1% 止损水准虚线
             if (_strategyEngine.CurrentPosition != StrategyPositionType.None)
             {
                 int activeBarsAgo = latestKlineIndex - _strategyEngine.EntryKlineIndex;
@@ -973,20 +983,18 @@ namespace WinFormsApp1
                     _currentOverlayPlottables.Add(activeOpenMarker);
                 }
 
-                // 1% 止盈水准线
                 var tpLine = formsPlot1.Plot.Add.Line(-5000, _strategyEngine.TakeProfitPrice, length + 5000, _strategyEngine.TakeProfitPrice);
                 tpLine.LineStyle.Color = ScottPlot.Colors.Gold;
                 tpLine.LineStyle.Pattern = LinePattern.Dashed;
                 _currentOverlayPlottables.Add(tpLine);
 
-                // 1% 止损水准线
                 var slLine = formsPlot1.Plot.Add.Line(-5000, _strategyEngine.StopLossPrice, length + 5000, _strategyEngine.StopLossPrice);
                 slLine.LineStyle.Color = ScottPlot.Colors.Purple;
                 slLine.LineStyle.Pattern = LinePattern.Dashed;
                 _currentOverlayPlottables.Add(slLine);
             }
 
-            // 8. 统计策略状态面板与战绩 (使用纯英文格式，彻底消除中文字体乱码问题)
+            // 5. 统计策略状态面板
             int totalTrades = _strategyEngine.CompletedTrades.Count;
             int winCount = _strategyEngine.CompletedTrades.Count(t => t.IsProfit);
             double winRate = totalTrades > 0 ? (double)winCount / totalTrades * 100 : 0;
@@ -1011,7 +1019,7 @@ namespace WinFormsApp1
             }
             else
             {
-                lblTrendState.Text = $"[STRATEGY: MONITORING]\n(Red Lines >= 5 -> Short | Green Lines >= 5 -> Long)\nRed: {activeRedCount} | Green: {activeGreenCount}";
+                lblTrendState.Text = $"[STRATEGY: MONITORING]\n(Red Lines >= 5 -> Short | Green Lines >= 5 -> Long)\nRed: {_cachedActiveRedCount} | Green: {_cachedActiveGreenCount}";
                 lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
                 lblTrendState.ForeColor = Color.DimGray;
             }
@@ -1079,6 +1087,7 @@ namespace WinFormsApp1
         private int _lastEvaluatedPeakX = -1;
         private int _lastEvaluatedValleyX = -1;
 
+        private readonly int _triggerCount = 7;
         public List<TradeRecord> CompletedTrades { get; } = new();
 
         public void Reset()
@@ -1166,11 +1175,11 @@ namespace WinFormsApp1
             }
 
             // 2. 如果当前无持仓，校验开仓规则：
-            // 当【当前最新高点】发射/穿过的红线 >= 5 条，在下一根 K 线开空；
-            // 当【当前最新低点】发射/穿过的绿线 >= 5 条，在下一根 K 线开多
+            // 当【当前最新高点】发射/穿过的红线 >= _triggerCount 条，在下一根 K 线开空；
+            // 当【当前最新低点】发射/穿过的绿线 >= _triggerCount 条，在下一根 K 线开多
             if (CurrentPosition == StrategyPositionType.None)
             {
-                if (latestPeakX >= 0 && latestPeakRedLinesCount >= 5 && latestPeakX != _lastEvaluatedPeakX)
+                if (latestPeakX >= 0 && latestPeakRedLinesCount >= _triggerCount && latestPeakX != _lastEvaluatedPeakX)
                 {
                     _lastEvaluatedPeakX = latestPeakX;
                     CurrentPosition = StrategyPositionType.Short;
@@ -1179,7 +1188,7 @@ namespace WinFormsApp1
                     TakeProfitPrice = currentPrice * 0.99; // 1% 止盈
                     StopLossPrice = currentPrice * 1.01;   // 1% 止损
                 }
-                else if (latestValleyX >= 0 && latestValleyGreenLinesCount >= 5 && latestValleyX != _lastEvaluatedValleyX)
+                else if (latestValleyX >= 0 && latestValleyGreenLinesCount >= _triggerCount && latestValleyX != _lastEvaluatedValleyX)
                 {
                     _lastEvaluatedValleyX = latestValleyX;
                     CurrentPosition = StrategyPositionType.Long;
