@@ -97,6 +97,40 @@ namespace WinFormsApp1
             // 回退定时器
             RewindTimer.Tick += (s, e) => PerformRewindStep();
 
+            // 注册策略开平仓事件，向 RichTextBox 实时追加彩色日志
+            _strategyEngine.OnTradeOpened += (type, price, barIndex) =>
+            {
+                if (type == StrategyPositionType.Long)
+                {
+                    AppendLog($"[BUY LONG] Open @ {price:F1} (TP: {_strategyEngine.TakeProfitPrice:F1} | SL: {_strategyEngine.StopLossPrice:F1})", Color.DarkGreen, true);
+                }
+                else
+                {
+                    AppendLog($"[SELL SHORT] Open @ {price:F1} (TP: {_strategyEngine.TakeProfitPrice:F1} | SL: {_strategyEngine.StopLossPrice:F1})", Color.DarkRed, true);
+                }
+            };
+
+            _strategyEngine.OnTradeClosed += (trade) =>
+            {
+                int total = _strategyEngine.CompletedTrades.Count;
+                int win = _strategyEngine.CompletedTrades.Count(t => t.IsProfit);
+                int loss = total - win;
+                double rate = total > 0 ? (double)win / total * 100 : 0;
+
+                string statsSuffix = $" | WinRate: {rate:F0}% (Total: {total}, Win: {win}, Loss: {loss})";
+
+                if (trade.IsProfit)
+                {
+                    AppendLog($"[PROFIT EXIT] {trade.ExitReason} @ {trade.ExitPrice:F1} | PnL: +{trade.ProfitPct:F2}%{statsSuffix}", Color.DarkGoldenrod, true);
+                }
+                else
+                {
+                    AppendLog($"[LOSS EXIT] {trade.ExitReason} @ {trade.ExitPrice:F1} | PnL: {trade.ProfitPct:F2}%{statsSuffix}", Color.Purple, true);
+                }
+            };
+
+            AppendLog("系统就绪：请选择币种与周期后点击【获取币种历史数据】", Color.DimGray);
+
             // 4. 定时器 1：根据选择的播放速度倍速，从 ConcurrentQueue 队列中消费 K 线数据并接入 ScottPlot
             AddNewDataTimer.Interval = 100; // 20ms 默认
             AddNewDataTimer.Tick += (s, e) =>
@@ -108,7 +142,7 @@ namespace WinFormsApp1
                     // 动态调整定时器间隔 (0.5x=35ms, 1.0x=20ms, 2.0x=15ms, 5.0x/10.0x/全速=10ms)
                     int targetInterval = speedIndex switch
                     {
-                        0 => 150,
+                        0 => 10,
                         1 => 20,
                         2 => 15,
                         _ => 10
@@ -222,7 +256,7 @@ namespace WinFormsApp1
             _currentSymbol = symbol;
             Streamer1.LegendText = $"{symbol} {intervalStr} (Close)";
             btnFetch.Enabled = false;
-            lblStatus.Text = $"正在通过多线程并发下载 [{symbol}] {intervalStr} 历史数据...";
+            AppendLog($"[FETCH] 开始多线程拉取 [{symbol}] {intervalStr} 历史数据...", Color.DarkBlue, true);
 
             // 清空当前队列与历史缓存
             while (_klineQueue.TryDequeue(out _)) { }
@@ -234,8 +268,7 @@ namespace WinFormsApp1
             {
                 var progress = new Progress<FetchStatusReport>(report =>
                 {
-                    lblStatus.Text = $"状态: {report.Message}\n正在下载/合并: {report.Symbol}\n" +
-                                     $"时间段: {report.StartTime:MM-dd HH:mm} ~ {report.EndTime:MM-dd HH:mm}";
+                    // 可选微调处理
                 });
 
                 // 1. 多线程并发拉取指定时间段的历史 K 线数据
@@ -257,21 +290,43 @@ namespace WinFormsApp1
                 }
 
                 int fetchedCount = sortedKlines.Count;
-                lblStatus.Text = $"数据获取成功！已完成多线程排序与队列入队\n币种: {symbol}\n周期: {intervalStr}\n总计: {fetchedCount} 条 K 线\n正在接入 ScottPlot 实时播放...";
+                AppendLog($"[FETCH OK] 成功载入 [{symbol}] {fetchedCount} 条 K 线并升序排队", Color.Blue, true);
             }
             catch (OperationCanceledException)
             {
-                lblStatus.Text = "已取消获取数据";
+                AppendLog("[FETCH CANCEL] 取消获取历史数据", Color.Gray);
             }
             catch (Exception ex)
             {
-                lblStatus.Text = $"获取出错: {ex.Message}";
+                AppendLog($"[FETCH ERROR] {ex.Message}", Color.Red, true);
                 MessageBox.Show($"获取历史数据失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
                 btnFetch.Enabled = true;
             }
+        }
+
+        /// <summary>
+        /// 彩色日志追加输出（多空盈亏与系统状态不同颜色区分）
+        /// </summary>
+        private void AppendLog(string message, Color color, bool bold = false)
+        {
+            if (rtbLog.InvokeRequired)
+            {
+                rtbLog.BeginInvoke(new Action(() => AppendLog(message, color, bold)));
+                return;
+            }
+
+            rtbLog.SelectionStart = rtbLog.TextLength;
+            rtbLog.SelectionLength = 0;
+            rtbLog.SelectionColor = color;
+            rtbLog.SelectionFont = new System.Drawing.Font("Consolas", 8.5F, bold ? System.Drawing.FontStyle.Bold : System.Drawing.FontStyle.Regular);
+
+            string timestamp = DateTime.Now.ToString("HH:mm:ss");
+            rtbLog.AppendText($"[{timestamp}] {message}\r\n");
+            rtbLog.SelectionColor = rtbLog.ForeColor;
+            rtbLog.ScrollToCaret();
         }
 
         /// <summary>
@@ -305,8 +360,8 @@ namespace WinFormsApp1
 
             // 6. 恢复按钮与状态
             btnFetch.Enabled = true;
-            lblStatus.Text = "图表与队列数据已重置完成，请重新选择币种后点击【获取币种历史数据】。";
-            lblTrendState.Text = "趋势状态: 未计算";
+            AppendLog("图表与队列数据已重置完成，请重新选择币种后点击【获取币种历史数据】。", Color.DimGray);
+            lblTrendState.Text = "策略状态: 未计算";
             lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
             lblTrendState.ForeColor = Color.DimGray;
 
@@ -537,7 +592,7 @@ namespace WinFormsApp1
                 _lowsCache.AsSpan(0, length),
                 _peaksBuffer,
                 _valleysBuffer,
-                leftLen: 1,
+                leftLen: 3,
                 rightLen: 3
             );
 
@@ -998,32 +1053,28 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(slLine);
             }
 
-            // 5. 统计策略状态面板
+            // 5. 统计策略状态面板与战绩 (胜率与交易统计始终显示)
             int totalTrades = _strategyEngine.CompletedTrades.Count;
             int winCount = _strategyEngine.CompletedTrades.Count(t => t.IsProfit);
+            int lossCount = totalTrades - winCount;
             double winRate = totalTrades > 0 ? (double)winCount / totalTrades * 100 : 0;
+            string winRateStats = $"Trades: {totalTrades} (Win: {winCount} Loss: {lossCount} WinRate: {winRate:F0}%)";
 
             if (_strategyEngine.CurrentPosition == StrategyPositionType.Long)
             {
-                lblTrendState.Text = $"[STRATEGY: LONG] Entry: {_strategyEngine.EntryPrice:F1}\n(TP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1})\nTrades: {totalTrades} (Win: {winCount} Loss: {totalTrades - winCount} WinRate: {winRate:F0}%)";
+                lblTrendState.Text = $"[STRATEGY: LONG] Entry: {_strategyEngine.EntryPrice:F1}\nTP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1}\n{winRateStats}";
                 lblTrendState.BackColor = Color.FromArgb(230, 255, 230);
                 lblTrendState.ForeColor = Color.DarkGreen;
             }
             else if (_strategyEngine.CurrentPosition == StrategyPositionType.Short)
             {
-                lblTrendState.Text = $"[STRATEGY: SHORT] Entry: {_strategyEngine.EntryPrice:F1}\n(TP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1})\nTrades: {totalTrades} (Win: {winCount} Loss: {totalTrades - winCount} WinRate: {winRate:F0}%)";
+                lblTrendState.Text = $"[STRATEGY: SHORT] Entry: {_strategyEngine.EntryPrice:F1}\nTP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1}\n{winRateStats}";
                 lblTrendState.BackColor = Color.FromArgb(255, 230, 230);
                 lblTrendState.ForeColor = Color.DarkRed;
             }
-            else if (totalTrades > 0)
-            {
-                lblTrendState.Text = $"[STRATEGY: STANDBY]\nTrades: {totalTrades} (Win: {winCount} Loss: {totalTrades - winCount} WinRate: {winRate:F0}%)";
-                lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
-                lblTrendState.ForeColor = Color.DimGray;
-            }
             else
             {
-                lblTrendState.Text = $"[STRATEGY: MONITORING]\n(Red Lines >= 5 -> Short | Green Lines >= 5 -> Long)\nRed: {_cachedActiveRedCount} | Green: {_cachedActiveGreenCount}";
+                lblTrendState.Text = $"[STRATEGY: MONITORING]\nRed Lines: {_cachedActiveRedCount} | Green Lines: {_cachedActiveGreenCount}\n{winRateStats}";
                 lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
                 lblTrendState.ForeColor = Color.DimGray;
             }
@@ -1088,10 +1139,13 @@ namespace WinFormsApp1
         public double TakeProfitPrice { get; private set; }
         public double StopLossPrice { get; private set; }
 
+        public event Action<TradeRecord>? OnTradeClosed;
+        public event Action<StrategyPositionType, double, int>? OnTradeOpened;
+
         private int _lastEvaluatedPeakX = -1;
         private int _lastEvaluatedValleyX = -1;
 
-        private readonly int _triggerCount = 7;
+        private readonly int _triggerCount = 5;
         public List<TradeRecord> CompletedTrades { get; } = new();
 
         public void Reset()
@@ -1115,7 +1169,7 @@ namespace WinFormsApp1
             {
                 if (currentPrice >= TakeProfitPrice)
                 {
-                    CompletedTrades.Add(new TradeRecord
+                    var record = new TradeRecord
                     {
                         Type = StrategyPositionType.Long,
                         EntryPrice = EntryPrice,
@@ -1125,12 +1179,14 @@ namespace WinFormsApp1
                         IsProfit = true,
                         ProfitPct = (currentPrice - EntryPrice) / EntryPrice * 100,
                         ExitReason = "[TP (+1.0%)]"
-                    });
+                    };
+                    CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
+                    OnTradeClosed?.Invoke(record);
                 }
                 else if (currentPrice <= StopLossPrice)
                 {
-                    CompletedTrades.Add(new TradeRecord
+                    var record = new TradeRecord
                     {
                         Type = StrategyPositionType.Long,
                         EntryPrice = EntryPrice,
@@ -1140,15 +1196,17 @@ namespace WinFormsApp1
                         IsProfit = false,
                         ProfitPct = (currentPrice - EntryPrice) / EntryPrice * 100,
                         ExitReason = "[SL (-1.0%)]"
-                    });
+                    };
+                    CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
+                    OnTradeClosed?.Invoke(record);
                 }
             }
             else if (CurrentPosition == StrategyPositionType.Short)
             {
                 if (currentPrice <= TakeProfitPrice)
                 {
-                    CompletedTrades.Add(new TradeRecord
+                    var record = new TradeRecord
                     {
                         Type = StrategyPositionType.Short,
                         EntryPrice = EntryPrice,
@@ -1158,12 +1216,14 @@ namespace WinFormsApp1
                         IsProfit = true,
                         ProfitPct = (EntryPrice - currentPrice) / EntryPrice * 100,
                         ExitReason = "[TP (+1.0%)]"
-                    });
+                    };
+                    CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
+                    OnTradeClosed?.Invoke(record);
                 }
                 else if (currentPrice >= StopLossPrice)
                 {
-                    CompletedTrades.Add(new TradeRecord
+                    var record = new TradeRecord
                     {
                         Type = StrategyPositionType.Short,
                         EntryPrice = EntryPrice,
@@ -1173,17 +1233,20 @@ namespace WinFormsApp1
                         IsProfit = false,
                         ProfitPct = (EntryPrice - currentPrice) / EntryPrice * 100,
                         ExitReason = "[SL (-1.0%)]"
-                    });
+                    };
+                    CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
+                    OnTradeClosed?.Invoke(record);
                 }
             }
 
             // 2. 如果当前无持仓，校验开仓规则：
-            // 当【当前最新高点】发射/穿过的红线 >= _triggerCount 条，在下一根 K 线开空；
-            // 当【当前最新低点】发射/穿过的绿线 >= _triggerCount 条，在下一根 K 线开多
             if (CurrentPosition == StrategyPositionType.None)
             {
-                if (latestPeakX >= 0 && latestPeakRedLinesCount >= _triggerCount && latestPeakX != _lastEvaluatedPeakX)
+                bool triggerShort = latestPeakX >= 0 && latestPeakX != _lastEvaluatedPeakX && latestPeakRedLinesCount >= _triggerCount;
+                bool triggerLong = latestValleyX >= 0 && latestValleyX != _lastEvaluatedValleyX && latestValleyGreenLinesCount >= _triggerCount;
+
+                if (triggerShort)
                 {
                     _lastEvaluatedPeakX = latestPeakX;
                     CurrentPosition = StrategyPositionType.Short;
@@ -1191,8 +1254,9 @@ namespace WinFormsApp1
                     EntryKlineIndex = currentKlineIndex;
                     TakeProfitPrice = currentPrice * 0.99; // 1% 止盈
                     StopLossPrice = currentPrice * 1.01;   // 1% 止损
+                    OnTradeOpened?.Invoke(StrategyPositionType.Short, currentPrice, currentKlineIndex);
                 }
-                else if (latestValleyX >= 0 && latestValleyGreenLinesCount >= _triggerCount && latestValleyX != _lastEvaluatedValleyX)
+                else if (triggerLong)
                 {
                     _lastEvaluatedValleyX = latestValleyX;
                     CurrentPosition = StrategyPositionType.Long;
@@ -1200,6 +1264,7 @@ namespace WinFormsApp1
                     EntryKlineIndex = currentKlineIndex;
                     TakeProfitPrice = currentPrice * 1.01; // 1% 止盈
                     StopLossPrice = currentPrice * 0.99;   // 1% 止损
+                    OnTradeOpened?.Invoke(StrategyPositionType.Long, currentPrice, currentKlineIndex);
                 }
             }
         }

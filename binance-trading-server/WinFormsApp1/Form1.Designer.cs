@@ -47,37 +47,29 @@ namespace WinFormsApp1
             formsPlot1.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             formsPlot1.Location = new Point(12, 12);
             formsPlot1.Name = "formsPlot1";
-            formsPlot1.Size = new Size(795, 713);
+            formsPlot1.Size = new Size(790, 475);
             formsPlot1.TabIndex = 0;
             // 
-            // button1
+            // rtbLog
             // 
-            button1.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            button1.Location = new Point(820, 680);
-            button1.Name = "button1";
-            button1.Size = new Size(185, 30);
-            button1.TabIndex = 1;
-            button1.Text = "重置/复位图表";
-            button1.UseVisualStyleBackColor = true;
-            button1.Click += button1_Click;
-            // 
-            // btn_puase
-            // 
-            btn_puase.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btn_puase.Location = new Point(820, 640);
-            btn_puase.Name = "btn_puase";
-            btn_puase.Size = new Size(185, 30);
-            btn_puase.TabIndex = 2;
-            btn_puase.Text = "暂停数据播放";
-            btn_puase.UseVisualStyleBackColor = true;
-            btn_puase.Click += btn_puase_Click;
+            rtbLog.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            rtbLog.BackColor = Color.FromArgb(248, 249, 250);
+            rtbLog.BorderStyle = BorderStyle.FixedSingle;
+            rtbLog.Font = new Font("Consolas", 9F);
+            rtbLog.Location = new Point(12, 495);
+            rtbLog.Name = "rtbLog";
+            rtbLog.ReadOnly = true;
+            rtbLog.ScrollBars = RichTextBoxScrollBars.Vertical;
+            rtbLog.Size = new Size(790, 165);
+            rtbLog.TabIndex = 10;
+            rtbLog.Text = "";
             // 
             // lblSymbol
             // 
             lblSymbol.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblSymbol.AutoSize = true;
             lblSymbol.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            lblSymbol.Location = new Point(820, 15);
+            lblSymbol.Location = new Point(815, 12);
             lblSymbol.Name = "lblSymbol";
             lblSymbol.Size = new Size(84, 17);
             lblSymbol.TabIndex = 3;
@@ -88,9 +80,9 @@ namespace WinFormsApp1
             cmbSymbol.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             cmbSymbol.FormattingEnabled = true;
             cmbSymbol.Items.AddRange(new object[] { "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT", "XRPUSDT", "ADAUSDT" });
-            cmbSymbol.Location = new Point(820, 35);
+            cmbSymbol.Location = new Point(815, 30);
             cmbSymbol.Name = "cmbSymbol";
-            cmbSymbol.Size = new Size(185, 25);
+            cmbSymbol.Size = new Size(200, 25);
             cmbSymbol.TabIndex = 4;
             // 
             // lblInterval
@@ -98,7 +90,7 @@ namespace WinFormsApp1
             lblInterval.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblInterval.AutoSize = true;
             lblInterval.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            lblInterval.Location = new Point(820, 70);
+            lblInterval.Location = new Point(815, 62);
             lblInterval.Name = "lblInterval";
             lblInterval.Size = new Size(108, 17);
             lblInterval.TabIndex = 5;
@@ -110,9 +102,9 @@ namespace WinFormsApp1
             cmbInterval.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbInterval.FormattingEnabled = true;
             cmbInterval.Items.AddRange(new object[] { "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d" });
-            cmbInterval.Location = new Point(820, 90);
+            cmbInterval.Location = new Point(815, 80);
             cmbInterval.Name = "cmbInterval";
-            cmbInterval.Size = new Size(185, 25);
+            cmbInterval.Size = new Size(200, 25);
             cmbInterval.TabIndex = 6;
             // 
             // lblTimeRange
@@ -120,7 +112,7 @@ namespace WinFormsApp1
             lblTimeRange.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblTimeRange.AutoSize = true;
             lblTimeRange.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            lblTimeRange.Location = new Point(820, 125);
+            lblTimeRange.Location = new Point(815, 112);
             lblTimeRange.Name = "lblTimeRange";
             lblTimeRange.Size = new Size(84, 17);
             lblTimeRange.TabIndex = 7;
@@ -132,9 +124,9 @@ namespace WinFormsApp1
             cmbTimeRange.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbTimeRange.FormattingEnabled = true;
             cmbTimeRange.Items.AddRange(new object[] { "最近1小时", "最近6小时", "最近24小时", "最近3天", "最近7天", "最近30天" });
-            cmbTimeRange.Location = new Point(820, 145);
+            cmbTimeRange.Location = new Point(815, 130);
             cmbTimeRange.Name = "cmbTimeRange";
-            cmbTimeRange.Size = new Size(185, 25);
+            cmbTimeRange.Size = new Size(200, 25);
             cmbTimeRange.TabIndex = 8;
             // 
             // btnFetch
@@ -144,33 +136,20 @@ namespace WinFormsApp1
             btnFetch.FlatStyle = FlatStyle.Flat;
             btnFetch.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnFetch.ForeColor = Color.White;
-            btnFetch.Location = new Point(820, 185);
+            btnFetch.Location = new Point(815, 165);
             btnFetch.Name = "btnFetch";
-            btnFetch.Size = new Size(185, 35);
+            btnFetch.Size = new Size(200, 32);
             btnFetch.TabIndex = 9;
             btnFetch.Text = "获取币种历史数据";
             btnFetch.UseVisualStyleBackColor = false;
             btnFetch.Click += btnFetch_Click;
-            // 
-            // lblStatus
-            // 
-            lblStatus.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            lblStatus.BackColor = Color.FromArgb(240, 240, 240);
-            lblStatus.BorderStyle = BorderStyle.FixedSingle;
-            lblStatus.Font = new Font("Microsoft YaHei UI", 8.5F);
-            lblStatus.ForeColor = Color.DimGray;
-            lblStatus.Location = new Point(820, 230);
-            lblStatus.Name = "lblStatus";
-            lblStatus.Size = new Size(185, 120);
-            lblStatus.TabIndex = 10;
-            lblStatus.Text = "就绪: 请选择币种与周期后点击【获取币种历史数据】";
             // 
             // lblPlaySpeed
             // 
             lblPlaySpeed.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblPlaySpeed.AutoSize = true;
             lblPlaySpeed.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            lblPlaySpeed.Location = new Point(820, 390);
+            lblPlaySpeed.Location = new Point(815, 210);
             lblPlaySpeed.Name = "lblPlaySpeed";
             lblPlaySpeed.Size = new Size(84, 17);
             lblPlaySpeed.TabIndex = 12;
@@ -182,9 +161,9 @@ namespace WinFormsApp1
             cmbPlaySpeed.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbPlaySpeed.FormattingEnabled = true;
             cmbPlaySpeed.Items.AddRange(new object[] { "0.5x (慢速)", "1.0x (标准)", "2.0x (快速)", "5.0x (极速)", "10.0x (飞速)", "全速 (瞬时完成)" });
-            cmbPlaySpeed.Location = new Point(820, 410);
+            cmbPlaySpeed.Location = new Point(815, 228);
             cmbPlaySpeed.Name = "cmbPlaySpeed";
-            cmbPlaySpeed.Size = new Size(185, 25);
+            cmbPlaySpeed.Size = new Size(200, 25);
             cmbPlaySpeed.TabIndex = 13;
             // 
             // lblTrendState
@@ -192,44 +171,14 @@ namespace WinFormsApp1
             lblTrendState.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
             lblTrendState.BorderStyle = BorderStyle.FixedSingle;
-            lblTrendState.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
+            lblTrendState.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             lblTrendState.ForeColor = Color.DimGray;
-            lblTrendState.Location = new Point(820, 450);
+            lblTrendState.Location = new Point(815, 260);
             lblTrendState.Name = "lblTrendState";
-            lblTrendState.Size = new Size(185, 45);
+            lblTrendState.Size = new Size(200, 60);
             lblTrendState.TabIndex = 14;
-            lblTrendState.Text = "趋势状态: 计算中...";
+            lblTrendState.Text = "策略状态: 监控中...";
             lblTrendState.TextAlign = ContentAlignment.MiddleCenter;
-            // 
-            // btnRewind
-            // 
-            btnRewind.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnRewind.BackColor = Color.FromArgb(255, 140, 0);
-            btnRewind.FlatStyle = FlatStyle.Flat;
-            btnRewind.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            btnRewind.ForeColor = Color.White;
-            btnRewind.Location = new Point(820, 600);
-            btnRewind.Name = "btnRewind";
-            btnRewind.Size = new Size(90, 32);
-            btnRewind.TabIndex = 15;
-            btnRewind.Text = "⏪ 单击回退";
-            btnRewind.UseVisualStyleBackColor = false;
-            btnRewind.Click += btnRewind_Click;
-            // 
-            // btnStepForward
-            // 
-            btnStepForward.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnStepForward.BackColor = Color.FromArgb(46, 139, 87);
-            btnStepForward.FlatStyle = FlatStyle.Flat;
-            btnStepForward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            btnStepForward.ForeColor = Color.White;
-            btnStepForward.Location = new Point(915, 600);
-            btnStepForward.Name = "btnStepForward";
-            btnStepForward.Size = new Size(90, 32);
-            btnStepForward.TabIndex = 16;
-            btnStepForward.Text = "⏩ 单击向前";
-            btnStepForward.UseVisualStyleBackColor = false;
-            btnStepForward.Click += btnStepForward_Click;
             // 
             // chkAutoFitY
             // 
@@ -238,18 +187,71 @@ namespace WinFormsApp1
             chkAutoFitY.Checked = true;
             chkAutoFitY.CheckState = CheckState.Checked;
             chkAutoFitY.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            chkAutoFitY.Location = new Point(820, 505);
+            chkAutoFitY.Location = new Point(815, 330);
             chkAutoFitY.Name = "chkAutoFitY";
-            chkAutoFitY.Size = new Size(135, 21);
+            chkAutoFitY.Size = new Size(135, 20);
             chkAutoFitY.TabIndex = 17;
             chkAutoFitY.Text = "自动更新 Y 轴范围";
             chkAutoFitY.UseVisualStyleBackColor = true;
+            // 
+            // btnRewind
+            // 
+            btnRewind.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnRewind.BackColor = Color.FromArgb(255, 140, 0);
+            btnRewind.FlatStyle = FlatStyle.Flat;
+            btnRewind.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            btnRewind.ForeColor = Color.White;
+            btnRewind.Location = new Point(815, 360);
+            btnRewind.Name = "btnRewind";
+            btnRewind.Size = new Size(96, 32);
+            btnRewind.TabIndex = 15;
+            btnRewind.Text = "⏪ 单击回退";
+            btnRewind.UseVisualStyleBackColor = false;
+            btnRewind.Click += btnRewind_Click;
+            // 
+            // btnStepForward
+            // 
+            btnStepForward.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnStepForward.BackColor = Color.FromArgb(46, 139, 87);
+            btnStepForward.FlatStyle = FlatStyle.Flat;
+            btnStepForward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            btnStepForward.ForeColor = Color.White;
+            btnStepForward.Location = new Point(919, 360);
+            btnStepForward.Name = "btnStepForward";
+            btnStepForward.Size = new Size(96, 32);
+            btnStepForward.TabIndex = 16;
+            btnStepForward.Text = "⏩ 单击向前";
+            btnStepForward.UseVisualStyleBackColor = false;
+            btnStepForward.Click += btnStepForward_Click;
+            // 
+            // btn_puase
+            // 
+            btn_puase.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btn_puase.Location = new Point(815, 402);
+            btn_puase.Name = "btn_puase";
+            btn_puase.Size = new Size(200, 32);
+            btn_puase.TabIndex = 2;
+            btn_puase.Text = "暂停数据播放";
+            btn_puase.UseVisualStyleBackColor = true;
+            btn_puase.Click += btn_puase_Click;
+            // 
+            // button1
+            // 
+            button1.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            button1.Location = new Point(815, 442);
+            button1.Name = "button1";
+            button1.Size = new Size(200, 32);
+            button1.TabIndex = 1;
+            button1.Text = "重置/复位图表";
+            button1.UseVisualStyleBackColor = true;
+            button1.Click += button1_Click;
             // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1027, 737);
+            ClientSize = new Size(1030, 672);
+            MinimumSize = new Size(980, 620);
             Controls.Add(chkAutoFitY);
             Controls.Add(btnStepForward);
             Controls.Add(btnRewind);
@@ -257,7 +259,7 @@ namespace WinFormsApp1
             Controls.Add(cmbPlaySpeed);
             Controls.Add(lblPlaySpeed);
             Controls.Add(chkAutoPlay);
-            Controls.Add(lblStatus);
+            Controls.Add(rtbLog);
             Controls.Add(btnFetch);
             Controls.Add(cmbTimeRange);
             Controls.Add(lblTimeRange);
@@ -286,7 +288,8 @@ namespace WinFormsApp1
         private Label lblTimeRange;
         private ComboBox cmbTimeRange;
         private Button btnFetch;
-        private Label lblStatus;
+        private RichTextBox rtbLog = new RichTextBox();
+        private Label lblStatus = new Label();
         private CheckBox chkAutoPlay;
         private Label lblTrendState=new Label();
         private Label lblPlaySpeed=new Label();
