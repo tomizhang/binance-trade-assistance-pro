@@ -180,6 +180,20 @@ namespace WinFormsApp1
             lblTrendState.Text = "策略状态: 监控中...";
             lblTrendState.TextAlign = ContentAlignment.MiddleCenter;
             // 
+            // chkEnableStrategy
+            // 
+            chkEnableStrategy.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            chkEnableStrategy.AutoSize = true;
+            chkEnableStrategy.Checked = true;
+            chkEnableStrategy.CheckState = CheckState.Checked;
+            chkEnableStrategy.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            chkEnableStrategy.Location = new Point(815, 330);
+            chkEnableStrategy.Name = "chkEnableStrategy";
+            chkEnableStrategy.Size = new Size(135, 20);
+            chkEnableStrategy.TabIndex = 18;
+            chkEnableStrategy.Text = "启用量化开仓策略";
+            chkEnableStrategy.UseVisualStyleBackColor = true;
+            // 
             // chkAutoFitY
             // 
             chkAutoFitY.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -187,7 +201,7 @@ namespace WinFormsApp1
             chkAutoFitY.Checked = true;
             chkAutoFitY.CheckState = CheckState.Checked;
             chkAutoFitY.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            chkAutoFitY.Location = new Point(815, 330);
+            chkAutoFitY.Location = new Point(815, 355);
             chkAutoFitY.Name = "chkAutoFitY";
             chkAutoFitY.Size = new Size(135, 20);
             chkAutoFitY.TabIndex = 17;
@@ -201,7 +215,7 @@ namespace WinFormsApp1
             btnRewind.FlatStyle = FlatStyle.Flat;
             btnRewind.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnRewind.ForeColor = Color.White;
-            btnRewind.Location = new Point(815, 360);
+            btnRewind.Location = new Point(815, 385);
             btnRewind.Name = "btnRewind";
             btnRewind.Size = new Size(96, 32);
             btnRewind.TabIndex = 15;
@@ -216,7 +230,7 @@ namespace WinFormsApp1
             btnStepForward.FlatStyle = FlatStyle.Flat;
             btnStepForward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnStepForward.ForeColor = Color.White;
-            btnStepForward.Location = new Point(919, 360);
+            btnStepForward.Location = new Point(919, 385);
             btnStepForward.Name = "btnStepForward";
             btnStepForward.Size = new Size(96, 32);
             btnStepForward.TabIndex = 16;
@@ -227,7 +241,7 @@ namespace WinFormsApp1
             // btn_puase
             // 
             btn_puase.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btn_puase.Location = new Point(815, 402);
+            btn_puase.Location = new Point(815, 425);
             btn_puase.Name = "btn_puase";
             btn_puase.Size = new Size(200, 32);
             btn_puase.TabIndex = 2;
@@ -238,7 +252,7 @@ namespace WinFormsApp1
             // button1
             // 
             button1.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            button1.Location = new Point(815, 442);
+            button1.Location = new Point(815, 465);
             button1.Name = "button1";
             button1.Size = new Size(200, 32);
             button1.TabIndex = 1;
@@ -252,6 +266,7 @@ namespace WinFormsApp1
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1030, 672);
             MinimumSize = new Size(980, 620);
+            Controls.Add(chkEnableStrategy);
             Controls.Add(chkAutoFitY);
             Controls.Add(btnStepForward);
             Controls.Add(btnRewind);
@@ -297,5 +312,6 @@ namespace WinFormsApp1
         private Button btnRewind=new Button();
         private Button btnStepForward=new Button();
         private CheckBox chkAutoFitY=new CheckBox();
+        private CheckBox chkEnableStrategy=new CheckBox();
     }
 }
