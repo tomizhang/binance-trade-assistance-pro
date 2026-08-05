@@ -20,36 +20,37 @@ namespace WinFormsApp1
         readonly System.Windows.Forms.Timer AddNewDataTimer = new() { Interval = 20, Enabled = true };
         readonly System.Windows.Forms.Timer UpdatePlotTimer = new() { Interval = 60, Enabled = true };
 
-        // ScottPlot ±äÁ¿
+        // ScottPlot å˜é‡
         private DataStreamer Streamer1;
+        private DataStreamer StreamerVolume;
         private VerticalLine VLine;
 
-        // Ê®×Ö×¼ĞÇÓë Text ±ê×¢
+        // åå­—å‡†æ˜Ÿä¸ Text æ ‡æ³¨
         private Crosshair MyCrosshair;
         private ScottPlot.Plottables.Text MyTooltipText;
 
-        // Ëæ»úÊı¾İ±¸ÓÃ·¢ÉúÆ÷
+        // éšæœºæ•°æ®å¤‡ç”¨å‘ç”Ÿå™¨
         private RandomWalker Walker1 = new RandomWalker(seed: 0, mult: 1);
 
-        // --- ¶ÓÁĞ·½Ê½½ÓÈë ScottPlot ---
+        // --- é˜Ÿåˆ—æ–¹å¼æ¥å…¥ ScottPlot ---
         private readonly ConcurrentQueue<BinanceFuturesKlineItem> _klineQueue = new();
         private readonly SymbolDataProvider _dataProvider = new SymbolDataProvider(maxDegreeOfParallelism: 5);
         private CancellationTokenSource? _fetchCts;
         private long _totalEnqueuedCount = 0;
         private string _currentSymbol = "BTCUSDT";
 
-        // --- ÄÚ´æ»º´æÇø ---
+        // --- å†…å­˜ç¼“å­˜åŒº ---
         private readonly List<int> _peaksBuffer = new(64);
         private readonly List<int> _valleysBuffer = new(64);
         private readonly List<IPlottable> _currentOverlayPlottables = new(256);
         private decimal[] _highsCache = new decimal[1000];
         private decimal[] _lowsCache = new decimal[1000];
-        // --- Ô¤¼ÆËãÊı¾İ½á¹û»º´æ (Êı¾İ¼ÆËãÓë UI äÖÈ¾³¹µ×½âñî) ---
+        // --- é¢„è®¡ç®—æ•°æ®ç»“æœç¼“å­˜ (æ•°æ®è®¡ç®—ä¸ UI æ¸²æŸ“å½»åº•è§£è€¦) ---
         private readonly List<AngleTrendLineInfo> _cachedLinesToDraw = new(128);
         private int _cachedActiveRedCount = 0;
         private int _cachedActiveGreenCount = 0;
 
-        // °´Ğè/ÊÂ¼şÇı¶¯Í¼²ãäÖÈ¾Ç©Ãû
+        // æŒ‰éœ€/äº‹ä»¶é©±åŠ¨å›¾å±‚æ¸²æŸ“ç­¾å
         private string _lastPivotSignature = string.Empty;
         private bool _forceUpdatePivotOverlays = false;
 
@@ -64,17 +65,26 @@ namespace WinFormsApp1
         {
             InitializeComponent();
 
-            // 1. ³õÊ¼»¯ ComboBox Ä¬ÈÏÑ¡Ïî
+            // 1. åˆå§‹åŒ– ComboBox é»˜è®¤é€‰é¡¹
             InitControls();
 
-            // 2. ³õÊ¼»¯ ScottPlot DataStreamer (1000 Êı¾İµã)
+            // 2.1 åˆå§‹åŒ–æ”¶ç›˜ä»· DataStreamer (1000 æ•°æ®ç‚¹, å·¦ Y è½´)
             Streamer1 = formsPlot1.Plot.Add.DataStreamer(1000);
             Streamer1.ViewScrollLeft();
             Streamer1.ManageAxisLimits = false;
             Streamer1.LineStyle.Color = ScottPlot.Colors.Blue;
-            Streamer1.LegendText = "ÊÕÅÌ¼Û (Close Price)";
+            Streamer1.LegendText = "æ”¶ç›˜ä»· (Close Price)";
 
-            // 3. Ö¸Ê¾ÏßÓëÊ®×ÖĞÇ
+            // 2.2 åˆå§‹åŒ–æˆäº¤é‡ DataStreamer (1000 æ•°æ®ç‚¹, å³ Y è½´)
+            StreamerVolume = formsPlot1.Plot.Add.DataStreamer(1000);
+            StreamerVolume.ViewScrollLeft();
+            StreamerVolume.ManageAxisLimits = false;
+            StreamerVolume.LineStyle.Color = ScottPlot.Colors.Purple.WithAlpha(0.6f);
+            StreamerVolume.LineStyle.Width = 1.5f;
+            StreamerVolume.LegendText = "æˆäº¤é‡ (Volume)";
+            StreamerVolume.Axes.YAxis = formsPlot1.Plot.Axes.Right;
+
+            // 3. æŒ‡ç¤ºçº¿ä¸åå­—æ˜Ÿ
             VLine = formsPlot1.Plot.Add.VerticalLine(0, 2, ScottPlot.Colors.Red);
             VLine.IsVisible = false;
 
@@ -94,10 +104,10 @@ namespace WinFormsApp1
             formsPlot1.MouseMove += FormsPlot1_MouseMove;
             formsPlot1.MouseLeave += FormsPlot1_MouseLeave;
 
-            // »ØÍË¶¨Ê±Æ÷
+            // å›é€€å®šæ—¶å™¨
             RewindTimer.Tick += (s, e) => PerformRewindStep();
 
-            // ×¢²á²ßÂÔ¿ªÆ½²ÖÊÂ¼ş£¬Ïò RichTextBox ÊµÊ±×·¼Ó²ÊÉ«ÈÕÖ¾
+            // æ³¨å†Œç­–ç•¥å¼€å¹³ä»“äº‹ä»¶ï¼Œå‘ RichTextBox å®æ—¶è¿½åŠ å½©è‰²æ—¥å¿—
             _strategyEngine.OnTradeOpened += (type, price, barIndex) =>
             {
                 if (type == StrategyPositionType.Long)
@@ -129,29 +139,29 @@ namespace WinFormsApp1
                 }
             };
 
-            // °ó¶¨Êó±êÒÆÈëÓë¹öÂÖÊÂ¼ş£¬¹ö¶¯Êó±ê¹öÂÖÊ±×Ô¶¯´¥·¢µ¥²½ÏòÇ°£¨ÏòÉÏ¹ö£©Óëµ¥²½»ØÍË£¨ÏòÏÂ¹ö£©
+            // ç»‘å®šé¼ æ ‡ç§»å…¥ä¸æ»šè½®äº‹ä»¶ï¼Œæ»šåŠ¨é¼ æ ‡æ»šè½®æ—¶è‡ªåŠ¨è§¦å‘å•æ­¥å‘å‰ï¼ˆå‘ä¸Šæ»šï¼‰ä¸å•æ­¥å›é€€ï¼ˆå‘ä¸‹æ»šï¼‰
             btnRewind.MouseEnter += (s, e) => btnRewind.Focus();
             btnStepForward.MouseEnter += (s, e) => btnStepForward.Focus();
 
             btnRewind.MouseWheel += OnControlMouseWheel;
             btnStepForward.MouseWheel += OnControlMouseWheel;
 
-            AppendLog("ÏµÍ³¾ÍĞ÷£ºÇëÑ¡Ôñ±ÒÖÖÓëÖÜÆÚºóµã»÷¡¾»ñÈ¡±ÒÖÖÀúÊ·Êı¾İ¡¿£¨Ö§³ÖÔÚ°´Å¥ÉÏ¹ö¶¯Êó±ê¹öÂÖ´¥·¢µ¥²½²½½ø/»ØÍË£©", Color.DimGray);
+            AppendLog("ç³»ç»Ÿå°±ç»ªï¼šè¯·é€‰æ‹©å¸ç§ä¸å‘¨æœŸåç‚¹å‡»ã€è·å–å¸ç§å†å²æ•°æ®ã€‘ï¼ˆæ”¯æŒåœ¨æŒ‰é’®ä¸Šæ»šåŠ¨é¼ æ ‡æ»šè½®è§¦å‘å•æ­¥æ­¥è¿›/å›é€€ï¼‰", Color.DimGray);
 
-            // 4. ¶¨Ê±Æ÷ 1£º¸ù¾İÑ¡ÔñµÄ²¥·ÅËÙ¶È±¶ËÙ£¬´Ó ConcurrentQueue ¶ÓÁĞÖĞÏû·Ñ K ÏßÊı¾İ²¢½ÓÈë ScottPlot
-            AddNewDataTimer.Interval = 100; // 20ms Ä¬ÈÏ
+            // 4. å®šæ—¶å™¨ 1ï¼šæ ¹æ®é€‰æ‹©çš„æ’­æ”¾é€Ÿåº¦å€é€Ÿï¼Œä» ConcurrentQueue é˜Ÿåˆ—ä¸­æ¶ˆè´¹ K çº¿æ•°æ®å¹¶æ¥å…¥ ScottPlot
+            AddNewDataTimer.Interval = 100; // 20ms é»˜è®¤
             AddNewDataTimer.Tick += (s, e) =>
             {
                 if (!_isRewinding && !_klineQueue.IsEmpty)
                 {
                     int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
 
-                    // ¶¯Ì¬µ÷Õû¶¨Ê±Æ÷¼ä¸ô (0.5x=35ms, 1.0x=20ms, 2.0x=15ms, 5.0x/10.0x/È«ËÙ=10ms)
+                    // åŠ¨æ€è°ƒæ•´å®šæ—¶å™¨é—´éš” (0.5x=35ms, 1.0x=20ms, 2.0x=15ms, 5.0x/10.0x/å…¨é€Ÿ=10ms)
                     int targetInterval = speedIndex switch
                     {
                         0 => 150,
-                        1 => 20,
-                        2 => 150,
+                        1 => 100,
+                        2 => 50,
                         _ => 10
                     };
                     if (AddNewDataTimer.Interval != targetInterval)
@@ -159,43 +169,46 @@ namespace WinFormsApp1
                         AddNewDataTimer.Interval = targetInterval;
                     }
 
-                    // ¶¯Ì¬¼ÆËãÃ¿´ÎÌáÈ¡µÄ BatchSize ÅúÁ¿´óĞ¡
+                    // åŠ¨æ€è®¡ç®—æ¯æ¬¡æå–çš„ BatchSize æ‰¹é‡å¤§å°
                     int batchSize = speedIndex switch
                     {
-                        0 => 1,                 // 0.5x (ÂıËÙ: Ã¿ Tick 1 µã)
-                        1 => 2,                 // 1.0x (±ê×¼: Ã¿ Tick 2 µã)
-                        2 => 5,                 // 2.0x (¿ìËÙ: Ã¿ Tick 5 µã)
-                        3 => 15,                // 5.0x (¼«ËÙ: Ã¿ Tick 15 µã)
-                        4 => 40,                // 10.0x (·ÉËÙ: Ã¿ Tick 40 µã)
-                        5 => _klineQueue.Count, // È«ËÙ (Ë²Ê±È«Á¿Íê³É)
-                        _ => 2
+                        0 => 1,                
+                        1 => 1,                
+                        2 => 1,                
+                        3 => 1,                
+                        4 => 1,                
+                        5 => 1,
+                        _ => 1
                     };
 
                     List<double> valuesToAdd = new();
+                    List<double> volumesToAdd = new();
                     for (int i = 0; i < batchSize && _klineQueue.TryDequeue(out var kline); i++)
                     {
                         valuesToAdd.Add((double)kline.Close);
+                        //volumesToAdd.Add((double)kline.Volume);
                         _historyKlines.Add(kline);
                     }
 
                     if (valuesToAdd.Count > 0)
                     {
                         Streamer1.AddRange(valuesToAdd);
+                        StreamerVolume.AddRange(volumesToAdd);
                         
-                        // ºËĞÄ¼Ü¹¹ÓÅ»¯£º¸ßµÍµãÎ»¼ÆËã¡¢Ç÷ÊÆÏßÔËËãÓë²ßÂÔÆÀ²â³¹µ×·ÅÔÚÊı¾İ Tick ÖĞÍê³É (¼ÆËãÓë UI ³¹µ×½âñî)
+                        // æ ¸å¿ƒæ¶æ„ä¼˜åŒ–ï¼šé«˜ä½ç‚¹ä½è®¡ç®—ã€è¶‹åŠ¿çº¿è¿ç®—ä¸ç­–ç•¥è¯„æµ‹å½»åº•æ”¾åœ¨æ•°æ® Tick ä¸­å®Œæˆ (è®¡ç®—ä¸ UI å½»åº•è§£è€¦)
                         PerformTrendlineAnalysisAndEvaluation();
                     }
                 }
             };
 
-            // 5. ¶¨Ê±Æ÷ 2£ºUI äÖÈ¾Ë¢ĞÂ (UI ½ö¸ºÔğÇáÁ¿¼¶»­²¼Ë¢ĞÂ£¬¼ÆËãÓë Overlay Í¼²ãÉú³ÉÒÑÔÚÊı¾İ Tick Ô­×ÓÍê³É)
+            // 5. å®šæ—¶å™¨ 2ï¼šUI æ¸²æŸ“åˆ·æ–° (UI ä»…è´Ÿè´£è½»é‡çº§ç”»å¸ƒåˆ·æ–°ï¼Œè®¡ç®—ä¸ Overlay å›¾å±‚ç”Ÿæˆå·²åœ¨æ•°æ® Tick åŸå­å®Œæˆ)
             UpdatePlotTimer.Interval = 30; // 30ms (~33 FPS)
             UpdatePlotTimer.Tick += (s, e) =>
             {
                 if (Streamer1.HasNewData)
                 {
                     long totalCount = Streamer1.Data.CountTotal;
-                    formsPlot1.Plot.Title($"[{_currentSymbol}] ÒÑ½ÓÈëÊı¾İµã: {totalCount:N0} | ¶ÓÁĞÊ£Óà: {_klineQueue.Count}");
+                    formsPlot1.Plot.Title($"[{_currentSymbol}] å·²æ¥å…¥æ•°æ®ç‚¹: {totalCount:N0} | é˜Ÿåˆ—å‰©ä½™: {_klineQueue.Count}");
 
                     if (Streamer1.Renderer is ScottPlot.DataViews.Wipe)
                     {
@@ -218,20 +231,20 @@ namespace WinFormsApp1
         private void InitControls()
         {
             if (cmbSymbol.SelectedIndex < 0) cmbSymbol.SelectedIndex = 0;
-            if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 0; // Ä¬ÈÏ 15m
-            if (cmbTimeRange.SelectedIndex < 0) cmbTimeRange.SelectedIndex = 2; // Ä¬ÈÏ ×î½ü24Ğ¡Ê±
-            if (cmbPlaySpeed.SelectedIndex < 0) cmbPlaySpeed.SelectedIndex = 0; // Ä¬ÈÏ 1.0x (±ê×¼)
+            if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 0; // é»˜è®¤ 15m
+            if (cmbTimeRange.SelectedIndex < 0) cmbTimeRange.SelectedIndex = 2; // é»˜è®¤ æœ€è¿‘24å°æ—¶
+            if (cmbPlaySpeed.SelectedIndex < 0) cmbPlaySpeed.SelectedIndex = 0; // é»˜è®¤ 1.0x (æ ‡å‡†)
         }
 
         /// <summary>
-        /// µã»÷°´Å¥£º¶àÏß³Ì»ñÈ¡±ÒÖÖÀúÊ·Êı¾İ²¢²ÉÓÃ¶ÓÁĞ½ÓÈë ScottPlot
+        /// ç‚¹å‡»æŒ‰é’®ï¼šå¤šçº¿ç¨‹è·å–å¸ç§å†å²æ•°æ®å¹¶é‡‡ç”¨é˜Ÿåˆ—æ¥å…¥ ScottPlot
         /// </summary>
         private async void btnFetch_Click(object sender, EventArgs e)
         {
             string symbol = cmbSymbol.Text.Trim().ToUpperInvariant();
             if (string.IsNullOrWhiteSpace(symbol))
             {
-                MessageBox.Show("ÇëÊäÈë»òÑ¡ÔñÕıÈ·µÄ±ÒÖÖÃû³Æ£¨Èç BTCUSDT£©", "ÌáÊ¾", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("è¯·è¾“å…¥æˆ–é€‰æ‹©æ­£ç¡®çš„å¸ç§åç§°ï¼ˆå¦‚ BTCUSDTï¼‰", "æç¤º", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -241,7 +254,7 @@ namespace WinFormsApp1
                 interval = FuturesKlineInterval.Min15;
             }
 
-            // ¼ÆËãÆğÊ¼Óë½áÊøÊ±¼ä
+            // è®¡ç®—èµ·å§‹ä¸ç»“æŸæ—¶é—´
             DateTime endTime = DateTime.UtcNow;
             DateTime startTime = cmbTimeRange.SelectedIndex switch
             {
@@ -254,18 +267,18 @@ namespace WinFormsApp1
                 _ => endTime.AddHours(-24)
             };
 
-            // È¡ÏûÉÏÒ»´ÎÎ´Íê³ÉµÄ»ñÈ¡ÇëÇó
+            // å–æ¶ˆä¸Šä¸€æ¬¡æœªå®Œæˆçš„è·å–è¯·æ±‚
             _fetchCts?.Cancel();
             _fetchCts = new CancellationTokenSource();
             var token = _fetchCts.Token;
 
-            // ÖØÖÃ×´Ì¬Óë¶ÓÁĞ
+            // é‡ç½®çŠ¶æ€ä¸é˜Ÿåˆ—
             _currentSymbol = symbol;
             Streamer1.LegendText = $"{symbol} {intervalStr} (Close)";
             btnFetch.Enabled = false;
-            AppendLog($"[FETCH] ¿ªÊ¼¶àÏß³ÌÀ­È¡ [{symbol}] {intervalStr} ÀúÊ·Êı¾İ...", Color.DarkBlue, true);
+            AppendLog($"[FETCH] å¼€å§‹å¤šçº¿ç¨‹æ‹‰å– [{symbol}] {intervalStr} å†å²æ•°æ®...", Color.DarkBlue, true);
 
-            // Çå¿Õµ±Ç°¶ÓÁĞÓëÀúÊ·»º´æ
+            // æ¸…ç©ºå½“å‰é˜Ÿåˆ—ä¸å†å²ç¼“å­˜
             while (_klineQueue.TryDequeue(out _)) { }
             _historyKlines.Clear();
             _strategyEngine.Reset();
@@ -275,21 +288,21 @@ namespace WinFormsApp1
             {
                 var progress = new Progress<FetchStatusReport>(report =>
                 {
-                    // ¿ÉÑ¡Î¢µ÷´¦Àí
+                    // å¯é€‰å¾®è°ƒå¤„ç†
                 });
 
-                // 1. ¶àÏß³Ì²¢·¢À­È¡Ö¸¶¨Ê±¼ä¶ÎµÄÀúÊ· K ÏßÊı¾İ
+                // 1. å¤šçº¿ç¨‹å¹¶å‘æ‹‰å–æŒ‡å®šæ—¶é—´æ®µçš„å†å² K çº¿æ•°æ®
                 List<BinanceFuturesKlineItem> fetchedKlines = await _dataProvider.GetSymbolDataAsync(
                     symbol, interval, startTime, endTime, useCache: true, progress, token);
 
-                // 2. ºËĞÄ²½Öè£º¶Ô¶àÏß³Ì»ñÈ¡µÄÊı¾İ°´ OpenTimeMs ÑÏ¸ñÉıĞòÅÅĞò£¬È·±£Èë¶Ó¾ø¶Ô°´Ê±¼äË³Ğò
+                // 2. æ ¸å¿ƒæ­¥éª¤ï¼šå¯¹å¤šçº¿ç¨‹è·å–çš„æ•°æ®æŒ‰ OpenTimeMs ä¸¥æ ¼å‡åºæ’åºï¼Œç¡®ä¿å…¥é˜Ÿç»å¯¹æŒ‰æ—¶é—´é¡ºåº
                 List<BinanceFuturesKlineItem> sortedKlines = fetchedKlines
                     .GroupBy(k => k.OpenTimeMs)
                     .Select(g => g.First())
                     .OrderBy(k => k.OpenTimeMs)
                     .ToList();
 
-                // 3. ½«ÅÅºÃĞòµÄÊı¾İÒÀ´ÎÑ¹Èë ConcurrentQueue ²¥·Å¶ÓÁĞ
+                // 3. å°†æ’å¥½åºçš„æ•°æ®ä¾æ¬¡å‹å…¥ ConcurrentQueue æ’­æ”¾é˜Ÿåˆ—
                 foreach (var kline in sortedKlines)
                 {
                     _klineQueue.Enqueue(kline);
@@ -297,16 +310,16 @@ namespace WinFormsApp1
                 }
 
                 int fetchedCount = sortedKlines.Count;
-                AppendLog($"[FETCH OK] ³É¹¦ÔØÈë [{symbol}] {fetchedCount} Ìõ K Ïß²¢ÉıĞòÅÅ¶Ó", Color.Blue, true);
+                AppendLog($"[FETCH OK] æˆåŠŸè½½å…¥ [{symbol}] {fetchedCount} æ¡ K çº¿å¹¶å‡åºæ’é˜Ÿ", Color.Blue, true);
             }
             catch (OperationCanceledException)
             {
-                AppendLog("[FETCH CANCEL] È¡Ïû»ñÈ¡ÀúÊ·Êı¾İ", Color.Gray);
+                AppendLog("[FETCH CANCEL] å–æ¶ˆè·å–å†å²æ•°æ®", Color.Gray);
             }
             catch (Exception ex)
             {
                 AppendLog($"[FETCH ERROR] {ex.Message}", Color.Red, true);
-                MessageBox.Show($"»ñÈ¡ÀúÊ·Êı¾İÊ§°Ü: {ex.Message}", "´íÎó", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"è·å–å†å²æ•°æ®å¤±è´¥: {ex.Message}", "é”™è¯¯", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -315,7 +328,7 @@ namespace WinFormsApp1
         }
 
         /// <summary>
-        /// ²ÊÉ«ÈÕÖ¾×·¼ÓÊä³ö£¨¶à¿ÕÓ¯¿÷ÓëÏµÍ³×´Ì¬²»Í¬ÑÕÉ«Çø·Ö£©
+        /// å½©è‰²æ—¥å¿—è¿½åŠ è¾“å‡ºï¼ˆå¤šç©ºç›ˆäºä¸ç³»ç»ŸçŠ¶æ€ä¸åŒé¢œè‰²åŒºåˆ†ï¼‰
         /// </summary>
         private void AppendLog(string message, Color color, bool bold = false)
         {
@@ -337,20 +350,20 @@ namespace WinFormsApp1
         }
 
         /// <summary>
-        /// ÖØÖÃ/¸´Î»Í¼±í°´Å¥ÊÂ¼ş handler
+        /// é‡ç½®/å¤ä½å›¾è¡¨æŒ‰é’®äº‹ä»¶ handler
         /// </summary>
         private void button1_Click(object sender, EventArgs e)
         {
-            // 1. È¡ÏûÔÚÍ¾µÄÍøÂçÏÂÔØÈÎÎñ
+            // 1. å–æ¶ˆåœ¨é€”çš„ç½‘ç»œä¸‹è½½ä»»åŠ¡
             _fetchCts?.Cancel();
 
-            // 2. Çå¿Õ ConcurrentQueue Êı¾İ¶ÓÁĞÓëÀúÊ·
+            // 2. æ¸…ç©º ConcurrentQueue æ•°æ®é˜Ÿåˆ—ä¸å†å²
             while (_klineQueue.TryDequeue(out _)) { }
             _historyKlines.Clear();
             _strategyEngine.Reset();
             _totalEnqueuedCount = 0;
 
-            // 3. Çå¿Õ¸ßµÍµã Marker ¼°ÑÓÉìÏß overlay
+            // 3. æ¸…ç©ºé«˜ä½ç‚¹ Marker åŠå»¶ä¼¸çº¿ overlay
             _lastPivotSignature = string.Empty;
             _forceUpdatePivotOverlays = true;
             foreach (var item in _currentOverlayPlottables)
@@ -359,24 +372,25 @@ namespace WinFormsApp1
             }
             _currentOverlayPlottables.Clear();
 
-            // 4. ÖØÖÃ ScottPlot DataStreamer Êı¾İ
+            // 4. é‡ç½® ScottPlot DataStreamer æ•°æ®
             Streamer1.Data.Clear();
+            StreamerVolume.Data.Clear();
 
-            // 5. ¸´Î»ÊÓÍ¼Óë±êÌâ
-            formsPlot1.Plot.Title("Í¼±íÒÑÖØÖÃ");
+            // 5. å¤ä½è§†å›¾ä¸æ ‡é¢˜
+            formsPlot1.Plot.Title("å›¾è¡¨å·²é‡ç½®");
 
-            // 6. »Ö¸´°´Å¥Óë×´Ì¬
+            // 6. æ¢å¤æŒ‰é’®ä¸çŠ¶æ€
             btnFetch.Enabled = true;
-            AppendLog("Í¼±íÓë¶ÓÁĞÊı¾İÒÑÖØÖÃÍê³É£¬ÇëÖØĞÂÑ¡Ôñ±ÒÖÖºóµã»÷¡¾»ñÈ¡±ÒÖÖÀúÊ·Êı¾İ¡¿¡£", Color.DimGray);
-            lblTrendState.Text = "²ßÂÔ×´Ì¬: Î´¼ÆËã";
+            AppendLog("å›¾è¡¨ä¸é˜Ÿåˆ—æ•°æ®å·²é‡ç½®å®Œæˆï¼Œè¯·é‡æ–°é€‰æ‹©å¸ç§åç‚¹å‡»ã€è·å–å¸ç§å†å²æ•°æ®ã€‘ã€‚", Color.DimGray);
+            lblTrendState.Text = "ç­–ç•¥çŠ¶æ€: æœªè®¡ç®—";
             lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
             lblTrendState.ForeColor = Color.DimGray;
 
-            // 7. Ë¢ĞÂ½çÃæ
+            // 7. åˆ·æ–°ç•Œé¢
             formsPlot1.Refresh();
         }
 
-        #region µ¥»÷²½³¤»ØÍËÊı¾İ´¦ÀíÂß¼­
+        #region å•å‡»æ­¥é•¿å›é€€æ•°æ®å¤„ç†é€»è¾‘
 
         private void btnRewind_Click(object? sender, EventArgs e)
         {
@@ -390,23 +404,23 @@ namespace WinFormsApp1
             int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
             int rewindStep = speedIndex switch
             {
-                0 => 1,                 // 0.5x ÂıËÙ»ØÍË 2 µã
-                1 => 4,                 // 1.0x ±ê×¼»ØÍË 4 µã
-                2 => 10,                // 2.0x ¿ìËÙ»ØÍË 10 µã
-                3 => 30,                // 5.0x ¼«ËÙ»ØÍË 30 µã
-                4 => 80,                // 10.0x ·ÉËÙ»ØÍË 80 µã
-                5 => _historyKlines.Count, // È«ËÙ (Ë²Ê±È«Á¿»ØÍË)
-                _ => 4
+                0 => 1,                 
+                1 => 1,                 
+                2 => 1,                
+                3 => 1,                
+                4 => 1,                
+                5 => 1, 
+                _ => 1
             };
 
             rewindStep = Math.Min(rewindStep, _historyKlines.Count);
 
-            // ´ÓÀúÊ·¼ÇÂ¼ÖĞµ¯³ö×îºó N ¸öÒÑ²¥·ÅµÄÊı¾İµã
+            // ä»å†å²è®°å½•ä¸­å¼¹å‡ºæœ€å N ä¸ªå·²æ’­æ”¾çš„æ•°æ®ç‚¹
             int startIndex = _historyKlines.Count - rewindStep;
             var rewoundItems = _historyKlines.GetRange(startIndex, rewindStep);
             _historyKlines.RemoveRange(startIndex, rewindStep);
 
-            // ½«±»»ØÍËµÄÊı¾İµ¹ĞòÖØĞÂÑ¹»Ø¶ÓÁĞ×îÇ°¶Ë£¬ÒÔ±ã¼ÌĞøÕıÏòË³Ğò²¥·Å
+            // å°†è¢«å›é€€çš„æ•°æ®å€’åºé‡æ–°å‹å›é˜Ÿåˆ—æœ€å‰ç«¯ï¼Œä»¥ä¾¿ç»§ç»­æ­£å‘é¡ºåºæ’­æ”¾
             var remainingQueue = _klineQueue.ToList();
             while (_klineQueue.TryDequeue(out _)) { }
 
@@ -419,15 +433,16 @@ namespace WinFormsApp1
                 _klineQueue.Enqueue(item);
             }
 
-            // Çå¿Õ ScottPlot ²¢È«Á¿ÖØĞÂ¹àÈëÊ£Óà»ØÍËºóµÄÀúÊ·Êı¾İµã
+            // æ¸…ç©º ScottPlot å¹¶å…¨é‡é‡æ–°çŒå…¥å‰©ä½™å›é€€åçš„å†å²æ•°æ®ç‚¹
             Streamer1.Data.Clear();
+            StreamerVolume.Data.Clear();
             _forceUpdatePivotOverlays = true;
 
             if (_historyKlines.Count > 0)
             {
                 Streamer1.AddRange(_historyKlines.Select(k => (double)k.Close));
+                StreamerVolume.AddRange(_historyKlines.Select(k => (double)k.Volume));
                 PerformTrendlineAnalysisAndEvaluation();
-                RenderTrendlineOverlays();
             }
             else
             {
@@ -436,20 +451,20 @@ namespace WinFormsApp1
                     formsPlot1.Plot.Remove(item);
                 }
                 _currentOverlayPlottables.Clear();
-                lblTrendState.Text = "Ç÷ÊÆ×´Ì¬: ¹ÛÍûÅÌÕû";
+                lblTrendState.Text = "è¶‹åŠ¿çŠ¶æ€: è§‚æœ›ç›˜æ•´";
                 lblTrendState.BackColor = Color.FromArgb(245, 245, 245);
                 lblTrendState.ForeColor = Color.DimGray;
             }
 
-            // ÓÅÏÈ¼ÆËãÊÓ¿Ú¿É¼û·¶Î§ Y Öá¼«ÏŞ£¬ÔÙË¢ĞÂÍ¼ĞÎ³ÊÏÖ
+            // ä¼˜å…ˆè®¡ç®—è§†å£å¯è§èŒƒå›´ Y è½´æé™ï¼Œå†åˆ·æ–°å›¾å½¢å‘ˆç°
             UpdateYAxisLimits();
-            formsPlot1.Plot.Title($"[{_currentSymbol}] ÒÑ»ØÍË²½³¤: {rewindStep} µã | Ê£Óà: {_historyKlines.Count:N0} µã | ´ı²¥·Å¶ÓÁĞ: {_klineQueue.Count}");
+            formsPlot1.Plot.Title($"[{_currentSymbol}] å·²å›é€€æ­¥é•¿: {rewindStep} ç‚¹ | å‰©ä½™: {_historyKlines.Count:N0} ç‚¹ | å¾…æ’­æ”¾é˜Ÿåˆ—: {_klineQueue.Count}");
             formsPlot1.Refresh();
         }
 
         #endregion
 
-        #region µ¥»÷²½³¤ÏòÇ°ÍÆ½ø´¦ÀíÂß¼­
+        #region å•å‡»æ­¥é•¿å‘å‰æ¨è¿›å¤„ç†é€»è¾‘
 
         private void btnStepForward_Click(object? sender, EventArgs e)
         {
@@ -463,36 +478,38 @@ namespace WinFormsApp1
             int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
             int forwardStep = speedIndex switch
             {
-                0 => 1,                 // 0.5x ÂıËÙÏòÇ° 2 µã
-                1 => 4,                 // 1.0x ±ê×¼ÏòÇ° 4 µã
-                2 => 10,                // 2.0x ¿ìËÙÏòÇ° 10 µã
-                3 => 30,                // 5.0x ¼«ËÙÏòÇ° 30 µã
-                4 => 80,                // 10.0x ·ÉËÙÏòÇ° 80 µã
-                5 => _klineQueue.Count, // È«ËÙ (Ë²Ê±È«Á¿ÏòÇ°)
-                _ => 4
+                0 => 1,                 
+                1 => 1,                 
+                2 => 1,                
+                3 => 1,                
+                4 => 1,                
+                5 => 1, 
+                _ => 1
             };
 
             List<double> valuesToAdd = new();
+            List<double> volumesToAdd = new();
             for (int i = 0; i < forwardStep && _klineQueue.TryDequeue(out var kline); i++)
             {
                 valuesToAdd.Add((double)kline.Close);
+                volumesToAdd.Add((double)kline.Volume);
                 _historyKlines.Add(kline);
             }
 
             if (valuesToAdd.Count > 0)
             {
                 Streamer1.AddRange(valuesToAdd);
+                StreamerVolume.AddRange(volumesToAdd);
                 _forceUpdatePivotOverlays = true;
                 PerformTrendlineAnalysisAndEvaluation();
-                RenderTrendlineOverlays();
                 UpdateYAxisLimits();
-                formsPlot1.Plot.Title($"[{_currentSymbol}] ÒÑµ¥²½ÏòÇ°: {valuesToAdd.Count} µã | ×Ü¼ÆäÖÈ¾: {_historyKlines.Count:N0} µã | ¶ÓÁĞÊ£Óà: {_klineQueue.Count}");
+                formsPlot1.Plot.Title($"[{_currentSymbol}] å·²å•æ­¥å‘å‰: {valuesToAdd.Count} ç‚¹ | æ€»è®¡æ¸²æŸ“: {_historyKlines.Count:N0} ç‚¹ | é˜Ÿåˆ—å‰©ä½™: {_klineQueue.Count}");
                 formsPlot1.Refresh();
             }
         }
 
         /// <summary>
-        /// Êó±ê¹öÂÖÏìÓ¦ handler£ºÏòÉÏ¹ö¶¯ (Delta > 0) ´¥·¢µ¥²½ÏòÇ°ÍÆ½ø£»ÏòÏÂ¹ö¶¯ (Delta < 0) ´¥·¢µ¥²½»ØÍË
+        /// é¼ æ ‡æ»šè½®å“åº” handlerï¼šå‘ä¸Šæ»šåŠ¨ (Delta > 0) è§¦å‘å•æ­¥å‘å‰æ¨è¿›ï¼›å‘ä¸‹æ»šåŠ¨ (Delta < 0) è§¦å‘å•æ­¥å›é€€
         /// </summary>
         private void OnControlMouseWheel(object? sender, MouseEventArgs e)
         {
@@ -509,11 +526,11 @@ namespace WinFormsApp1
         #endregion
 
         /// <summary>
-        /// ¶¯Ì¬ÉèÖÃ Y Öá¿É¼û·¶Î§Îªµ±Ç°ÊÓ¿Ú¿É¼û K Ïß²¨·ù (º¬ 8% Áô°×±ß¾à)
+        /// åŠ¨æ€è®¾ç½® Y è½´å¯è§èŒƒå›´ä¸ºå½“å‰è§†å£å¯è§ K çº¿æ³¢å¹… (å« 8% ç•™ç™½è¾¹è·)
         /// </summary>
         private void UpdateYAxisLimits()
         {
-            // ÈôÓÃ»§È¡Ïû¹´Ñ¡¡¾×Ô¶¯¸üĞÂ Y Öá·¶Î§¡¿£¬ÔòÌø¹ı×ø±êÖáÏŞÖÆÖØÖÃ£¬±£ÁôÓÃ»§×Ô¶¨ÒåÊÖ¶¯Ëõ·ÅÓëÆ½ÒÆ×´Ì¬
+            // è‹¥ç”¨æˆ·å–æ¶ˆå‹¾é€‰ã€è‡ªåŠ¨æ›´æ–° Y è½´èŒƒå›´ã€‘ï¼Œåˆ™è·³è¿‡åæ ‡è½´é™åˆ¶é‡ç½®ï¼Œä¿ç•™ç”¨æˆ·è‡ªå®šä¹‰æ‰‹åŠ¨ç¼©æ”¾ä¸å¹³ç§»çŠ¶æ€
             if (chkAutoFitY != null && !chkAutoFitY.Checked)
             {
                 return;
@@ -522,7 +539,7 @@ namespace WinFormsApp1
             double yMin = double.MaxValue;
             double yMax = double.MinValue;
 
-            // 1. ¾«×¼È¡µ±Ç°ÊÓ¿ÚÄÚ¿É¼ûµÄ×î¶à 1000 ¸ö K ÏßÊı¾İµã¼ÆËã¸ßµÍ±ß½ç
+            // 1. ç²¾å‡†å–å½“å‰è§†å£å†…å¯è§çš„æœ€å¤š 1000 ä¸ª K çº¿æ•°æ®ç‚¹è®¡ç®—é«˜ä½è¾¹ç•Œ
             if (_historyKlines != null && _historyKlines.Count > 0)
             {
                 int visibleCount = Math.Min(1000, _historyKlines.Count);
@@ -536,7 +553,7 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. Èç¹ûÀúÊ·Êı¾İÎª¿Õ£¬½µ¼¶´Ó Streamer Ô­Ê¼Êı¾İÊı×é¼ÆËã
+            // 2. å¦‚æœå†å²æ•°æ®ä¸ºç©ºï¼Œé™çº§ä» Streamer åŸå§‹æ•°æ®æ•°ç»„è®¡ç®—
             if (yMin == double.MaxValue || yMax == double.MinValue)
             {
                 double[] streamer1Data = Streamer1.Data.Data;
@@ -554,7 +571,7 @@ namespace WinFormsApp1
                 }
             }
 
-            // 3. ¶¯Ì¬¸üĞÂ Y Öá¿É¼û¼«ÏŞ (°´ 8% ²¨·ùÁô°×£¬×îĞ¡Áô°× 10.0)
+            // 3. åŠ¨æ€æ›´æ–° Y è½´å¯è§æé™ (æŒ‰ 8% æ³¢å¹…ç•™ç™½ï¼Œæœ€å°ç•™ç™½ 10.0)
             if (yMin <= yMax && yMin != double.MaxValue)
             {
                 double padding = Math.Max((yMax - yMin) * 0.08, 10.0);
@@ -585,7 +602,7 @@ namespace WinFormsApp1
         }
 
         /// <summary>
-        /// Êı¾İ¼ÆËã²ã£º¸ßµÍµã Pivot ¼ÆËã¡¢Ç÷ÊÆÏßÉ¸Ñ¡Ëã·¨Óë²ßÂÔÆÀ²â (³¹µ×Óë UI Ë¢ĞÂ½âñî£¬ÔÚ AddNewDataTimer Êı¾İ Tick ÖĞÍê³É)
+        /// æ•°æ®è®¡ç®—å±‚ï¼šé«˜ä½ç‚¹ Pivot è®¡ç®—ã€è¶‹åŠ¿çº¿ç­›é€‰ç®—æ³•ä¸ç­–ç•¥è¯„æµ‹ (å½»åº•ä¸ UI åˆ·æ–°è§£è€¦ï¼Œåœ¨ AddNewDataTimer æ•°æ® Tick ä¸­å®Œæˆ)
         /// </summary>
         private void PerformTrendlineAnalysisAndEvaluation()
         {
@@ -608,20 +625,27 @@ namespace WinFormsApp1
                 _lowsCache[i] = SafeToDecimal(streamer1Data[physicalIndex]);
             }
 
-            // 1. ¸ßËÙ¼ÆËãµ±Ç°¸ßµÍµã Pivot
-            PivotHelper.CalculatePeaksFast(
+            // 1. é«˜é€Ÿè®¡ç®—å½“å‰é«˜ä½ç‚¹ Pivot
+            //PivotHelper.CalculatePeaksFast(
+            //    _highsCache.AsSpan(0, length),
+            //    _lowsCache.AsSpan(0, length),
+            //    _peaksBuffer,
+            //    _valleysBuffer,
+            //    leftLen: 5,
+            //    rightLen: 5
+            //);
+
+            PivotHelper.CalculatePeaksFastReversal(
                 _highsCache.AsSpan(0, length),
                 _lowsCache.AsSpan(0, length),
                 _peaksBuffer,
-                _valleysBuffer,
-                leftLen: 5,
-                rightLen: 5
+                _valleysBuffer,reversalBars:3
             );
 
-            // 2. ÊÕ¼¯Óë¼ÆËã¸ßµÍµãÇ÷ÊÆÏß¼°²ßÂÔÆÀ²â
+            // 2. æ”¶é›†ä¸è®¡ç®—é«˜ä½ç‚¹è¶‹åŠ¿çº¿åŠç­–ç•¥è¯„æµ‹
             ComputeAngleTrendLinesData(_peaksBuffer, _valleysBuffer, streamer1Data, nextIndex, length);
 
-            // 3. ºËĞÄ¸Ä½ø£º¼ÆËãÓë Overlay Í¼²ãÉú³ÉºÏ²¢ÔÚÍ¬Ò»´ÎÊı¾İ Tick ÖĞÔ­×ÓÍê³É£¬³¹µ×Ïû³ı¿çÖ¡×ø±êÆ«ÒÆ£¡
+            // 3. æ ¸å¿ƒæ”¹è¿›ï¼šè®¡ç®—ä¸ Overlay å›¾å±‚ç”Ÿæˆåˆå¹¶åœ¨åŒä¸€æ¬¡æ•°æ® Tick ä¸­åŸå­å®Œæˆï¼Œå½»åº•æ¶ˆé™¤è·¨å¸§åæ ‡åç§»ï¼
             RenderTrendlineOverlays();
         }
 
@@ -639,7 +663,7 @@ namespace WinFormsApp1
             public double NormK { get; set; }
             public bool IsPeak { get; set; }
             public bool IsBroken { get; set; }
-            public int TouchCount { get; set; } = 2; // Ä¬ÈÏÓÉ 2 ¸ö¼«Öµµã¹¹³É
+            public int TouchCount { get; set; } = 2; // é»˜è®¤ç”± 2 ä¸ªæå€¼ç‚¹æ„æˆ
             public bool Keep { get; set; }
             public bool IsLatest { get; set; }
 
@@ -647,7 +671,7 @@ namespace WinFormsApp1
         }
 
         /// <summary>
-        /// Êı¾İ²ãËã·¨£ºÊÕ¼¯Ç÷ÊÆÏßºòÑ¡¼¯¡¢ÆÆÎ»Ğ£Ñé¡¢Åö×²¼ÓÈ¨¡¢¼Ğ½Ç±£ÁôÓë²ßÂÔÆÀ²â
+        /// æ•°æ®å±‚ç®—æ³•ï¼šæ”¶é›†è¶‹åŠ¿çº¿å€™é€‰é›†ã€ç ´ä½æ ¡éªŒã€ç¢°æ’åŠ æƒã€å¤¹è§’ä¿ç•™ä¸ç­–ç•¥è¯„æµ‹
         /// </summary>
         private void ComputeAngleTrendLinesData(List<int> peakIndices, List<int> valleyIndices, double[] rawData, int nextIndex, int length)
         {
@@ -656,7 +680,7 @@ namespace WinFormsApp1
             var peakLines = new List<AngleTrendLineInfo>();
             var valleyLines = new List<AngleTrendLineInfo>();
 
-            // 1. ÊÕ¼¯¸ßµãÇ÷ÊÆÏß (Á¬½ÓÈÎÒâÁ½¸ö¸ßµã£¬°üº¬ K < 0 ÏòÏÂÓë K > 0 ÏòÉÏ)
+            // 1. æ”¶é›†é«˜ç‚¹è¶‹åŠ¿çº¿ (è¿æ¥ä»»æ„ä¸¤ä¸ªé«˜ç‚¹ï¼ŒåŒ…å« K < 0 å‘ä¸‹ä¸ K > 0 å‘ä¸Š)
             for (int i = 0; i < peakIndices.Count - 1; i++)
             {
                 for (int j = i + 1; j < peakIndices.Count; j++)
@@ -690,7 +714,7 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. ÊÕ¼¯µÍµãÇ÷ÊÆÏß (Á¬½ÓÈÎÒâÁ½¸öµÍµã£¬°üº¬ K > 0 ÏòÉÏÓë K < 0 ÏòÏÂ)
+            // 2. æ”¶é›†ä½ç‚¹è¶‹åŠ¿çº¿ (è¿æ¥ä»»æ„ä¸¤ä¸ªä½ç‚¹ï¼ŒåŒ…å« K > 0 å‘ä¸Šä¸ K < 0 å‘ä¸‹)
             for (int i = 0; i < valleyIndices.Count - 1; i++)
             {
                 for (int j = i + 1; j < valleyIndices.Count; j++)
@@ -728,7 +752,7 @@ namespace WinFormsApp1
             var allPivots = peakIndices.Select(p => (X: (double)p, Y: rawData[(nextIndex + p) % length]))
                 .Concat(valleyIndices.Select(v => (X: (double)v, Y: rawData[(nextIndex + v) % length]))).ToList();
 
-            // 3. Ö´ĞĞ¡¾¼Û¸ñ´©Í¸ÆÆÎ»Ğ£Ñé¡¿Óë¡¾Åö×²´¥Åö´ÎÊıÍ³¼ÆÓë¼ÓÈ¨¡¿
+            // 3. æ‰§è¡Œã€ä»·æ ¼ç©¿é€ç ´ä½æ ¡éªŒã€‘ä¸ã€ç¢°æ’è§¦ç¢°æ¬¡æ•°ç»Ÿè®¡ä¸åŠ æƒã€‘
             foreach (var line in allCandidates)
             {
                 int startX = (int)Math.Max(0, line.X1);
@@ -771,7 +795,7 @@ namespace WinFormsApp1
                 }
             }
 
-            // 4. ÊÕÁ²¼Ğ½ÇÅĞ¶¨ (Î´ÆÆÎ»ÇÒĞÎ³ÉÊÕÁ²½»»ã¼Ğ½ÇµÄËùÓĞÇ÷ÊÆÏßÓèÒÔ±£Áô)
+            // 4. æ”¶æ•›å¤¹è§’åˆ¤å®š (æœªç ´ä½ä¸”å½¢æˆæ”¶æ•›äº¤æ±‡å¤¹è§’çš„æ‰€æœ‰è¶‹åŠ¿çº¿äºˆä»¥ä¿ç•™)
             var validPeakLines = peakLines.Where(d => !d.IsBroken).ToList();
             var validValleyLines = valleyLines.Where(u => !u.IsBroken).ToList();
 
@@ -800,11 +824,11 @@ namespace WinFormsApp1
                 validValleyLines.Where(u => u.Keep).Last().IsLatest = true;
             }
 
-            // ¸üĞÂÔ¤¼ÆËã³öµÄÓĞĞ§ÏßÌõ»º´æ
+            // æ›´æ–°é¢„è®¡ç®—å‡ºçš„æœ‰æ•ˆçº¿æ¡ç¼“å­˜
             _cachedLinesToDraw.Clear();
             _cachedLinesToDraw.AddRange(allCandidates.Where(c => c.Keep && !c.IsBroken));
 
-            // 5. ²ßÂÔÆÀ²â£ºÍ³¼Æ¡¾µ±Ç°×îĞÂ¸ßµã/µÍµã¡¿¹ØÁªµÄÓĞĞ§Ç÷ÊÆÏßÊıÁ¿²¢ÆÀ²â¿ª²Ö
+            // 5. ç­–ç•¥è¯„æµ‹ï¼šç»Ÿè®¡ã€å½“å‰æœ€æ–°é«˜ç‚¹/ä½ç‚¹ã€‘å…³è”çš„æœ‰æ•ˆè¶‹åŠ¿çº¿æ•°é‡å¹¶è¯„æµ‹å¼€ä»“
             double currentPrice = rawData[(nextIndex + length - 1) % length];
             _cachedActiveRedCount = validPeakLines.Count(d => d.Keep && !d.IsBroken);
             _cachedActiveGreenCount = validValleyLines.Count(u => u.Keep && !u.IsBroken);
@@ -836,7 +860,7 @@ namespace WinFormsApp1
         }
 
         /// <summary>
-        /// UI äÖÈ¾²ã£ºÇáÁ¿¼¶¶ÁÈ¡ pre-calculated Ô¤¼ÆËãÊı¾İ²¢äÖÈ¾ UI Í¼²ã (ÔÚ UpdatePlotTimer ÖĞ¿ìËÙÖ´ĞĞ)
+        /// UI æ¸²æŸ“å±‚ï¼šè½»é‡çº§è¯»å– pre-calculated é¢„è®¡ç®—æ•°æ®å¹¶æ¸²æŸ“ UI å›¾å±‚ (åœ¨ UpdatePlotTimer ä¸­å¿«é€Ÿæ‰§è¡Œ)
         /// </summary>
         private void RenderTrendlineOverlays()
         {
@@ -860,7 +884,7 @@ namespace WinFormsApp1
             }
             _currentOverlayPlottables.Clear();
 
-            // 1. äÖÈ¾¸ßµã Peak ±ê¼Ç (ºìÉ«Ô²È¦)
+            // 1. æ¸²æŸ“é«˜ç‚¹ Peak æ ‡è®° (çº¢è‰²åœ†åœˆ)
             foreach (int peakIdx in _peaksBuffer)
             {
                 int physicalIndex = (nextIndex + peakIdx) % length;
@@ -874,7 +898,7 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(marker);
             }
 
-            // 2. äÖÈ¾µÍµã Valley ±ê¼Ç (ÂÌÉ«·½¿é)
+            // 2. æ¸²æŸ“ä½ç‚¹ Valley æ ‡è®° (ç»¿è‰²æ–¹å—)
             foreach (int valleyIdx in _valleysBuffer)
             {
                 int physicalIndex = (nextIndex + valleyIdx) % length;
@@ -888,7 +912,7 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(marker);
             }
 
-            // 3. äÖÈ¾Ô¤¼ÆËã³öµÄÇ÷ÊÆÑÓÉìÏß
+            // 3. æ¸²æŸ“é¢„è®¡ç®—å‡ºçš„è¶‹åŠ¿å»¶ä¼¸çº¿
             foreach (var lineData in _cachedLinesToDraw)
             {
                 double xLeft = -5000;
@@ -921,7 +945,7 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(line);
             }
 
-            // 4. äÖÈ¾½»Ò× Marker ±ê¼ÇÓëÆøÅİÎÄ±¾
+            // 4. æ¸²æŸ“äº¤æ˜“ Marker æ ‡è®°ä¸æ°”æ³¡æ–‡æœ¬
             double currentPrice = streamer1Data[(nextIndex + length - 1) % length];
             int totalKlinesCount = _historyKlines.Count;
             int latestKlineIndex = totalKlinesCount - 1;
@@ -946,6 +970,51 @@ namespace WinFormsApp1
             }
             double priceRange = Math.Max(yMaxVal - yMinVal, 10.0);
             double verticalOffset = priceRange * 0.015;
+
+            // 3.5 æ¸²æŸ“å¤§æˆäº¤é‡å¼‚åŠ¨æ ‡è®° (å½“ K çº¿æˆäº¤é‡è¶…è¿‡å½“å‰è§†å£å‡å€¼ 2.2 å€æ—¶ï¼Œåœ¨ K çº¿ä¸Šæ–¹æ ‡è®° âš¡VOL æç¤º)
+            if (_historyKlines != null && _historyKlines.Count >= 5)
+            {
+                int visCount = Math.Min(length, _historyKlines.Count);
+                int startIdx = _historyKlines.Count - visCount;
+
+                double sumVol = 0;
+                for (int i = startIdx; i < _historyKlines.Count; i++)
+                {
+                    sumVol += (double)_historyKlines[i].Volume;
+                }
+                double avgVol = sumVol / Math.Max(1, visCount);
+                double highVolThreshold = Math.Max(avgVol * 5, 10.0);
+
+                for (int i = startIdx; i < _historyKlines.Count; i++)
+                {
+                    var kline = _historyKlines[i];
+                    double vol = (double)kline.Volume;
+                    if (vol >= highVolThreshold)
+                    {
+                        int barsAgo = _historyKlines.Count - 1 - i;
+                        double x = (length - 1) - barsAgo;
+
+                        if (x >= 0 && x < length)
+                        {
+                            double close = (double)kline.Close;
+                            var spikeMarker = formsPlot1.Plot.Add.Marker(x, close);
+                            spikeMarker.Shape = MarkerShape.FilledDiamond;
+                            spikeMarker.Size = 9;
+                            spikeMarker.Color = ScottPlot.Colors.OrangeRed;
+                            _currentOverlayPlottables.Add(spikeMarker);
+
+                            var spikeText = formsPlot1.Plot.Add.Text($"âš¡{vol:N0}", x, close + verticalOffset * 2.2);
+                            spikeText.LabelFontSize = 8.5f;
+                            spikeText.LabelFontColor = ScottPlot.Colors.DarkRed;
+                            spikeText.LabelBackgroundColor = ScottPlot.Colors.Yellow.WithAlpha(0.85f);
+                            spikeText.LabelBorderColor = ScottPlot.Colors.OrangeRed;
+                            spikeText.LabelBorderWidth = 1f;
+                            spikeText.LabelAlignment = ScottPlot.Alignment.LowerCenter;
+                            _currentOverlayPlottables.Add(spikeText);
+                        }
+                    }
+                }
+            }
 
             foreach (var trade in _strategyEngine.CompletedTrades)
             {
@@ -1078,7 +1147,7 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(slLine);
             }
 
-            // 5. Í³¼Æ²ßÂÔ×´Ì¬Ãæ°åÓëÕ½¼¨ (Ê¤ÂÊÓë½»Ò×Í³¼ÆÊ¼ÖÕÏÔÊ¾)
+            // 5. ç»Ÿè®¡ç­–ç•¥çŠ¶æ€é¢æ¿ä¸æˆ˜ç»© (èƒœç‡ä¸äº¤æ˜“ç»Ÿè®¡å§‹ç»ˆæ˜¾ç¤º)
             int totalTrades = _strategyEngine.CompletedTrades.Count;
             int winCount = _strategyEngine.CompletedTrades.Count(t => t.IsProfit);
             int lossCount = totalTrades - winCount;
@@ -1125,7 +1194,7 @@ namespace WinFormsApp1
             return (decimal)value;
         }
 
-        #region ÔËĞĞ¿ØÖÆ (ÔİÍ£ / »Ö¸´)
+        #region è¿è¡Œæ§åˆ¶ (æš‚åœ / æ¢å¤)
 
         public void TogglePause()
         {
@@ -1137,11 +1206,11 @@ namespace WinFormsApp1
         private void btn_puase_Click(object sender, EventArgs e)
         {
             TogglePause();
-            btn_puase.Text = AddNewDataTimer.Enabled ? "ÔİÍ£Êı¾İ²¥·Å" : "»Ö¸´Êı¾İ²¥·Å";
+            btn_puase.Text = AddNewDataTimer.Enabled ? "æš‚åœæ•°æ®æ’­æ”¾" : "æ¢å¤æ•°æ®æ’­æ”¾";
         }
     }
 
-    #region Ç÷ÊÆÏßÁ¿»¯²ßÂÔÒıÇæÀà
+    #region è¶‹åŠ¿çº¿é‡åŒ–ç­–ç•¥å¼•æ“ç±»
 
     public enum StrategyPositionType
     {
@@ -1154,9 +1223,9 @@ namespace WinFormsApp1
     {
         public StrategyPositionType Type { get; set; }
         public double EntryPrice { get; set; }
-        public int EntryKlineIndex { get; set; } // ¶ÔÓ¦ _historyKlines ÖĞµÄ¾ø¶ÔÈ«¾ÖË÷Òı
+        public int EntryKlineIndex { get; set; } // å¯¹åº” _historyKlines ä¸­çš„ç»å¯¹å…¨å±€ç´¢å¼•
         public double ExitPrice { get; set; }
-        public int ExitKlineIndex { get; set; }  // ¶ÔÓ¦ _historyKlines ÖĞµÄ¾ø¶ÔÈ«¾ÖË÷Òı
+        public int ExitKlineIndex { get; set; }  // å¯¹åº” _historyKlines ä¸­çš„ç»å¯¹å…¨å±€ç´¢å¼•
         public bool IsProfit { get; set; }
         public double ProfitPct { get; set; }
         public string ExitReason { get; set; } = string.Empty;
@@ -1195,7 +1264,7 @@ namespace WinFormsApp1
         {
             if (currentKlineIndex < 0) return;
 
-            // 1. Ğ£ÑéÏÖÓĞ³Ö²ÖµÄ 1.0% Ö¹Ó¯ / 1.0% Ö¹Ëğ
+            // 1. æ ¡éªŒç°æœ‰æŒä»“çš„ 1.0% æ­¢ç›ˆ / 1.0% æ­¢æŸ
             if (CurrentPosition == StrategyPositionType.Long)
             {
                 if (currentPrice >= TakeProfitPrice)
@@ -1271,7 +1340,7 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. Èç¹ûµ±Ç°ÎŞ³Ö²Ö£¬Ğ£Ñé¿ª²Ö¹æÔò£º
+            // 2. å¦‚æœå½“å‰æ— æŒä»“ï¼Œæ ¡éªŒå¼€ä»“è§„åˆ™ï¼š
             if (CurrentPosition == StrategyPositionType.None)
             {
                 bool triggerShort = latestPeakX >= 0 && latestPeakX != _lastEvaluatedPeakX && latestPeakRedLinesCount >= _triggerCount;
@@ -1283,8 +1352,8 @@ namespace WinFormsApp1
                     CurrentPosition = StrategyPositionType.Short;
                     EntryPrice = currentPrice;
                     EntryKlineIndex = currentKlineIndex;
-                    TakeProfitPrice = currentPrice * 0.99; // 1% Ö¹Ó¯
-                    StopLossPrice = currentPrice * 1.01;   // 1% Ö¹Ëğ
+                    TakeProfitPrice = currentPrice * 0.99; // 1% æ­¢ç›ˆ
+                    StopLossPrice = currentPrice * 1.01;   // 1% æ­¢æŸ
                     OnTradeOpened?.Invoke(StrategyPositionType.Short, currentPrice, currentKlineIndex);
                 }
                 else if (triggerLong)
@@ -1293,8 +1362,8 @@ namespace WinFormsApp1
                     CurrentPosition = StrategyPositionType.Long;
                     EntryPrice = currentPrice;
                     EntryKlineIndex = currentKlineIndex;
-                    TakeProfitPrice = currentPrice * 1.01; // 1% Ö¹Ó¯
-                    StopLossPrice = currentPrice * 0.99;   // 1% Ö¹Ëğ
+                    TakeProfitPrice = currentPrice * 1.01; // 1% æ­¢ç›ˆ
+                    StopLossPrice = currentPrice * 0.99;   // 1% æ­¢æŸ
                     OnTradeOpened?.Invoke(StrategyPositionType.Long, currentPrice, currentKlineIndex);
                 }
             }

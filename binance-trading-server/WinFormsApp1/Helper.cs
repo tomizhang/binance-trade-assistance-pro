@@ -114,5 +114,96 @@ namespace ConsoleApp1
                 if (isValley) valleysBuffer.Add(i);
             }
         }
+
+
+        /// <summary>
+        /// 高性能状态机计算 K 线波峰与波谷（内存零分配） 
+        /// </summary>
+        /// <param name="highs">最高价 ReadOnlySpan 视图</param>
+        /// <param name="lows">最低价 ReadOnlySpan 视图</param>
+        /// <param name="peaksBuffer">输出波峰索引的 List 缓冲区（需提前初始化）</param>
+        /// <param name="valleysBuffer">输出波谷索引的 List 缓冲区（需提前初始化）</param>
+        /// <param name="reversalBars">确认极值反转所需的 K 线根数（默认 3）</param>
+        public static void CalculatePeaksFastReversal(
+            ReadOnlySpan<decimal> highs,
+            ReadOnlySpan<decimal> lows,
+            List<int> peaksBuffer,
+            List<int> valleysBuffer,
+            int reversalBars = 3)
+        {
+            peaksBuffer.Clear();
+            valleysBuffer.Clear();
+
+            int length = highs.Length;
+            if (length < reversalBars + 1 || lows.Length < length)
+            {
+                return;
+            }
+
+            // 状态变量：0 = 寻找波峰中, 1 = 寻找波谷中
+            int state = 0;
+
+            int currentCandidateIdx = 0;
+            decimal currentCandidatePrice = highs[0];
+            int barsSinceExtreme = 0;
+
+            for (int i = 1; i < length; i++)
+            {
+                if (state == 0) // 寻找波峰
+                {
+                    decimal currentHigh = highs[i];
+
+                    // 1. 刷新更高点：零延迟移动候选波峰位置
+                    if (currentHigh >= currentCandidatePrice)
+                    {
+                        currentCandidateIdx = i;
+                        currentCandidatePrice = currentHigh;
+                        barsSinceExtreme = 0;
+                    }
+                    else
+                    {
+                        barsSinceExtreme++;
+
+                        // 2. 连续 N 根未创新高：确认波峰，并将状态切切换为寻找波谷
+                        if (barsSinceExtreme >= reversalBars)
+                        {
+                            peaksBuffer.Add(currentCandidateIdx);
+
+                            state = 1;
+                            currentCandidateIdx = i;
+                            currentCandidatePrice = lows[i];
+                            barsSinceExtreme = 0;
+                        }
+                    }
+                }
+                else // 寻找波谷
+                {
+                    decimal currentLow = lows[i];
+
+                    // 1. 刷新更低点：零延迟移动候选波谷位置
+                    if (currentLow <= currentCandidatePrice)
+                    {
+                        currentCandidateIdx = i;
+                        currentCandidatePrice = currentLow;
+                        barsSinceExtreme = 0;
+                    }
+                    else
+                    {
+                        barsSinceExtreme++;
+
+                        // 2. 连续 N 根未创新低：确认波谷，并将状态切换为寻找波峰
+                        if (barsSinceExtreme >= reversalBars)
+                        {
+                            valleysBuffer.Add(currentCandidateIdx);
+
+                            state = 0;
+                            currentCandidateIdx = i;
+                            currentCandidatePrice = highs[i];
+                            barsSinceExtreme = 0;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
