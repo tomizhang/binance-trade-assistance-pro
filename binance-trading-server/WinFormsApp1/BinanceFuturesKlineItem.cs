@@ -8,6 +8,7 @@ namespace WinFormsApp1
     /// </summary>
     public enum FuturesKlineInterval
     {
+        Tick1,
         Min1,
         Min3,
         Min5,
@@ -35,6 +36,7 @@ namespace WinFormsApp1
         /// </summary>
         public static string ToIntervalString(this FuturesKlineInterval interval) => interval switch
         {
+            FuturesKlineInterval.Tick1 => "1tick",
             FuturesKlineInterval.Min1 => "1m",
             FuturesKlineInterval.Min3 => "3m",
             FuturesKlineInterval.Min5 => "5m",
@@ -60,6 +62,8 @@ namespace WinFormsApp1
         {
             switch (intervalStr?.Trim().ToLowerInvariant())
             {
+                case "1tick":
+                case "tick": interval = FuturesKlineInterval.Tick1; return true;
                 case "1m": interval = FuturesKlineInterval.Min1; return true;
                 case "3m": interval = FuturesKlineInterval.Min3; return true;
                 case "5m": interval = FuturesKlineInterval.Min5; return true;
@@ -87,6 +91,7 @@ namespace WinFormsApp1
         /// </summary>
         public static TimeSpan ToTimeSpan(this FuturesKlineInterval interval) => interval switch
         {
+            FuturesKlineInterval.Tick1 => TimeSpan.FromMilliseconds(100),
             FuturesKlineInterval.Min1 => TimeSpan.FromMinutes(1),
             FuturesKlineInterval.Min3 => TimeSpan.FromMinutes(3),
             FuturesKlineInterval.Min5 => TimeSpan.FromMinutes(5),

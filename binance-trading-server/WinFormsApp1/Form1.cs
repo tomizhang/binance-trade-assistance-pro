@@ -11,6 +11,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static ConsoleApp1.PivotHelper;
 using Color = System.Drawing.Color;
 
 namespace WinFormsApp1
@@ -22,7 +23,7 @@ namespace WinFormsApp1
 
         // ScottPlot 变量
         private DataStreamer Streamer1;
-        private DataStreamer StreamerVolume;
+        //private DataStreamer StreamerVolume;
         private VerticalLine VLine;
 
         // 十字准星与 Text 标注
@@ -34,14 +35,17 @@ namespace WinFormsApp1
 
         // --- 队列方式接入 ScottPlot ---
         private readonly ConcurrentQueue<BinanceFuturesKlineItem> _klineQueue = new();
+        private readonly ConcurrentQueue<BinanceFuturesAggTradeItem> _tickQueue = new();
+        private readonly List<BinanceFuturesAggTradeItem> _historyTicks = new(50000);
         private readonly SymbolDataProvider _dataProvider = new SymbolDataProvider(maxDegreeOfParallelism: 5);
+        private readonly BinanceFuturesAggTradeHelper _aggTradeHelper = new BinanceFuturesAggTradeHelper();
         private CancellationTokenSource? _fetchCts;
         private long _totalEnqueuedCount = 0;
         private string _currentSymbol = "BTCUSDT";
 
         // --- 内存缓存区 ---
-        private readonly List<int> _peaksBuffer = new(64);
-        private readonly List<int> _valleysBuffer = new(64);
+        private  List<int> _peaksBuffer = new(64);
+        private  List<int> _valleysBuffer = new(64);
         private readonly List<IPlottable> _currentOverlayPlottables = new(256);
         private decimal[] _highsCache = new decimal[1000];
         private decimal[] _lowsCache = new decimal[1000];
@@ -76,13 +80,13 @@ namespace WinFormsApp1
             Streamer1.LegendText = "收盘价 (Close Price)";
 
             // 2.2 初始化成交量 DataStreamer (1000 数据点, 右 Y 轴)
-            StreamerVolume = formsPlot1.Plot.Add.DataStreamer(1000);
-            StreamerVolume.ViewScrollLeft();
-            StreamerVolume.ManageAxisLimits = false;
-            StreamerVolume.LineStyle.Color = ScottPlot.Colors.Purple.WithAlpha(0.6f);
-            StreamerVolume.LineStyle.Width = 1.5f;
-            StreamerVolume.LegendText = "成交量 (Volume)";
-            StreamerVolume.Axes.YAxis = formsPlot1.Plot.Axes.Right;
+            //StreamerVolume = formsPlot1.Plot.Add.DataStreamer(1000);
+            //StreamerVolume.ViewScrollLeft();
+            //StreamerVolume.ManageAxisLimits = false;
+            //StreamerVolume.LineStyle.Color = ScottPlot.Colors.Purple.WithAlpha(0.6f);
+            //StreamerVolume.LineStyle.Width = 1.5f;
+            //StreamerVolume.LegendText = "成交量 (Volume)";
+            //StreamerVolume.Axes.YAxis = formsPlot1.Plot.Axes.Right;
 
             // 3. 指示线与十字星
             VLine = formsPlot1.Plot.Add.VerticalLine(0, 2, ScottPlot.Colors.Red);
@@ -152,6 +156,63 @@ namespace WinFormsApp1
             AddNewDataTimer.Interval = 100; // 20ms 默认
             AddNewDataTimer.Tick += (s, e) =>
             {
+                // 核心增加【逐笔 Tick 数据回放模式】支持
+                if (!_isRewinding && chkTickReplay != null && chkTickReplay.Checked && !_tickQueue.IsEmpty)
+                {
+                    int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
+                    int batchSize = speedIndex switch
+                    {
+                        0 => 1,
+                        1 => 3,
+                        2 => 10,
+                        3 => 30,
+                        4 => 100,
+                        5 => _tickQueue.Count,
+                        _ => 3
+                    };
+
+                    List<double> tickPrices = new();
+                    List<double> tickVolumes = new();
+
+                    for (int i = 0; i < batchSize && _tickQueue.TryDequeue(out var tick); i++)
+                    {
+                        tickPrices.Add(tick.Price);
+                        tickVolumes.Add(tick.Quantity);
+                        _historyTicks.Add(tick);
+
+                        // 逐笔 Tick 动态更新或生成 K 线
+                        if (_historyKlines.Count == 0)
+                        {
+                            _historyKlines.Add(new BinanceFuturesKlineItem
+                            {
+                                OpenTimeMs = tick.TradeTimeMs,
+                                CloseTimeMs = tick.TradeTimeMs,
+                                Open = (decimal)tick.Price,
+                                High = (decimal)tick.Price,
+                                Low = (decimal)tick.Price,
+                                Close = (decimal)tick.Price,
+                                Volume = (decimal)tick.Quantity
+                            });
+                        }
+                        else
+                        {
+                            var currentKline = _historyKlines[^1];
+                            currentKline.Close = (decimal)tick.Price;
+                            if ((decimal)tick.Price > currentKline.High) currentKline.High = (decimal)tick.Price;
+                            if ((decimal)tick.Price < currentKline.Low) currentKline.Low = (decimal)tick.Price;
+                            currentKline.Volume += (decimal)tick.Quantity;
+                        }
+                    }
+
+                    if (tickPrices.Count > 0)
+                    {
+                        Streamer1.AddRange(tickPrices);
+                        //StreamerVolume.AddRange(tickVolumes);
+                        PerformTrendlineAnalysisAndEvaluation();
+                    }
+                    return;
+                }
+
                 if (!_isRewinding && !_klineQueue.IsEmpty)
                 {
                     int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
@@ -186,14 +247,14 @@ namespace WinFormsApp1
                     for (int i = 0; i < batchSize && _klineQueue.TryDequeue(out var kline); i++)
                     {
                         valuesToAdd.Add((double)kline.Close);
-                        //volumesToAdd.Add((double)kline.Volume);
+                        volumesToAdd.Add((double)kline.Volume);
                         _historyKlines.Add(kline);
                     }
 
                     if (valuesToAdd.Count > 0)
                     {
                         Streamer1.AddRange(valuesToAdd);
-                        StreamerVolume.AddRange(volumesToAdd);
+                        //StreamerVolume.AddRange(volumesToAdd);
                         
                         // 核心架构优化：高低点位计算、趋势线运算与策略评测彻底放在数据 Tick 中完成 (计算与 UI 彻底解耦)
                         PerformTrendlineAnalysisAndEvaluation();
@@ -254,6 +315,11 @@ namespace WinFormsApp1
                 interval = FuturesKlineInterval.Min15;
             }
 
+            if (interval == FuturesKlineInterval.Tick1)
+            {
+                if (chkTickReplay != null) chkTickReplay.Checked = true;
+            }
+
             // 计算起始与结束时间
             DateTime endTime = DateTime.UtcNow;
             DateTime startTime = cmbTimeRange.SelectedIndex switch
@@ -274,43 +340,105 @@ namespace WinFormsApp1
 
             // 重置状态与队列
             _currentSymbol = symbol;
-            Streamer1.LegendText = $"{symbol} {intervalStr} (Close)";
             btnFetch.Enabled = false;
-            AppendLog($"[FETCH] 开始多线程拉取 [{symbol}] {intervalStr} 历史数据...", Color.DarkBlue, true);
 
             // 清空当前队列与历史缓存
             while (_klineQueue.TryDequeue(out _)) { }
+            while (_tickQueue.TryDequeue(out _)) { }
+            _historyTicks.Clear();
             _historyKlines.Clear();
             _strategyEngine.Reset();
             _totalEnqueuedCount = 0;
 
+            // 核心优化：仅在勾选 [逐笔 Tick 回放模式] 或选择 [1tick] 周期时，才采用 Tick 明细数据聚合拟合！
+            bool useTickFetch = (chkTickReplay != null && chkTickReplay.Checked) || (interval == FuturesKlineInterval.Tick1);
+
+            if (useTickFetch)
+            {
+                Streamer1.LegendText = $"{symbol} {intervalStr} (Tick Aggregated)";
+                AppendLog($"[TICK FETCH] 勾选 Tick 模式，开始拉取 [{symbol}] 币安 AggTrade 明细并拟合合成 {intervalStr} K 线...", Color.DarkBlue, true);
+            }
+            else
+            {
+                Streamer1.LegendText = $"{symbol} {intervalStr} (Standard K-Line)";
+                AppendLog($"[KLINE FETCH] 开始使用标准多线程 API 秒级拉取 [{symbol}] {intervalStr} 历史 K 线...", Color.DarkBlue, true);
+            }
+
             try
             {
-                var progress = new Progress<FetchStatusReport>(report =>
+                if (useTickFetch)
                 {
-                    // 可选微调处理
-                });
+                    // 1. 勾选 Tick 模式：拉取 AggTrade 逐笔明细并拟合合成 K 线
+                    Action<List<BinanceFuturesKlineItem>> onBackgroundChunkSynthesized = null!;
+                    onBackgroundChunkSynthesized = (newKlines) =>
+                    {
+                        if (newKlines == null || newKlines.Count == 0) return;
+                        if (this.InvokeRequired)
+                        {
+                            this.BeginInvoke(new Action(() => onBackgroundChunkSynthesized(newKlines)));
+                            return;
+                        }
 
-                // 1. 多线程并发拉取指定时间段的历史 K 线数据
-                List<BinanceFuturesKlineItem> fetchedKlines = await _dataProvider.GetSymbolDataAsync(
-                    symbol, interval, startTime, endTime, useCache: true, progress, token);
+                        int addedCount = 0;
+                        foreach (var kline in newKlines.OrderBy(k => k.OpenTimeMs))
+                        {
+                            _klineQueue.Enqueue(kline);
+                            Interlocked.Increment(ref _totalEnqueuedCount);
+                            addedCount++;
+                        }
 
-                // 2. 核心步骤：对多线程获取的数据按 OpenTimeMs 严格升序排序，确保入队绝对按时间顺序
-                List<BinanceFuturesKlineItem> sortedKlines = fetchedKlines
-                    .GroupBy(k => k.OpenTimeMs)
-                    .Select(g => g.First())
-                    .OrderBy(k => k.OpenTimeMs)
-                    .ToList();
+                        AppendLog($"[TICK 流式追加] 后台并发下载完成 +{addedCount} 条 Tick 拟合 K 线，已注入队列继续播放", Color.DarkBlue);
+                    };
 
-                // 3. 将排好序的数据依次压入 ConcurrentQueue 播放队列
-                foreach (var kline in sortedKlines)
-                {
-                    _klineQueue.Enqueue(kline);
-                    Interlocked.Increment(ref _totalEnqueuedCount);
+                    DateTime pStart = endTime.AddMinutes(-20);
+                    if (pStart < startTime) pStart = startTime;
+                    var rawTicks = await _aggTradeHelper.GetAggTradesAsync(symbol, limit: 1000, startTime: pStart, endTime: endTime, cancellationToken: token);
+                    foreach (var t in rawTicks.OrderBy(t => t.TradeTimeMs))
+                    {
+                        _tickQueue.Enqueue(t);
+                    }
+
+                    List<BinanceFuturesKlineItem> priorityKlines = await _aggTradeHelper.PriorityStreamingFetchTickKlinesAsync(
+                        symbol, interval, startTime, endTime, onBackgroundChunkSynthesized, token);
+
+                    List<BinanceFuturesKlineItem> sortedPriorityKlines = priorityKlines
+                        .GroupBy(k => k.OpenTimeMs)
+                        .Select(g => g.First())
+                        .OrderBy(k => k.OpenTimeMs)
+                        .ToList();
+
+                    foreach (var kline in sortedPriorityKlines)
+                    {
+                        _klineQueue.Enqueue(kline);
+                        Interlocked.Increment(ref _totalEnqueuedCount);
+                    }
+
+                    int priorityCount = sortedPriorityKlines.Count;
+                    AppendLog($"[TICK 秒级加载 OK] 成功秒载 [{symbol}] 首批 {priorityCount} 条 Tick 拟合 K 线，图表即刻开始实时播放！", Color.Blue, true);
                 }
+                else
+                {
+                    // 2. 未勾选 Tick 模式：使用标准多线程 K 线 API 秒载数据
+                    var progress = new Progress<FetchStatusReport>(report => { });
 
-                int fetchedCount = sortedKlines.Count;
-                AppendLog($"[FETCH OK] 成功载入 [{symbol}] {fetchedCount} 条 K 线并升序排队", Color.Blue, true);
+                    List<BinanceFuturesKlineItem> fetchedKlines = await _dataProvider.GetSymbolDataAsync(
+                        symbol, interval, startTime, endTime, useCache: true, progress, token);
+
+                    List<BinanceFuturesKlineItem> sortedKlines = fetchedKlines
+                        .GroupBy(k => k.OpenTimeMs)
+                        .Select(g => g.First())
+                        .OrderBy(k => k.OpenTimeMs)
+                        .ToList();
+
+                    foreach (var kline in sortedKlines)
+                    {
+                        _klineQueue.Enqueue(kline);
+                        Interlocked.Increment(ref _totalEnqueuedCount);
+                    }
+
+                    int fetchedCount = sortedKlines.Count;
+                    AppendLog($"[KLINE FETCH OK] 成功载入 [{symbol}] {fetchedCount} 条标准 K 线并排队播放", Color.Blue, true);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -359,6 +487,8 @@ namespace WinFormsApp1
 
             // 2. 清空 ConcurrentQueue 数据队列与历史
             while (_klineQueue.TryDequeue(out _)) { }
+            while (_tickQueue.TryDequeue(out _)) { }
+            _historyTicks.Clear();
             _historyKlines.Clear();
             _strategyEngine.Reset();
             _totalEnqueuedCount = 0;
@@ -374,7 +504,7 @@ namespace WinFormsApp1
 
             // 4. 重置 ScottPlot DataStreamer 数据
             Streamer1.Data.Clear();
-            StreamerVolume.Data.Clear();
+            //StreamerVolume.Data.Clear();
 
             // 5. 复位视图与标题
             formsPlot1.Plot.Title("图表已重置");
@@ -423,6 +553,8 @@ namespace WinFormsApp1
             // 将被回退的数据倒序重新压回队列最前端，以便继续正向顺序播放
             var remainingQueue = _klineQueue.ToList();
             while (_klineQueue.TryDequeue(out _)) { }
+            while (_tickQueue.TryDequeue(out _)) { }
+            _historyTicks.Clear();
 
             foreach (var item in rewoundItems)
             {
@@ -435,13 +567,13 @@ namespace WinFormsApp1
 
             // 清空 ScottPlot 并全量重新灌入剩余回退后的历史数据点
             Streamer1.Data.Clear();
-            StreamerVolume.Data.Clear();
+            //StreamerVolume.Data.Clear();
             _forceUpdatePivotOverlays = true;
 
             if (_historyKlines.Count > 0)
             {
                 Streamer1.AddRange(_historyKlines.Select(k => (double)k.Close));
-                StreamerVolume.AddRange(_historyKlines.Select(k => (double)k.Volume));
+                //StreamerVolume.AddRange(_historyKlines.Select(k => (double)k.Volume));
                 PerformTrendlineAnalysisAndEvaluation();
             }
             else
@@ -499,7 +631,7 @@ namespace WinFormsApp1
             if (valuesToAdd.Count > 0)
             {
                 Streamer1.AddRange(valuesToAdd);
-                StreamerVolume.AddRange(volumesToAdd);
+                //StreamerVolume.AddRange(volumesToAdd);
                 _forceUpdatePivotOverlays = true;
                 PerformTrendlineAnalysisAndEvaluation();
                 UpdateYAxisLimits();
@@ -635,12 +767,18 @@ namespace WinFormsApp1
             //    rightLen: 5
             //);
 
-            PivotHelper.CalculatePeaksFastReversal(
+            var peaksBuffer = new List<PeakValleyResult>();
+            var valleysBuffer = new List<PeakValleyResult>();
+
+            PivotHelper.CalculatePeaksCombinedFast(
                 _highsCache.AsSpan(0, length),
                 _lowsCache.AsSpan(0, length),
-                _peaksBuffer,
-                _valleysBuffer,reversalBars:3
+                peaksBuffer,
+                valleysBuffer,reversalBars:3, fractalArm:3
             );
+
+            _peaksBuffer = peaksBuffer.Where(x=>x.IsFractalConfirmed).Select(x => x.Index).ToList();
+            _valleysBuffer = valleysBuffer.Where(x => x.IsFractalConfirmed).Select(x => x.Index).ToList();
 
             // 2. 收集与计算高低点趋势线及策略评测
             ComputeAngleTrendLinesData(_peaksBuffer, _valleysBuffer, streamer1Data, nextIndex, length);
@@ -776,6 +914,7 @@ namespace WinFormsApp1
 
                 if (line.IsBroken) continue;
 
+                // 统计 0.1% 允许波动偏差内的附加触碰点位 (0.001)
                 foreach (var pivot in allPivots)
                 {
                     if (Math.Abs(pivot.X - line.X1) < 1e-3 || Math.Abs(pivot.X - line.X2) < 1e-3) continue;
@@ -783,45 +922,31 @@ namespace WinFormsApp1
                     double expectedY = line.GetY(pivot.X);
                     double relDiff = Math.Abs(pivot.Y - expectedY) / Math.Max(Math.Abs(pivot.Y), 1.0);
 
-                    if (relDiff <= 0.006)
+                    // 允许 0.1% 的上下波动偏差
+                    if (relDiff <= 0.001)
                     {
                         line.TouchCount++;
                     }
                 }
 
+                // 仅当连接点位大于等于 3 个时才保留该趋势线
                 if (line.TouchCount >= 3)
                 {
                     line.Keep = true;
                 }
             }
 
-            // 4. 收敛夹角判定 (未破位且形成收敛交汇夹角的所有趋势线予以保留)
-            var validPeakLines = peakLines.Where(d => !d.IsBroken).ToList();
-            var validValleyLines = valleyLines.Where(u => !u.IsBroken).ToList();
+            // 4. 有效趋势线统计与最新标识 (严格保留 TouchCount >= 3 且未破位的有效线条)
+            var validPeakLines = peakLines.Where(d => !d.IsBroken && d.Keep).ToList();
+            var validValleyLines = valleyLines.Where(u => !u.IsBroken && u.Keep).ToList();
 
-            foreach (var peak in validPeakLines)
+            if (validPeakLines.Any())
             {
-                foreach (var valley in validValleyLines)
-                {
-                    if (Math.Abs(peak.K - valley.K) < 1e-5) continue;
-
-                    double xIntersect = (valley.Y1 - peak.Y1 + peak.K * peak.X1 - valley.K * valley.X1) / (peak.K - valley.K);
-                    double validStart = Math.Min(peak.X1, valley.X1);
-                    if (xIntersect >= validStart)
-                    {
-                        peak.Keep = true;
-                        valley.Keep = true;
-                    }
-                }
+                validPeakLines.Last().IsLatest = true;
             }
-
-            if (validPeakLines.Any(d => d.Keep))
+            if (validValleyLines.Any())
             {
-                validPeakLines.Where(d => d.Keep).Last().IsLatest = true;
-            }
-            if (validValleyLines.Any(u => u.Keep))
-            {
-                validValleyLines.Where(u => u.Keep).Last().IsLatest = true;
+                validValleyLines.Last().IsLatest = true;
             }
 
             // 更新预计算出的有效线条缓存
@@ -1245,7 +1370,7 @@ namespace WinFormsApp1
         private int _lastEvaluatedPeakX = -1;
         private int _lastEvaluatedValleyX = -1;
 
-        private readonly int _triggerCount = 9;
+        private readonly int _triggerCount = 15;
         public List<TradeRecord> CompletedTrades { get; } = new();
 
         public void Reset()

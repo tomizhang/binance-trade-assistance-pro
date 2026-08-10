@@ -101,7 +101,7 @@ namespace WinFormsApp1
             cmbInterval.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             cmbInterval.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbInterval.FormattingEnabled = true;
-            cmbInterval.Items.AddRange(new object[] { "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d" });
+            cmbInterval.Items.AddRange(new object[] { "1tick", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d" });
             cmbInterval.Location = new Point(815, 80);
             cmbInterval.Name = "cmbInterval";
             cmbInterval.Size = new Size(200, 25);
@@ -207,6 +207,20 @@ namespace WinFormsApp1
             chkAutoFitY.TabIndex = 17;
             chkAutoFitY.Text = "自动更新 Y 轴范围";
             chkAutoFitY.UseVisualStyleBackColor = true;
+                        // 
+            // chkTickReplay
+            // 
+            chkTickReplay.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            chkTickReplay.AutoSize = true;
+            chkTickReplay.Checked = false;
+            chkTickReplay.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            chkTickReplay.ForeColor = Color.DarkMagenta;
+            chkTickReplay.Location = new Point(815, 380);
+            chkTickReplay.Name = "chkTickReplay";
+            chkTickReplay.Size = new Size(160, 20);
+            chkTickReplay.TabIndex = 19;
+            chkTickReplay.Text = "逐笔 Tick 回放模式";
+            chkTickReplay.UseVisualStyleBackColor = true;
             // 
             // btnRewind
             // 
@@ -215,7 +229,7 @@ namespace WinFormsApp1
             btnRewind.FlatStyle = FlatStyle.Flat;
             btnRewind.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnRewind.ForeColor = Color.White;
-            btnRewind.Location = new Point(815, 385);
+            btnRewind.Location = new Point(815, 405);
             btnRewind.Name = "btnRewind";
             btnRewind.Size = new Size(96, 32);
             btnRewind.TabIndex = 15;
@@ -230,7 +244,7 @@ namespace WinFormsApp1
             btnStepForward.FlatStyle = FlatStyle.Flat;
             btnStepForward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnStepForward.ForeColor = Color.White;
-            btnStepForward.Location = new Point(919, 385);
+            btnStepForward.Location = new Point(919, 405);
             btnStepForward.Name = "btnStepForward";
             btnStepForward.Size = new Size(96, 32);
             btnStepForward.TabIndex = 16;
@@ -241,7 +255,7 @@ namespace WinFormsApp1
             // btn_puase
             // 
             btn_puase.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btn_puase.Location = new Point(815, 425);
+            btn_puase.Location = new Point(815, 445);
             btn_puase.Name = "btn_puase";
             btn_puase.Size = new Size(200, 32);
             btn_puase.TabIndex = 2;
@@ -252,7 +266,7 @@ namespace WinFormsApp1
             // button1
             // 
             button1.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            button1.Location = new Point(815, 465);
+            button1.Location = new Point(815, 485);
             button1.Name = "button1";
             button1.Size = new Size(200, 32);
             button1.TabIndex = 1;
@@ -268,6 +282,7 @@ namespace WinFormsApp1
             MinimumSize = new Size(980, 620);
             Controls.Add(chkEnableStrategy);
             Controls.Add(chkAutoFitY);
+            Controls.Add(chkTickReplay);
             Controls.Add(btnStepForward);
             Controls.Add(btnRewind);
             Controls.Add(lblTrendState);
@@ -313,5 +328,6 @@ namespace WinFormsApp1
         private Button btnStepForward=new Button();
         private CheckBox chkAutoFitY=new CheckBox();
         private CheckBox chkEnableStrategy=new CheckBox();
+        private CheckBox chkTickReplay=new CheckBox();
     }
 }

@@ -205,5 +205,135 @@ namespace ConsoleApp1
                 }
             }
         }
+
+
+        /// <summary>
+        /// 结合零滞后状态机与分形校验的高性能极值计算
+        /// </summary>
+        /// <param name="highs">最高价 Span</param>
+        /// <param name="lows">最低价 Span</param>
+        /// <param name="peaksBuffer">波峰结果缓冲区</param>
+        /// <param name="valleysBuffer">波谷结果缓冲区</param>
+        /// <param name="reversalBars">零滞后状态机触发反转的 K 线数</param>
+        /// <param name="fractalArm">分形二次确认所需的单侧 K 线数（如 2 代表左右各 2 根）</param>
+        public static void CalculatePeaksCombinedFast(
+            ReadOnlySpan<decimal> highs,
+            ReadOnlySpan<decimal> lows,
+            List<PeakValleyResult> peaksBuffer,
+            List<PeakValleyResult> valleysBuffer,
+            int reversalBars = 2,
+            int fractalArm = 2)
+        {
+            peaksBuffer.Clear();
+            valleysBuffer.Clear();
+
+            int length = highs.Length;
+            if (length < reversalBars + fractalArm + 1) return;
+
+            int state = 0; // 0: 寻找波峰, 1: 寻找波谷
+            int candidateIdx = 0;
+            decimal candidatePrice = highs[0];
+            int barsSinceExtreme = 0;
+
+            for (int i = 1; i < length; i++)
+            {
+                if (state == 0) // 寻找波峰中
+                {
+                    if (highs[i] >= candidatePrice)
+                    {
+                        candidateIdx = i;
+                        candidatePrice = highs[i];
+                        barsSinceExtreme = 0;
+                    }
+                    else
+                    {
+                        barsSinceExtreme++;
+                        // 状态机触发：说明右侧出现了回撤
+                        if (barsSinceExtreme >= reversalBars)
+                        {
+                            // 结合分形：二次校验该候选点是否大于其左右两侧各 fractalArm 根 K 线
+                            bool isFractal = ValidateFractalHigh(highs, candidateIdx, fractalArm);
+
+                            peaksBuffer.Add(new PeakValleyResult
+                            {
+                                Index = candidateIdx,
+                                Price = candidatePrice,
+                                IsFractalConfirmed = isFractal
+                            });
+
+                            // 状态切换至寻找波谷
+                            state = 1;
+                            candidateIdx = i;
+                            candidatePrice = lows[i];
+                            barsSinceExtreme = 0;
+                        }
+                    }
+                }
+                else // 寻找波谷中
+                {
+                    if (lows[i] <= candidatePrice)
+                    {
+                        candidateIdx = i;
+                        candidatePrice = lows[i];
+                        barsSinceExtreme = 0;
+                    }
+                    else
+                    {
+                        barsSinceExtreme++;
+                        if (barsSinceExtreme >= reversalBars)
+                        {
+                            // 结合分形：校验波谷
+                            bool isFractal = ValidateFractalLow(lows, candidateIdx, fractalArm);
+
+                            valleysBuffer.Add(new PeakValleyResult
+                            {
+                                Index = candidateIdx,
+                                Price = candidatePrice,
+                                IsFractalConfirmed = isFractal
+                            });
+
+                            state = 0;
+                            candidateIdx = i;
+                            candidatePrice = highs[i];
+                            barsSinceExtreme = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 内联分形波峰校验（无额外内存开销）
+        private static bool ValidateFractalHigh(ReadOnlySpan<decimal> highs, int centerIdx, int arm)
+        {
+            if (centerIdx - arm < 0 || centerIdx + arm >= highs.Length) return false;
+
+            decimal target = highs[centerIdx];
+            for (int j = centerIdx - arm; j <= centerIdx + arm; j++)
+            {
+                if (j == centerIdx) continue;
+                if (highs[j] >= target) return false;
+            }
+            return true;
+        }
+
+        // 内联分形波谷校验
+        private static bool ValidateFractalLow(ReadOnlySpan<decimal> lows, int centerIdx, int arm)
+        {
+            if (centerIdx - arm < 0 || centerIdx + arm >= lows.Length) return false;
+
+            decimal target = lows[centerIdx];
+            for (int j = centerIdx - arm; j <= centerIdx + arm; j++)
+            {
+                if (j == centerIdx) continue;
+                if (lows[j] <= target) return false;
+            }
+            return true;
+        }
+        public struct PeakValleyResult
+        {
+            public int Index;
+            public decimal Price;
+            public bool IsFractalConfirmed; // 是否通过了严格的分形（左右K线）二次确认
+        }
     }
 }
