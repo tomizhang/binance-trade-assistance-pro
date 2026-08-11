@@ -877,18 +877,17 @@ namespace WinFormsApp1
             var peakLines = new List<AngleTrendLineInfo>();
             var valleyLines = new List<AngleTrendLineInfo>();
 
-            // 1. 收集高点趋势线 (连接任意两个高点，包含 K < 0 向下与 K > 0 向上)
-            for (int i = 0; i < peakIndices.Count - 1; i++)
+            // 1. 每根 K 线均与前面的各个历史高点 (Peak) 进行连接匹配
+            for (int i = 1; i < length; i++)
             {
-                for (int j = i + 1; j < peakIndices.Count; j++)
-                {
-                    int p1 = peakIndices[i];
-                    int p2 = peakIndices[j];
+                double x2 = i;
+                double y2 = rawData[(nextIndex + i) % length];
 
-                    double x1 = p1;
-                    double y1 = rawData[(nextIndex + p1) % length];
-                    double x2 = p2;
-                    double y2 = rawData[(nextIndex + p2) % length];
+                foreach (int p in peakIndices)
+                {
+                    if (p >= i) break; // 仅与前面的高点连接
+                    double x1 = p;
+                    double y1 = rawData[(nextIndex + p) % length];
 
                     if (Math.Abs(x2 - x1) < 2) continue;
                     double k = (y2 - y1) / (x2 - x1);
@@ -898,8 +897,8 @@ namespace WinFormsApp1
 
                     peakLines.Add(new AngleTrendLineInfo
                     {
-                        Pivot1Index = p1,
-                        Pivot2Index = p2,
+                        Pivot1Index = p,
+                        Pivot2Index = i,
                         X1 = x1,
                         Y1 = y1,
                         X2 = x2,
@@ -911,18 +910,17 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. 收集低点趋势线 (连接任意两个低点，包含 K > 0 向上与 K < 0 向下)
-            for (int i = 0; i < valleyIndices.Count - 1; i++)
+            // 2. 每根 K 线均与前面的各个历史低点 (Valley) 进行连接匹配
+            for (int i = 1; i < length; i++)
             {
-                for (int j = i + 1; j < valleyIndices.Count; j++)
-                {
-                    int v1 = valleyIndices[i];
-                    int v2 = valleyIndices[j];
+                double x2 = i;
+                double y2 = rawData[(nextIndex + i) % length];
 
-                    double x1 = v1;
-                    double y1 = rawData[(nextIndex + v1) % length];
-                    double x2 = v2;
-                    double y2 = rawData[(nextIndex + v2) % length];
+                foreach (int v in valleyIndices)
+                {
+                    if (v >= i) break; // 仅与前面的低点连接
+                    double x1 = v;
+                    double y1 = rawData[(nextIndex + v) % length];
 
                     if (Math.Abs(x2 - x1) < 2) continue;
                     double k = (y2 - y1) / (x2 - x1);
@@ -932,8 +930,8 @@ namespace WinFormsApp1
 
                     valleyLines.Add(new AngleTrendLineInfo
                     {
-                        Pivot1Index = v1,
-                        Pivot2Index = v2,
+                        Pivot1Index = v,
+                        Pivot2Index = i,
                         X1 = x1,
                         Y1 = y1,
                         X2 = x2,
