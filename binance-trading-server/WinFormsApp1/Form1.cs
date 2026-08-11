@@ -292,9 +292,63 @@ namespace WinFormsApp1
         private void InitControls()
         {
             if (cmbSymbol.SelectedIndex < 0) cmbSymbol.SelectedIndex = 0;
+            if (cmbSymbol != null)
+            {
+                cmbSymbol.Leave += (s, e) =>
+                {
+                    string typed = cmbSymbol.Text.Trim().ToUpperInvariant();
+                    if (!string.IsNullOrWhiteSpace(typed))
+                    {
+                        cmbSymbol.Text = typed;
+                        if (!cmbSymbol.Items.Contains(typed))
+                        {
+                            cmbSymbol.Items.Add(typed);
+                        }
+                    }
+                };
+            }
             if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 0; // 默认 15m
             if (cmbTimeRange.SelectedIndex < 0) cmbTimeRange.SelectedIndex = 2; // 默认 最近24小时
             if (cmbPlaySpeed.SelectedIndex < 0) cmbPlaySpeed.SelectedIndex = 0; // 默认 1.0x (标准)
+
+            if (numTakeProfit != null && numStopLoss != null)
+            {
+                numTakeProfit.ValueChanged += (s, e) => UpdateStrategyRiskReward();
+                numTakeProfit.KeyUp += (s, e) => UpdateStrategyRiskReward();
+                numTakeProfit.TextChanged += (s, e) => UpdateStrategyRiskReward();
+                numTakeProfit.Leave += (s, e) => UpdateStrategyRiskReward();
+
+                numStopLoss.ValueChanged += (s, e) => UpdateStrategyRiskReward();
+                numStopLoss.KeyUp += (s, e) => UpdateStrategyRiskReward();
+                numStopLoss.TextChanged += (s, e) => UpdateStrategyRiskReward();
+                numStopLoss.Leave += (s, e) => UpdateStrategyRiskReward();
+
+                UpdateStrategyRiskReward();
+            }
+        }
+
+        private void UpdateStrategyRiskReward()
+        {
+            if (_strategyEngine != null && numTakeProfit != null && numStopLoss != null)
+            {
+                if (double.TryParse(numTakeProfit.Text, out double tp) && tp > 0)
+                {
+                    _strategyEngine.TakeProfitPct = tp;
+                }
+                else
+                {
+                    _strategyEngine.TakeProfitPct = (double)numTakeProfit.Value;
+                }
+
+                if (double.TryParse(numStopLoss.Text, out double sl) && sl > 0)
+                {
+                    _strategyEngine.StopLossPct = sl;
+                }
+                else
+                {
+                    _strategyEngine.StopLossPct = (double)numStopLoss.Value;
+                }
+            }
         }
 
         /// <summary>
@@ -307,6 +361,11 @@ namespace WinFormsApp1
             {
                 MessageBox.Show("请输入或选择正确的币种名称（如 BTCUSDT）", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
+            }
+            cmbSymbol.Text = symbol;
+            if (!cmbSymbol.Items.Contains(symbol))
+            {
+                cmbSymbol.Items.Add(symbol);
             }
 
             string intervalStr = cmbInterval.SelectedItem?.ToString() ?? "15m";
@@ -953,34 +1012,34 @@ namespace WinFormsApp1
             _cachedLinesToDraw.Clear();
             _cachedLinesToDraw.AddRange(allCandidates.Where(c => c.Keep && !c.IsBroken));
 
-            // 5. 策略评测：统计【当前最新高点/低点】关联的有效趋势线数量并评测开仓
+            // 5. 策略评测：统计价格试探延伸线数量，并在价格触碰后反弹确认时触发开仓
             double currentPrice = rawData[(nextIndex + length - 1) % length];
-            _cachedActiveRedCount = validPeakLines.Count(d => d.Keep && !d.IsBroken);
-            _cachedActiveGreenCount = validValleyLines.Count(u => u.Keep && !u.IsBroken);
+
+            // 统计当前最新价格落在有效延伸线 0.25% 容差范围内的趋势线数量
+            int activeSupportCount = validValleyLines.Count(u => u.Keep && !u.IsBroken && Math.Abs(currentPrice - u.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
+            int activeResistanceCount = validPeakLines.Count(d => d.Keep && !d.IsBroken && Math.Abs(currentPrice - d.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
 
             int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
             int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
 
-            int latestPeakRedLinesCount = 0;
             if (latestPeakX >= 0)
             {
-                latestPeakRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken &&
-                    (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
+                activeResistanceCount += validPeakLines.Count(d => d.Keep && !d.IsBroken && (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
             }
-
-            int latestValleyGreenLinesCount = 0;
             if (latestValleyX >= 0)
             {
-                latestValleyGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken &&
-                    (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
+                activeSupportCount += validValleyLines.Count(u => u.Keep && !u.IsBroken && (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
             }
+
+            _cachedActiveRedCount = activeResistanceCount;
+            _cachedActiveGreenCount = activeSupportCount;
 
             int totalKlinesCount = _historyKlines.Count;
             int latestKlineIndex = totalKlinesCount - 1;
 
             if (chkEnableStrategy != null && chkEnableStrategy.Checked)
             {
-                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, latestPeakX, latestPeakRedLinesCount, latestValleyX, latestValleyGreenLinesCount);
+                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, activeSupportCount, activeResistanceCount);
             }
         }
 
@@ -1287,13 +1346,15 @@ namespace WinFormsApp1
             }
             else if (_strategyEngine.CurrentPosition == StrategyPositionType.Long)
             {
-                lblTrendState.Text = $"[STRATEGY: LONG] Entry: {_strategyEngine.EntryPrice:F1}\nTP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1}\n{winRateStats}";
+                double rr = _strategyEngine.StopLossPct > 0 ? _strategyEngine.TakeProfitPct / _strategyEngine.StopLossPct : 0;
+                lblTrendState.Text = $"[STRATEGY: LONG] Entry: {_strategyEngine.EntryPrice:F1}\nTP (+{_strategyEngine.TakeProfitPct:F1}%): {_strategyEngine.TakeProfitPrice:F1} | SL (-{_strategyEngine.StopLossPct:F1}%): {_strategyEngine.StopLossPrice:F1} (R:R {rr:F1})\n{winRateStats}";
                 lblTrendState.BackColor = Color.FromArgb(230, 255, 230);
                 lblTrendState.ForeColor = Color.DarkGreen;
             }
             else if (_strategyEngine.CurrentPosition == StrategyPositionType.Short)
             {
-                lblTrendState.Text = $"[STRATEGY: SHORT] Entry: {_strategyEngine.EntryPrice:F1}\nTP 1%: {_strategyEngine.TakeProfitPrice:F1} | SL 1%: {_strategyEngine.StopLossPrice:F1}\n{winRateStats}";
+                double rr = _strategyEngine.StopLossPct > 0 ? _strategyEngine.TakeProfitPct / _strategyEngine.StopLossPct : 0;
+                lblTrendState.Text = $"[STRATEGY: SHORT] Entry: {_strategyEngine.EntryPrice:F1}\nTP (+{_strategyEngine.TakeProfitPct:F1}%): {_strategyEngine.TakeProfitPrice:F1} | SL (-{_strategyEngine.StopLossPct:F1}%): {_strategyEngine.StopLossPrice:F1} (R:R {rr:F1})\n{winRateStats}";
                 lblTrendState.BackColor = Color.FromArgb(255, 230, 230);
                 lblTrendState.ForeColor = Color.DarkRed;
             }
@@ -1358,19 +1419,28 @@ namespace WinFormsApp1
 
     public class TrendlineStrategyEngine
     {
+        private readonly int TriggerCount = 3;
         public StrategyPositionType CurrentPosition { get; private set; } = StrategyPositionType.None;
         public double EntryPrice { get; private set; }
         public int EntryKlineIndex { get; private set; }
         public double TakeProfitPrice { get; private set; }
         public double StopLossPrice { get; private set; }
 
+        public double TakeProfitPct { get; set; } = 1.0;
+        public double StopLossPct { get; set; } = 1.0;
+
         public event Action<TradeRecord>? OnTradeClosed;
         public event Action<StrategyPositionType, double, int>? OnTradeOpened;
 
-        private int _lastEvaluatedPeakX = -1;
-        private int _lastEvaluatedValleyX = -1;
+        // 趋势延伸线触碰后反弹确认状态机
+        private bool _isTestingSupport = false;
+        private double _supportLowestPrice = double.MaxValue;
+        private int _supportTouchStartBar = -1;
 
-        private readonly int _triggerCount = 15;
+        private bool _isTestingResistance = false;
+        private double _resistanceHighestPrice = double.MinValue;
+        private int _resistanceTouchStartBar = -1;
+
         public List<TradeRecord> CompletedTrades { get; } = new();
 
         public void Reset()
@@ -1380,12 +1450,16 @@ namespace WinFormsApp1
             EntryKlineIndex = 0;
             TakeProfitPrice = 0;
             StopLossPrice = 0;
-            _lastEvaluatedPeakX = -1;
-            _lastEvaluatedValleyX = -1;
+            _isTestingSupport = false;
+            _supportLowestPrice = double.MaxValue;
+            _supportTouchStartBar = -1;
+            _isTestingResistance = false;
+            _resistanceHighestPrice = double.MinValue;
+            _resistanceTouchStartBar = -1;
             CompletedTrades.Clear();
         }
 
-        public void Evaluate(int currentKlineIndex, double currentPrice, int latestPeakX, int latestPeakRedLinesCount, int latestValleyX, int latestValleyGreenLinesCount)
+        public void Evaluate(int currentKlineIndex, double currentPrice, int activeSupportCount, int activeResistanceCount)
         {
             if (currentKlineIndex < 0) return;
 
@@ -1403,7 +1477,7 @@ namespace WinFormsApp1
                         ExitKlineIndex = currentKlineIndex,
                         IsProfit = true,
                         ProfitPct = (currentPrice - EntryPrice) / EntryPrice * 100,
-                        ExitReason = "[TP (+1.0%)]"
+                        ExitReason = $"[TP (+{TakeProfitPct:F1}%)]"
                     };
                     CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
@@ -1420,7 +1494,7 @@ namespace WinFormsApp1
                         ExitKlineIndex = currentKlineIndex,
                         IsProfit = false,
                         ProfitPct = (currentPrice - EntryPrice) / EntryPrice * 100,
-                        ExitReason = "[SL (-1.0%)]"
+                        ExitReason = $"[SL (-{StopLossPct:F1}%)]"
                     };
                     CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
@@ -1440,7 +1514,7 @@ namespace WinFormsApp1
                         ExitKlineIndex = currentKlineIndex,
                         IsProfit = true,
                         ProfitPct = (EntryPrice - currentPrice) / EntryPrice * 100,
-                        ExitReason = "[TP (+1.0%)]"
+                        ExitReason = $"[TP (+{TakeProfitPct:F1}%)]"
                     };
                     CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
@@ -1457,7 +1531,7 @@ namespace WinFormsApp1
                         ExitKlineIndex = currentKlineIndex,
                         IsProfit = false,
                         ProfitPct = (EntryPrice - currentPrice) / EntryPrice * 100,
-                        ExitReason = "[SL (-1.0%)]"
+                        ExitReason = $"[SL (-{StopLossPct:F1}%)]"
                     };
                     CompletedTrades.Add(record);
                     CurrentPosition = StrategyPositionType.None;
@@ -1465,31 +1539,74 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. 如果当前无持仓，校验开仓规则：
+            // 2. 如果当前无持仓，校验【触碰多条延长线 + 反弹确认】入场规则：
             if (CurrentPosition == StrategyPositionType.None)
             {
-                bool triggerShort = latestPeakX >= 0 && latestPeakX != _lastEvaluatedPeakX && latestPeakRedLinesCount >= _triggerCount;
-                bool triggerLong = latestValleyX >= 0 && latestValleyX != _lastEvaluatedValleyX && latestValleyGreenLinesCount >= _triggerCount;
-
-                if (triggerShort)
+                // A. 判定是否下探触碰多条支撑延伸线 (≥ 2 条支撑线)
+                if (activeSupportCount >= TriggerCount)
                 {
-                    _lastEvaluatedPeakX = latestPeakX;
-                    CurrentPosition = StrategyPositionType.Short;
-                    EntryPrice = currentPrice;
-                    EntryKlineIndex = currentKlineIndex;
-                    TakeProfitPrice = currentPrice * 0.99; // 1% 止盈
-                    StopLossPrice = currentPrice * 1.01;   // 1% 止损
-                    OnTradeOpened?.Invoke(StrategyPositionType.Short, currentPrice, currentKlineIndex);
+                    if (!_isTestingSupport)
+                    {
+                        _isTestingSupport = true;
+                        _supportLowestPrice = currentPrice;
+                        _supportTouchStartBar = currentKlineIndex;
+                    }
+                    else
+                    {
+                        _supportLowestPrice = Math.Min(_supportLowestPrice, currentPrice);
+                    }
                 }
-                else if (triggerLong)
+
+                // B. 判定是否上探触碰多条阻力延伸线 (≥ 2 条阻力线)
+                if (activeResistanceCount >= TriggerCount)
                 {
-                    _lastEvaluatedValleyX = latestValleyX;
+                    if (!_isTestingResistance)
+                    {
+                        _isTestingResistance = true;
+                        _resistanceHighestPrice = currentPrice;
+                        _resistanceTouchStartBar = currentKlineIndex;
+                    }
+                    else
+                    {
+                        _resistanceHighestPrice = Math.Max(_resistanceHighestPrice, currentPrice);
+                    }
+                }
+
+                // C. 【做多反弹确认】：在触碰支撑延伸线后，价格从试探最低点向上反弹弹升 ≥ 0.15% 时开仓做多！
+                if (_isTestingSupport && currentPrice >= _supportLowestPrice * 1.0015)
+                {
                     CurrentPosition = StrategyPositionType.Long;
                     EntryPrice = currentPrice;
                     EntryKlineIndex = currentKlineIndex;
                     TakeProfitPrice = currentPrice * 1.01; // 1% 止盈
-                    StopLossPrice = currentPrice * 0.99;   // 1% 止损
+                    StopLossPrice = currentPrice * 0.997;   // 1% 止损
+                    _isTestingSupport = false;
+                    _supportLowestPrice = double.MaxValue;
                     OnTradeOpened?.Invoke(StrategyPositionType.Long, currentPrice, currentKlineIndex);
+                }
+                // D. 【做空反弹确认】：在触碰阻力延伸线后，价格从试探最高点向下回落反弹 ≥ 0.15% 时开仓做空！
+                else if (_isTestingResistance && currentPrice <= _resistanceHighestPrice * 0.9985)
+                {
+                    CurrentPosition = StrategyPositionType.Short;
+                    EntryPrice = currentPrice;
+                    EntryKlineIndex = currentKlineIndex;
+                    TakeProfitPrice = currentPrice * 0.99; // 1% 止盈
+                    StopLossPrice = currentPrice * 1.003;   // 1% 止损
+                    _isTestingResistance = false;
+                    _resistanceHighestPrice = double.MinValue;
+                    OnTradeOpened?.Invoke(StrategyPositionType.Short, currentPrice, currentKlineIndex);
+                }
+
+                // 超时保护：若触碰试探状态持续超过 60 Bar 未触发反弹确认，重置触碰状态
+                if (_isTestingSupport && currentKlineIndex - _supportTouchStartBar > 60)
+                {
+                    _isTestingSupport = false;
+                    _supportLowestPrice = double.MaxValue;
+                }
+                if (_isTestingResistance && currentKlineIndex - _resistanceTouchStartBar > 60)
+                {
+                    _isTestingResistance = false;
+                    _resistanceHighestPrice = double.MinValue;
                 }
             }
         }
