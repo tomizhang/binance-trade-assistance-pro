@@ -36,6 +36,10 @@ namespace WinFormsApp1
             cmbInterval = new ComboBox();
             lblTimeRange = new Label();
             cmbTimeRange = new ComboBox();
+            lblStart = new Label();
+            dtpStart = new DateTimePicker();
+            lblEnd = new Label();
+            dtpEnd = new DateTimePicker();
             btnFetch = new Button();
             lblPlaySpeed = new Label();
             cmbPlaySpeed = new ComboBox();
@@ -139,11 +143,55 @@ namespace WinFormsApp1
             cmbTimeRange.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             cmbTimeRange.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbTimeRange.FormattingEnabled = true;
-            cmbTimeRange.Items.AddRange(new object[] { "最近1小时", "最近6小时", "最近24小时", "最近3天", "最近7天", "最近30天" });
+            cmbTimeRange.Items.AddRange(new object[] { "最近1小时", "最近6小时", "最近24小时", "最近3天", "最近7天", "最近30天", "自定义 (开始/结束时间)" });
             cmbTimeRange.Location = new Point(815, 126);
             cmbTimeRange.Name = "cmbTimeRange";
             cmbTimeRange.Size = new Size(200, 25);
             cmbTimeRange.TabIndex = 7;
+            // 
+            // lblStart
+            // 
+            lblStart.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblStart.AutoSize = true;
+            lblStart.Font = new Font("Microsoft YaHei UI", 8.5F);
+            lblStart.Location = new Point(815, 156);
+            lblStart.Name = "lblStart";
+            lblStart.Size = new Size(35, 17);
+            lblStart.TabIndex = 8;
+            lblStart.Text = "开始:";
+            // 
+            // dtpStart
+            // 
+            dtpStart.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            dtpStart.CustomFormat = "yyyy-MM-dd HH:mm";
+            dtpStart.Font = new Font("Microsoft YaHei UI", 8.5F);
+            dtpStart.Format = DateTimePickerFormat.Custom;
+            dtpStart.Location = new Point(850, 153);
+            dtpStart.Name = "dtpStart";
+            dtpStart.Size = new Size(165, 22);
+            dtpStart.TabIndex = 9;
+            // 
+            // lblEnd
+            // 
+            lblEnd.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblEnd.AutoSize = true;
+            lblEnd.Font = new Font("Microsoft YaHei UI", 8.5F);
+            lblEnd.Location = new Point(815, 182);
+            lblEnd.Name = "lblEnd";
+            lblEnd.Size = new Size(35, 17);
+            lblEnd.TabIndex = 10;
+            lblEnd.Text = "结束:";
+            // 
+            // dtpEnd
+            // 
+            dtpEnd.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            dtpEnd.CustomFormat = "yyyy-MM-dd HH:mm";
+            dtpEnd.Font = new Font("Microsoft YaHei UI", 8.5F);
+            dtpEnd.Format = DateTimePickerFormat.Custom;
+            dtpEnd.Location = new Point(850, 179);
+            dtpEnd.Name = "dtpEnd";
+            dtpEnd.Size = new Size(165, 22);
+            dtpEnd.TabIndex = 11;
             // 
             // btnFetch
             // 
@@ -152,10 +200,10 @@ namespace WinFormsApp1
             btnFetch.FlatStyle = FlatStyle.Flat;
             btnFetch.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnFetch.ForeColor = Color.White;
-            btnFetch.Location = new Point(815, 158);
+            btnFetch.Location = new Point(815, 208);
             btnFetch.Name = "btnFetch";
             btnFetch.Size = new Size(200, 32);
-            btnFetch.TabIndex = 8;
+            btnFetch.TabIndex = 12;
             btnFetch.Text = "获取币种历史数据";
             btnFetch.UseVisualStyleBackColor = false;
             btnFetch.Click += btnFetch_Click;
@@ -165,10 +213,10 @@ namespace WinFormsApp1
             lblPlaySpeed.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblPlaySpeed.AutoSize = true;
             lblPlaySpeed.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            lblPlaySpeed.Location = new Point(815, 198);
+            lblPlaySpeed.Location = new Point(815, 248);
             lblPlaySpeed.Name = "lblPlaySpeed";
             lblPlaySpeed.Size = new Size(99, 17);
-            lblPlaySpeed.TabIndex = 9;
+            lblPlaySpeed.TabIndex = 13;
             lblPlaySpeed.Text = "4. 播放速度倍速:";
             // 
             // cmbPlaySpeed
@@ -177,20 +225,20 @@ namespace WinFormsApp1
             cmbPlaySpeed.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbPlaySpeed.FormattingEnabled = true;
             cmbPlaySpeed.Items.AddRange(new object[] { "0.5x (慢速)", "1.0x (标准)", "2.0x (快速)", "5.0x (极速)", "10.0x (飞速)", "全速 (瞬时完成)" });
-            cmbPlaySpeed.Location = new Point(815, 216);
+            cmbPlaySpeed.Location = new Point(815, 266);
             cmbPlaySpeed.Name = "cmbPlaySpeed";
             cmbPlaySpeed.Size = new Size(200, 25);
-            cmbPlaySpeed.TabIndex = 10;
+            cmbPlaySpeed.TabIndex = 14;
             // 
             // lblRiskReward
             // 
             lblRiskReward.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblRiskReward.AutoSize = true;
             lblRiskReward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            lblRiskReward.Location = new Point(815, 248);
+            lblRiskReward.Location = new Point(815, 298);
             lblRiskReward.Name = "lblRiskReward";
             lblRiskReward.Size = new Size(198, 17);
-            lblRiskReward.TabIndex = 11;
+            lblRiskReward.TabIndex = 15;
             lblRiskReward.Text = "5. 止盈(绿) / 止损(红) 比例 (%):";
             // 
             // numTakeProfit
@@ -200,12 +248,12 @@ namespace WinFormsApp1
             numTakeProfit.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             numTakeProfit.ForeColor = Color.DarkGreen;
             numTakeProfit.Increment = new decimal(new int[] { 1, 0, 0, 65536 });
-            numTakeProfit.Location = new Point(815, 268);
+            numTakeProfit.Location = new Point(815, 318);
             numTakeProfit.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
             numTakeProfit.Minimum = new decimal(new int[] { 1, 0, 0, 65536 });
             numTakeProfit.Name = "numTakeProfit";
             numTakeProfit.Size = new Size(96, 23);
-            numTakeProfit.TabIndex = 12;
+            numTakeProfit.TabIndex = 16;
             numTakeProfit.Value = new decimal(new int[] { 10, 0, 0, 65536 });
             // 
             // numStopLoss
@@ -215,12 +263,12 @@ namespace WinFormsApp1
             numStopLoss.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             numStopLoss.ForeColor = Color.DarkRed;
             numStopLoss.Increment = new decimal(new int[] { 1, 0, 0, 65536 });
-            numStopLoss.Location = new Point(919, 268);
+            numStopLoss.Location = new Point(919, 318);
             numStopLoss.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
             numStopLoss.Minimum = new decimal(new int[] { 1, 0, 0, 65536 });
             numStopLoss.Name = "numStopLoss";
             numStopLoss.Size = new Size(96, 23);
-            numStopLoss.TabIndex = 13;
+            numStopLoss.TabIndex = 17;
             numStopLoss.Value = new decimal(new int[] { 10, 0, 0, 65536 });
             // 
             // lblExpectedProfit
@@ -228,10 +276,10 @@ namespace WinFormsApp1
             lblExpectedProfit.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblExpectedProfit.AutoSize = true;
             lblExpectedProfit.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            lblExpectedProfit.Location = new Point(815, 298);
+            lblExpectedProfit.Location = new Point(815, 348);
             lblExpectedProfit.Name = "lblExpectedProfit";
             lblExpectedProfit.Size = new Size(172, 17);
-            lblExpectedProfit.TabIndex = 14;
+            lblExpectedProfit.TabIndex = 18;
             lblExpectedProfit.Text = "6. 策略开仓利润期望 (%):";
             // 
             // numExpectedProfit
@@ -241,12 +289,12 @@ namespace WinFormsApp1
             numExpectedProfit.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             numExpectedProfit.ForeColor = Color.DarkBlue;
             numExpectedProfit.Increment = new decimal(new int[] { 1, 0, 0, 65536 });
-            numExpectedProfit.Location = new Point(815, 318);
+            numExpectedProfit.Location = new Point(815, 368);
             numExpectedProfit.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
             numExpectedProfit.Minimum = new decimal(new int[] { 1, 0, 0, 65536 });
             numExpectedProfit.Name = "numExpectedProfit";
             numExpectedProfit.Size = new Size(200, 23);
-            numExpectedProfit.TabIndex = 15;
+            numExpectedProfit.TabIndex = 19;
             numExpectedProfit.Value = new decimal(new int[] { 30, 0, 0, 65536 });
             // 
             // lblTrendState
@@ -256,10 +304,10 @@ namespace WinFormsApp1
             lblTrendState.BorderStyle = BorderStyle.FixedSingle;
             lblTrendState.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold);
             lblTrendState.ForeColor = Color.DimGray;
-            lblTrendState.Location = new Point(815, 348);
+            lblTrendState.Location = new Point(815, 398);
             lblTrendState.Name = "lblTrendState";
             lblTrendState.Size = new Size(200, 70);
-            lblTrendState.TabIndex = 16;
+            lblTrendState.TabIndex = 20;
             lblTrendState.Text = "策略状态: 监控中...";
             lblTrendState.TextAlign = ContentAlignment.MiddleCenter;
             // 
@@ -270,10 +318,10 @@ namespace WinFormsApp1
             chkEnableStrategy.Checked = true;
             chkEnableStrategy.CheckState = CheckState.Checked;
             chkEnableStrategy.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            chkEnableStrategy.Location = new Point(815, 424);
+            chkEnableStrategy.Location = new Point(815, 474);
             chkEnableStrategy.Name = "chkEnableStrategy";
             chkEnableStrategy.Size = new Size(135, 20);
-            chkEnableStrategy.TabIndex = 17;
+            chkEnableStrategy.TabIndex = 21;
             chkEnableStrategy.Text = "启用量化开仓策略";
             chkEnableStrategy.UseVisualStyleBackColor = true;
             // 
@@ -284,10 +332,10 @@ namespace WinFormsApp1
             chkAutoFitY.Checked = true;
             chkAutoFitY.CheckState = CheckState.Checked;
             chkAutoFitY.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            chkAutoFitY.Location = new Point(815, 446);
+            chkAutoFitY.Location = new Point(815, 496);
             chkAutoFitY.Name = "chkAutoFitY";
             chkAutoFitY.Size = new Size(135, 20);
-            chkAutoFitY.TabIndex = 18;
+            chkAutoFitY.TabIndex = 22;
             chkAutoFitY.Text = "自动更新 Y 轴范围";
             chkAutoFitY.UseVisualStyleBackColor = true;
             // 
@@ -298,10 +346,10 @@ namespace WinFormsApp1
             chkTickReplay.Checked = false;
             chkTickReplay.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             chkTickReplay.ForeColor = Color.DarkMagenta;
-            chkTickReplay.Location = new Point(815, 468);
+            chkTickReplay.Location = new Point(815, 518);
             chkTickReplay.Name = "chkTickReplay";
             chkTickReplay.Size = new Size(160, 20);
-            chkTickReplay.TabIndex = 19;
+            chkTickReplay.TabIndex = 23;
             chkTickReplay.Text = "逐笔 Tick 回放模式";
             chkTickReplay.UseVisualStyleBackColor = true;
             // 
@@ -312,10 +360,10 @@ namespace WinFormsApp1
             btnRewind.FlatStyle = FlatStyle.Flat;
             btnRewind.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnRewind.ForeColor = Color.White;
-            btnRewind.Location = new Point(815, 494);
+            btnRewind.Location = new Point(815, 544);
             btnRewind.Name = "btnRewind";
             btnRewind.Size = new Size(96, 30);
-            btnRewind.TabIndex = 20;
+            btnRewind.TabIndex = 24;
             btnRewind.Text = "⏪ 单击回退";
             btnRewind.UseVisualStyleBackColor = false;
             btnRewind.Click += btnRewind_Click;
@@ -327,10 +375,10 @@ namespace WinFormsApp1
             btnStepForward.FlatStyle = FlatStyle.Flat;
             btnStepForward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnStepForward.ForeColor = Color.White;
-            btnStepForward.Location = new Point(919, 494);
+            btnStepForward.Location = new Point(919, 544);
             btnStepForward.Name = "btnStepForward";
             btnStepForward.Size = new Size(96, 30);
-            btnStepForward.TabIndex = 21;
+            btnStepForward.TabIndex = 25;
             btnStepForward.Text = "⏩ 单击向前";
             btnStepForward.UseVisualStyleBackColor = false;
             btnStepForward.Click += btnStepForward_Click;
@@ -338,10 +386,10 @@ namespace WinFormsApp1
             // btn_puase
             // 
             btn_puase.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btn_puase.Location = new Point(815, 530);
+            btn_puase.Location = new Point(815, 580);
             btn_puase.Name = "btn_puase";
             btn_puase.Size = new Size(200, 32);
-            btn_puase.TabIndex = 22;
+            btn_puase.TabIndex = 26;
             btn_puase.Text = "暂停数据播放";
             btn_puase.UseVisualStyleBackColor = true;
             btn_puase.Click += btn_puase_Click;
@@ -349,10 +397,10 @@ namespace WinFormsApp1
             // button1
             // 
             button1.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            button1.Location = new Point(815, 568);
+            button1.Location = new Point(815, 618);
             button1.Name = "button1";
             button1.Size = new Size(200, 32);
-            button1.TabIndex = 23;
+            button1.TabIndex = 27;
             button1.Text = "重置/复位图表";
             button1.UseVisualStyleBackColor = true;
             button1.Click += button1_Click;
@@ -379,6 +427,10 @@ namespace WinFormsApp1
             Controls.Add(cmbPlaySpeed);
             Controls.Add(lblPlaySpeed);
             Controls.Add(btnFetch);
+            Controls.Add(dtpEnd);
+            Controls.Add(lblEnd);
+            Controls.Add(dtpStart);
+            Controls.Add(lblStart);
             Controls.Add(cmbTimeRange);
             Controls.Add(lblTimeRange);
             Controls.Add(cmbInterval);
@@ -406,6 +458,10 @@ namespace WinFormsApp1
         private ComboBox cmbInterval;
         private Label lblTimeRange;
         private ComboBox cmbTimeRange;
+        private Label lblStart;
+        private DateTimePicker dtpStart;
+        private Label lblEnd;
+        private DateTimePicker dtpEnd;
         private Button btnFetch;
         private Label lblPlaySpeed;
         private ComboBox cmbPlaySpeed;

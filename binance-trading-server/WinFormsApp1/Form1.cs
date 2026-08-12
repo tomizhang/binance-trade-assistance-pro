@@ -291,9 +291,16 @@ namespace WinFormsApp1
 
         private void InitControls()
         {
-            if (cmbSymbol.SelectedIndex < 0) cmbSymbol.SelectedIndex = 0;
+            var config = AppConfigManager.LoadConfig();
+
             if (cmbSymbol != null)
             {
+                cmbSymbol.Items.Clear();
+                foreach (var sym in config.SavedSymbols)
+                {
+                    cmbSymbol.Items.Add(sym);
+                }
+                cmbSymbol.Text = config.Symbol;
                 cmbSymbol.Leave += (s, e) =>
                 {
                     string typed = cmbSymbol.Text.Trim().ToUpperInvariant();
@@ -305,34 +312,178 @@ namespace WinFormsApp1
                             cmbSymbol.Items.Add(typed);
                         }
                     }
+                    SaveCurrentConfig();
+                };
+                cmbSymbol.SelectedIndexChanged += (s, e) => SaveCurrentConfig();
+            }
+
+            if (cmbInterval != null)
+            {
+                if (cmbInterval.Items.Contains(config.Interval))
+                {
+                    cmbInterval.SelectedItem = config.Interval;
+                }
+                else if (cmbInterval.SelectedIndex < 0)
+                {
+                    cmbInterval.SelectedIndex = 0;
+                }
+                cmbInterval.SelectedIndexChanged += (s, e) => SaveCurrentConfig();
+            }
+
+            if (cmbTimeRange != null)
+            {
+                if (config.TimeRangeIndex >= 0 && config.TimeRangeIndex < cmbTimeRange.Items.Count)
+                {
+                    cmbTimeRange.SelectedIndex = config.TimeRangeIndex;
+                }
+                else if (cmbTimeRange.SelectedIndex < 0)
+                {
+                    cmbTimeRange.SelectedIndex = 2;
+                }
+                cmbTimeRange.SelectedIndexChanged += (s, e) => SaveCurrentConfig();
+            }
+
+            if (dtpStart != null && dtpEnd != null)
+            {
+                try
+                {
+                    dtpStart.Value = config.StartTime;
+                    dtpEnd.Value = config.EndTime;
+                }
+                catch
+                {
+                    dtpStart.Value = DateTime.Now.AddDays(-1);
+                    dtpEnd.Value = DateTime.Now;
+                }
+
+                dtpStart.ValueChanged += (s, e) =>
+                {
+                    if (cmbTimeRange != null && cmbTimeRange.SelectedIndex != 6)
+                    {
+                        cmbTimeRange.SelectedIndex = 6;
+                    }
+                    SaveCurrentConfig();
+                };
+                dtpEnd.ValueChanged += (s, e) =>
+                {
+                    if (cmbTimeRange != null && cmbTimeRange.SelectedIndex != 6)
+                    {
+                        cmbTimeRange.SelectedIndex = 6;
+                    }
+                    SaveCurrentConfig();
                 };
             }
-            if (cmbInterval.SelectedIndex < 0) cmbInterval.SelectedIndex = 0; // 默认 15m
-            if (cmbTimeRange.SelectedIndex < 0) cmbTimeRange.SelectedIndex = 2; // 默认 最近24小时
-            if (cmbPlaySpeed.SelectedIndex < 0) cmbPlaySpeed.SelectedIndex = 0; // 默认 1.0x (标准)
+
+            if (cmbTimeRange != null)
+            {
+                cmbTimeRange.SelectedIndexChanged += (s, e) =>
+                {
+                    if (dtpStart == null || dtpEnd == null) return;
+                    DateTime now = DateTime.Now;
+                    switch (cmbTimeRange.SelectedIndex)
+                    {
+                        case 0:
+                            dtpStart.Value = now.AddHours(-1);
+                            dtpEnd.Value = now;
+                            break;
+                        case 1:
+                            dtpStart.Value = now.AddHours(-6);
+                            dtpEnd.Value = now;
+                            break;
+                        case 2:
+                            dtpStart.Value = now.AddHours(-24);
+                            dtpEnd.Value = now;
+                            break;
+                        case 3:
+                            dtpStart.Value = now.AddDays(-3);
+                            dtpEnd.Value = now;
+                            break;
+                        case 4:
+                            dtpStart.Value = now.AddDays(-7);
+                            dtpEnd.Value = now;
+                            break;
+                        case 5:
+                            dtpStart.Value = now.AddDays(-30);
+                            dtpEnd.Value = now;
+                            break;
+                    }
+                    SaveCurrentConfig();
+                };
+            }
+
+            if (cmbPlaySpeed != null)
+            {
+                if (config.PlaySpeedIndex >= 0 && config.PlaySpeedIndex < cmbPlaySpeed.Items.Count)
+                {
+                    cmbPlaySpeed.SelectedIndex = config.PlaySpeedIndex;
+                }
+                else if (cmbPlaySpeed.SelectedIndex < 0)
+                {
+                    cmbPlaySpeed.SelectedIndex = 0;
+                }
+                cmbPlaySpeed.SelectedIndexChanged += (s, e) => SaveCurrentConfig();
+            }
+
+            if (numTakeProfit != null) numTakeProfit.Value = config.TakeProfitPct;
+            if (numStopLoss != null) numStopLoss.Value = config.StopLossPct;
+            if (numExpectedProfit != null) numExpectedProfit.Value = config.ExpectedProfitPct;
+            if (chkEnableStrategy != null) { chkEnableStrategy.Checked = config.EnableStrategy; chkEnableStrategy.CheckedChanged += (s, e) => SaveCurrentConfig(); }
+            if (chkAutoFitY != null) { chkAutoFitY.Checked = config.AutoFitY; chkAutoFitY.CheckedChanged += (s, e) => SaveCurrentConfig(); }
+            if (chkTickReplay != null) { chkTickReplay.Checked = config.TickReplay; chkTickReplay.CheckedChanged += (s, e) => SaveCurrentConfig(); }
 
             if (numTakeProfit != null && numStopLoss != null)
             {
-                numTakeProfit.ValueChanged += (s, e) => UpdateStrategyRiskReward();
-                numTakeProfit.KeyUp += (s, e) => UpdateStrategyRiskReward();
-                numTakeProfit.TextChanged += (s, e) => UpdateStrategyRiskReward();
-                numTakeProfit.Leave += (s, e) => UpdateStrategyRiskReward();
+                numTakeProfit.ValueChanged += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                numTakeProfit.KeyUp += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                numTakeProfit.TextChanged += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                numTakeProfit.Leave += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
 
-                numStopLoss.ValueChanged += (s, e) => UpdateStrategyRiskReward();
-                numStopLoss.KeyUp += (s, e) => UpdateStrategyRiskReward();
-                numStopLoss.TextChanged += (s, e) => UpdateStrategyRiskReward();
-                numStopLoss.Leave += (s, e) => UpdateStrategyRiskReward();
+                numStopLoss.ValueChanged += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                numStopLoss.KeyUp += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                numStopLoss.TextChanged += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                numStopLoss.Leave += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
 
                 if (numExpectedProfit != null)
                 {
-                    numExpectedProfit.ValueChanged += (s, e) => UpdateStrategyRiskReward();
-                    numExpectedProfit.KeyUp += (s, e) => UpdateStrategyRiskReward();
-                    numExpectedProfit.TextChanged += (s, e) => UpdateStrategyRiskReward();
-                    numExpectedProfit.Leave += (s, e) => UpdateStrategyRiskReward();
+                    numExpectedProfit.ValueChanged += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                    numExpectedProfit.KeyUp += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                    numExpectedProfit.TextChanged += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
+                    numExpectedProfit.Leave += (s, e) => { UpdateStrategyRiskReward(); SaveCurrentConfig(); };
                 }
 
                 UpdateStrategyRiskReward();
             }
+        }
+
+        private void SaveCurrentConfig()
+        {
+            try
+            {
+                var config = new AppConfig
+                {
+                    Symbol = cmbSymbol?.Text?.Trim().ToUpperInvariant() ?? "BTCUSDT",
+                    SavedSymbols = cmbSymbol?.Items.Cast<object>().Select(x => x.ToString() ?? "").Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList() ?? new(),
+                    Interval = cmbInterval?.SelectedItem?.ToString() ?? "15m",
+                    TimeRangeIndex = cmbTimeRange?.SelectedIndex ?? 2,
+                    StartTime = dtpStart?.Value ?? DateTime.Now.AddDays(-1),
+                    EndTime = dtpEnd?.Value ?? DateTime.Now,
+                    PlaySpeedIndex = cmbPlaySpeed?.SelectedIndex ?? 0,
+                    TakeProfitPct = numTakeProfit?.Value ?? 1.0m,
+                    StopLossPct = numStopLoss?.Value ?? 1.0m,
+                    ExpectedProfitPct = numExpectedProfit?.Value ?? 3.0m,
+                    EnableStrategy = chkEnableStrategy?.Checked ?? true,
+                    AutoFitY = chkAutoFitY?.Checked ?? true,
+                    TickReplay = chkTickReplay?.Checked ?? false
+                };
+                AppConfigManager.SaveConfig(config);
+            }
+            catch { }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            SaveCurrentConfig();
+            base.OnFormClosing(e);
         }
 
         private void UpdateStrategyRiskReward()
@@ -399,18 +550,40 @@ namespace WinFormsApp1
                 if (chkTickReplay != null) chkTickReplay.Checked = true;
             }
 
-            // 计算起始与结束时间
-            DateTime endTime = DateTime.UtcNow;
-            DateTime startTime = cmbTimeRange.SelectedIndex switch
+            // 计算起始与结束时间 (支持预设与自定义日期时间 DateTimePicker)
+            DateTime startTime;
+            DateTime endTime;
+
+            if (cmbTimeRange.SelectedIndex == 6 && dtpStart != null && dtpEnd != null)
             {
-                0 => endTime.AddHours(-1),
-                1 => endTime.AddHours(-6),
-                2 => endTime.AddHours(-24),
-                3 => endTime.AddDays(-3),
-                4 => endTime.AddDays(-7),
-                5 => endTime.AddDays(-30),
-                _ => endTime.AddHours(-24)
-            };
+                startTime = dtpStart.Value.ToUniversalTime();
+                endTime = dtpEnd.Value.ToUniversalTime();
+                if (startTime >= endTime)
+                {
+                    MessageBox.Show("开始时间必须小于结束时间！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
+            else
+            {
+                endTime = DateTime.UtcNow;
+                startTime = cmbTimeRange.SelectedIndex switch
+                {
+                    0 => endTime.AddHours(-1),
+                    1 => endTime.AddHours(-6),
+                    2 => endTime.AddHours(-24),
+                    3 => endTime.AddDays(-3),
+                    4 => endTime.AddDays(-7),
+                    5 => endTime.AddDays(-30),
+                    _ => endTime.AddHours(-24)
+                };
+
+                if (dtpStart != null && dtpEnd != null)
+                {
+                    dtpStart.Value = startTime.ToLocalTime();
+                    dtpEnd.Value = endTime.ToLocalTime();
+                }
+            }
 
             // 取消上一次未完成的获取请求
             _fetchCts?.Cancel();
@@ -1674,4 +1847,54 @@ namespace WinFormsApp1
             return values;
         }
     }
+
+    #region AppConfig Settings Persistence
+    public class AppConfig
+    {
+        public string Symbol { get; set; } = "BTCUSDT";
+        public List<string> SavedSymbols { get; set; } = new() { "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT", "XRPUSDT", "ADAUSDT" };
+        public string Interval { get; set; } = "15m";
+        public int TimeRangeIndex { get; set; } = 2;
+        public DateTime StartTime { get; set; } = DateTime.Now.AddDays(-1);
+        public DateTime EndTime { get; set; } = DateTime.Now;
+        public int PlaySpeedIndex { get; set; } = 0;
+        public decimal TakeProfitPct { get; set; } = 1.0m;
+        public decimal StopLossPct { get; set; } = 1.0m;
+        public decimal ExpectedProfitPct { get; set; } = 3.0m;
+        public bool EnableStrategy { get; set; } = true;
+        public bool AutoFitY { get; set; } = true;
+        public bool TickReplay { get; set; } = false;
+    }
+
+    public static class AppConfigManager
+    {
+        private static readonly string ConfigPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app_settings.json");
+
+        public static AppConfig LoadConfig()
+        {
+            try
+            {
+                if (System.IO.File.Exists(ConfigPath))
+                {
+                    string json = System.IO.File.ReadAllText(ConfigPath);
+                    var config = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(json);
+                    if (config != null) return config;
+                }
+            }
+            catch { }
+            return new AppConfig();
+        }
+
+        public static void SaveConfig(AppConfig config)
+        {
+            try
+            {
+                string json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                System.IO.File.WriteAllText(ConfigPath, json);
+            }
+            catch { }
+        }
+    }
+    #endregion
+
 }
