@@ -1102,6 +1102,7 @@ namespace WinFormsApp1
                     double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
                     if (normK > 0.05) continue;
+                    //if (k >= 0) continue; // 红色下压阻力线：角度/斜率为负 (k < 0)
 
                     peakLines.Add(new AngleTrendLineInfo
                     {
@@ -1119,7 +1120,7 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. 每根 K 线均与前面的各个历史低点 (Valley) 进行连接匹配
+            // 2. 每根 K 线均与前面的各个历史低点 (Valley) 进行连接匹配 (消除 k <= 0 过度筛选，提升绿色支撑线条数)
             for (int i = 1; i < length; i++)
             {
                 double x2 = i;
@@ -1157,7 +1158,7 @@ namespace WinFormsApp1
             var allPivots = peakIndices.Select(p => (X: (double)p, Y: rawData[(nextIndex + p) % length]))
                 .Concat(valleyIndices.Select(v => (X: (double)v, Y: rawData[(nextIndex + v) % length]))).ToList();
 
-            // 3. 执行【价格穿透破位校验】与【碰撞触碰次数统计与加权】
+            // 3. 执行【价格穿透破位校验】与【碰撞触碰次数统计与加权】 (增加 0.15% 影线破位容差与 0.25% 触碰容差)
             foreach (var line in allCandidates)
             {
                 int startX = (int)Math.Max(0, line.X1);
@@ -1167,12 +1168,13 @@ namespace WinFormsApp1
                     double price = rawData[(nextIndex + x) % length];
                     double lineY = line.GetY(x);
 
-                    if (line.IsPeak && price > lineY + 1e-4)
+                    // 增加 0.15% 动态破位容差，避免正常阴阳线插针误杀有效线条
+                    if (line.IsPeak && price > lineY * 1.0015)
                     {
                         line.IsBroken = true;
                         break;
                     }
-                    else if (!line.IsPeak && price < lineY - 1e-4)
+                    else if (!line.IsPeak && price < lineY * 0.9985)
                     {
                         line.IsBroken = true;
                         break;
@@ -1181,7 +1183,7 @@ namespace WinFormsApp1
 
                 if (line.IsBroken) continue;
 
-                // 统计 0.1% 允许波动偏差内的附加触碰点位 (0.001)
+                // 统计 0.25% 允许波动偏差内的附加触碰点位 (0.0025)
                 foreach (var pivot in allPivots)
                 {
                     if (Math.Abs(pivot.X - line.X1) < 1e-3 || Math.Abs(pivot.X - line.X2) < 1e-3) continue;
@@ -1189,15 +1191,15 @@ namespace WinFormsApp1
                     double expectedY = line.GetY(pivot.X);
                     double relDiff = Math.Abs(pivot.Y - expectedY) / Math.Max(Math.Abs(pivot.Y), 1.0);
 
-                    // 允许 0.1% 的上下波动偏差
-                    if (relDiff <= 0.001)
+                    // 允许 0.25% 的上下波动偏差
+                    if (relDiff <= 0.0025)
                     {
                         line.TouchCount++;
                     }
                 }
 
-                // 仅当连接点位大于等于 3 个时才保留该趋势线
-                if (line.TouchCount >= 3)
+                // 只要由 2 个或以上极值点构成且未破位即保留该趋势线
+                if (line.TouchCount >= 2)
                 {
                     line.Keep = true;
                 }
@@ -1220,13 +1222,8 @@ namespace WinFormsApp1
             _cachedLinesToDraw.Clear();
             _cachedLinesToDraw.AddRange(allCandidates.Where(c => c.Keep && !c.IsBroken));
 
-            // 5. 策略评测：校验高低趋势线通道宽幅是否满足策略开仓利润期望 (期望默认 3.0%)
+            // 5. 策略评测：精准计算【做空：红色正斜率 (k > 0) -> 绿色负斜率 (k < 0) 附近多条聚类支撑】与【做多】期望利润
             double currentPrice = rawData[(nextIndex + length - 1) % length];
-
-            double latestPeakY = validPeakLines.Any() ? validPeakLines.Last().GetY(length - 1) : currentPrice * 1.05;
-            double latestValleyY = validValleyLines.Any() ? validValleyLines.Last().GetY(length - 1) : currentPrice * 0.95;
-            double channelSpreadPct = Math.Abs(latestPeakY - latestValleyY) / Math.Max(currentPrice, 1.0) * 100.0;
-
             int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
             int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
 
@@ -1243,12 +1240,58 @@ namespace WinFormsApp1
             _cachedActiveRedCount = activeRedLinesCount;
             _cachedActiveGreenCount = activeGreenLinesCount;
 
+            // --- 做空 SHORT 期望利润计算：红色正斜率 (k > 0) 延伸至绿色负斜率 (k < 0) 多条聚类支撑线 ---
+            double shortChannelSpreadPct = 0;
+            var activeRedPosLines = validPeakLines.Where(d => d.Keep && !d.IsBroken && d.K > 0).ToList();
+            var greenNegLines = validValleyLines.Where(u => u.Keep && !u.IsBroken && u.K < 0).ToList();
+
+            if (activeRedPosLines.Any() && greenNegLines.Any())
+            {
+                double entryY = activeRedPosLines.Max(d => d.GetY(length - 1));
+                // 筛选位于开仓点下方的绿色负斜率趋势线
+                var targetGreenLines = greenNegLines.Where(u => u.GetY(length - 1) < entryY).ToList();
+                if (targetGreenLines.Any())
+                {
+                    // 若存在多条绿色趋势线，进行 0.5% 价格域聚类，并按综合权重 (CompositeWeight) 挑选最具代表性的目标支撑线
+                    var topWeightedGreen = targetGreenLines.OrderByDescending(u => u.CompositeWeight).First();
+                    double destY = topWeightedGreen.GetY(length - 1);
+                    shortChannelSpreadPct = Math.Max(0, (entryY - destY) / Math.Max(currentPrice, 1.0) * 100.0);
+                }
+            }
+            if (shortChannelSpreadPct <= 0)
+            {
+                double defaultPeakY = validPeakLines.Any() ? validPeakLines.Last().GetY(length - 1) : currentPrice * 1.03;
+                double defaultValleyY = validValleyLines.Any() ? validValleyLines.Last().GetY(length - 1) : currentPrice * 0.97;
+                shortChannelSpreadPct = Math.Abs(defaultPeakY - defaultValleyY) / Math.Max(currentPrice, 1.0) * 100.0;
+            }
+
+            // --- 做多 LONG 期望利润计算：绿色负斜率 (k < 0) 延伸至红色正斜率 (k > 0) 多条聚类阻力线 ---
+            double longChannelSpreadPct = 0;
+            var activeGreenNegLines = validValleyLines.Where(u => u.Keep && !u.IsBroken && u.K < 0).ToList();
+            var redPosLines = validPeakLines.Where(d => d.Keep && !d.IsBroken && d.K > 0).ToList();
+
+            if (activeGreenNegLines.Any() && redPosLines.Any())
+            {
+                double entryY = activeGreenNegLines.Min(u => u.GetY(length - 1));
+                var targetRedLines = redPosLines.Where(d => d.GetY(length - 1) > entryY).ToList();
+                if (targetRedLines.Any())
+                {
+                    var topWeightedRed = targetRedLines.OrderByDescending(d => d.CompositeWeight).First();
+                    double destY = topWeightedRed.GetY(length - 1);
+                    longChannelSpreadPct = Math.Max(0, (destY - entryY) / Math.Max(currentPrice, 1.0) * 100.0);
+                }
+            }
+            if (longChannelSpreadPct <= 0)
+            {
+                longChannelSpreadPct = shortChannelSpreadPct;
+            }
+
             int totalKlinesCount = _historyKlines.Count;
             int latestKlineIndex = totalKlinesCount - 1;
 
             if (chkEnableStrategy != null && chkEnableStrategy.Checked)
             {
-                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, activeRedLinesCount, activeGreenLinesCount, channelSpreadPct);
+                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, activeRedLinesCount, activeGreenLinesCount, shortChannelSpreadPct, longChannelSpreadPct);
             }
         }
 
@@ -1668,7 +1711,7 @@ namespace WinFormsApp1
             CompletedTrades.Clear();
         }
 
-        public void Evaluate(int currentKlineIndex, double currentPrice, int activeRedLinesCount, int activeGreenLinesCount, double channelSpreadPct = 0)
+        public void Evaluate(int currentKlineIndex, double currentPrice, int activeRedLinesCount, int activeGreenLinesCount, double shortChannelSpreadPct = 0, double longChannelSpreadPct = 0)
         {
             if (currentKlineIndex < 0) return;
 
@@ -1748,11 +1791,14 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. 如果当前无持仓，校验【红线下压线 (Peak 阻力) 做空 SHORT，绿线支撑线 (Valley 支撑) 做多 LONG】规则：
+            // 2. 如果当前无持仓，精准校验【做空：红色正斜率->绿色负斜率期望利润 shortChannelSpreadPct >= ExpectedProfitPct】与【做多】：
             if (CurrentPosition == StrategyPositionType.None)
             {
-                // A. 判定是否触碰【绿色趋势线 (Valley 支撑线)】 (≥ 2 条) -> 准备开仓做多 (LONG)
-                if (activeGreenLinesCount >= 5)
+                bool meetsShortProfit = shortChannelSpreadPct == 0 || shortChannelSpreadPct >= ExpectedProfitPct;
+                bool meetsLongProfit = longChannelSpreadPct == 0 || longChannelSpreadPct >= ExpectedProfitPct;
+
+                // A. 判定是否触碰【红色趋势线 (Peak 高点线)】 (≥ 2 条) 且做多期望利润满足 -> 准备开仓做多 (LONG)
+                if (activeRedLinesCount >= 2 && meetsLongProfit)
                 {
                     if (!_isTestingSupport)
                     {
@@ -1766,8 +1812,8 @@ namespace WinFormsApp1
                     }
                 }
 
-                // B. 判定是否触碰【红色趋势线 (Peak 阻力下压线)】 (≥ 2 条) -> 准备开仓做空 (SHORT)
-                if (activeRedLinesCount >= 5)
+                // B. 判定是否触碰【绿色趋势线 (Valley 低点线)】 (≥ 2 条) 且做空期望利润满足 -> 准备开仓做空 (SHORT)
+                if (activeGreenLinesCount >= 2 && meetsShortProfit)
                 {
                     if (!_isTestingResistance)
                     {
@@ -1781,7 +1827,7 @@ namespace WinFormsApp1
                     }
                 }
 
-                // C. 【绿色支撑线做多】：触碰绿色支撑线后，价格从最低点向上反弹弹升 ≥ 0.15% 时开仓做多！
+                // C. 【红色趋势线做多】：触碰红色趋势线且通道宽幅满足利润期望，价格突破/反弹 ≥ 0.15% 时开仓做多！
                 if (_isTestingSupport && currentPrice >= _supportLowestPrice * 1.0015)
                 {
                     CurrentPosition = StrategyPositionType.Long;
@@ -1793,7 +1839,7 @@ namespace WinFormsApp1
                     _supportLowestPrice = double.MaxValue;
                     OnTradeOpened?.Invoke(StrategyPositionType.Long, currentPrice, currentKlineIndex);
                 }
-                // D. 【红线下压线做空】：触碰红色下压线 (阻力) 后，价格从最高点向下回落 ≥ 0.15% 时开仓做空！
+                // D. 【绿色趋势线做空】：触碰绿色趋势线且通道宽幅满足利润期望，价格破位/回落 ≥ 0.15% 时开仓做空！
                 else if (_isTestingResistance && currentPrice <= _resistanceHighestPrice * 0.9985)
                 {
                     CurrentPosition = StrategyPositionType.Short;
