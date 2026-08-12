@@ -864,6 +864,21 @@ namespace WinFormsApp1
             public bool Keep { get; set; }
             public bool IsLatest { get; set; }
 
+            /// <summary>
+            /// 权重 1：趋势线两锚点在 X 轴上的跨度差值 (X2 - X1)
+            /// </summary>
+            public double Weight1 => Math.Abs(X2 - X1);
+
+            /// <summary>
+            /// 权重 2：当前趋势线 X2 和最新 K 线 X 的差值 (X_latest - X2)
+            /// </summary>
+            public double Weight2 { get; set; }
+
+            /// <summary>
+            /// 综合权重得分 (结合跨度 Weight1、触碰次数 TouchCount 与时效 Weight2)
+            /// </summary>
+            public double CompositeWeight => (Weight1 * TouchCount) / (1.0 + 0.05 * Weight2);
+
             public double GetY(double x) => Y1 + K * (x - X1);
         }
 
@@ -905,7 +920,8 @@ namespace WinFormsApp1
                         Y2 = y2,
                         K = k,
                         NormK = normK,
-                        IsPeak = true
+                        IsPeak = true,
+                        Weight2 = Math.Abs((length - 1) - x2)
                     });
                 }
             }
@@ -938,7 +954,8 @@ namespace WinFormsApp1
                         Y2 = y2,
                         K = k,
                         NormK = normK,
-                        IsPeak = false
+                        IsPeak = false,
+                        Weight2 = Math.Abs((length - 1) - x2)
                     });
                 }
             }
@@ -1010,34 +1027,35 @@ namespace WinFormsApp1
             _cachedLinesToDraw.Clear();
             _cachedLinesToDraw.AddRange(allCandidates.Where(c => c.Keep && !c.IsBroken));
 
-            // 5. 策略评测：统计价格试探延伸线数量，并在价格触碰后反弹确认时触发开仓
+            // 5. 策略评测：【开多开空转换后】红色趋势线 (Peak 高点) 满足时触发做多 (LONG)，绿色趋势线 (Valley 低点) 满足时触发做空 (SHORT)
             double currentPrice = rawData[(nextIndex + length - 1) % length];
 
-            // 统计当前最新价格落在有效延伸线 0.25% 容差范围内的趋势线数量
-            int activeSupportCount = validValleyLines.Count(u => u.Keep && !u.IsBroken && Math.Abs(currentPrice - u.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
-            int activeResistanceCount = validPeakLines.Count(d => d.Keep && !d.IsBroken && Math.Abs(currentPrice - d.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
+            // 统计触碰/试探 红色趋势线 (Peak 高点线) 的数量 -> 触发做多 (LONG)
+            int activeRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken && Math.Abs(currentPrice - d.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
+            // 统计触碰/试探 绿色趋势线 (Valley 低点线) 的数量 -> 触发做空 (SHORT)
+            int activeGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken && Math.Abs(currentPrice - u.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
 
             int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
             int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
 
             if (latestPeakX >= 0)
             {
-                activeResistanceCount += validPeakLines.Count(d => d.Keep && !d.IsBroken && (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
+                activeRedLinesCount += validPeakLines.Count(d => d.Keep && !d.IsBroken && (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
             }
             if (latestValleyX >= 0)
             {
-                activeSupportCount += validValleyLines.Count(u => u.Keep && !u.IsBroken && (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
+                activeGreenLinesCount += validValleyLines.Count(u => u.Keep && !u.IsBroken && (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
             }
 
-            _cachedActiveRedCount = activeResistanceCount;
-            _cachedActiveGreenCount = activeSupportCount;
+            _cachedActiveRedCount = activeRedLinesCount;
+            _cachedActiveGreenCount = activeGreenLinesCount;
 
             int totalKlinesCount = _historyKlines.Count;
             int latestKlineIndex = totalKlinesCount - 1;
 
             if (chkEnableStrategy != null && chkEnableStrategy.Checked)
             {
-                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, activeSupportCount, activeResistanceCount);
+                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, activeRedLinesCount, activeGreenLinesCount);
             }
         }
 
@@ -1417,7 +1435,6 @@ namespace WinFormsApp1
 
     public class TrendlineStrategyEngine
     {
-        private readonly int TriggerCount = 3;
         public StrategyPositionType CurrentPosition { get; private set; } = StrategyPositionType.None;
         public double EntryPrice { get; private set; }
         public int EntryKlineIndex { get; private set; }
@@ -1457,11 +1474,11 @@ namespace WinFormsApp1
             CompletedTrades.Clear();
         }
 
-        public void Evaluate(int currentKlineIndex, double currentPrice, int activeSupportCount, int activeResistanceCount)
+        public void Evaluate(int currentKlineIndex, double currentPrice, int activeRedLinesCount, int activeGreenLinesCount)
         {
             if (currentKlineIndex < 0) return;
 
-            // 1. 校验现有持仓的 1.0% 止盈 / 1.0% 止损
+            // 1. 校验现有持仓的止盈 / 止损
             if (CurrentPosition == StrategyPositionType.Long)
             {
                 if (currentPrice >= TakeProfitPrice)
@@ -1537,11 +1554,11 @@ namespace WinFormsApp1
                 }
             }
 
-            // 2. 如果当前无持仓，校验【触碰多条延长线 + 反弹确认】入场规则：
+            // 2. 如果当前无持仓，校验【红线下压线 (Peak 阻力) 做空 SHORT，绿线支撑线 (Valley 支撑) 做多 LONG】规则：
             if (CurrentPosition == StrategyPositionType.None)
             {
-                // A. 判定是否下探触碰多条支撑延伸线 (≥ 2 条支撑线)
-                if (activeSupportCount >= TriggerCount)
+                // A. 判定是否触碰【绿色趋势线 (Valley 支撑线)】 (≥ 2 条) -> 准备开仓做多 (LONG)
+                if (activeGreenLinesCount >= 2)
                 {
                     if (!_isTestingSupport)
                     {
@@ -1555,8 +1572,8 @@ namespace WinFormsApp1
                     }
                 }
 
-                // B. 判定是否上探触碰多条阻力延伸线 (≥ 2 条阻力线)
-                if (activeResistanceCount >= TriggerCount)
+                // B. 判定是否触碰【红色趋势线 (Peak 阻力下压线)】 (≥ 2 条) -> 准备开仓做空 (SHORT)
+                if (activeRedLinesCount >= 2)
                 {
                     if (!_isTestingResistance)
                     {
@@ -1570,32 +1587,32 @@ namespace WinFormsApp1
                     }
                 }
 
-                // C. 【做多反弹确认】：在触碰支撑延伸线后，价格从试探最低点向上反弹弹升 ≥ 0.15% 时开仓做多！
+                // C. 【绿色支撑线做多】：触碰绿色支撑线后，价格从最低点向上反弹弹升 ≥ 0.15% 时开仓做多！
                 if (_isTestingSupport && currentPrice >= _supportLowestPrice * 1.0015)
                 {
                     CurrentPosition = StrategyPositionType.Long;
                     EntryPrice = currentPrice;
                     EntryKlineIndex = currentKlineIndex;
-                    TakeProfitPrice = currentPrice * 1.01; // 1% 止盈
-                    StopLossPrice = currentPrice * 0.997;   // 1% 止损
+                    TakeProfitPrice = currentPrice * (1.0 + TakeProfitPct / 100.0);
+                    StopLossPrice = currentPrice * (1.0 - StopLossPct / 100.0);
                     _isTestingSupport = false;
                     _supportLowestPrice = double.MaxValue;
                     OnTradeOpened?.Invoke(StrategyPositionType.Long, currentPrice, currentKlineIndex);
                 }
-                // D. 【做空反弹确认】：在触碰阻力延伸线后，价格从试探最高点向下回落反弹 ≥ 0.15% 时开仓做空！
+                // D. 【红线下压线做空】：触碰红色下压线 (阻力) 后，价格从最高点向下回落 ≥ 0.15% 时开仓做空！
                 else if (_isTestingResistance && currentPrice <= _resistanceHighestPrice * 0.9985)
                 {
                     CurrentPosition = StrategyPositionType.Short;
                     EntryPrice = currentPrice;
                     EntryKlineIndex = currentKlineIndex;
-                    TakeProfitPrice = currentPrice * 0.99; // 1% 止盈
-                    StopLossPrice = currentPrice * 1.003;   // 1% 止损
+                    TakeProfitPrice = currentPrice * (1.0 - TakeProfitPct / 100.0);
+                    StopLossPrice = currentPrice * (1.0 + StopLossPct / 100.0);
                     _isTestingResistance = false;
                     _resistanceHighestPrice = double.MinValue;
                     OnTradeOpened?.Invoke(StrategyPositionType.Short, currentPrice, currentKlineIndex);
                 }
 
-                // 超时保护：若触碰试探状态持续超过 60 Bar 未触发反弹确认，重置触碰状态
+                // 超时保护
                 if (_isTestingSupport && currentKlineIndex - _supportTouchStartBar > 60)
                 {
                     _isTestingSupport = false;
