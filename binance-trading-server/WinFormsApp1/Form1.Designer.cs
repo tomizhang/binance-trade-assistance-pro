@@ -42,6 +42,8 @@ namespace WinFormsApp1
             lblRiskReward = new Label();
             numTakeProfit = new NumericUpDown();
             numStopLoss = new NumericUpDown();
+            lblExpectedProfit = new Label();
+            numExpectedProfit = new NumericUpDown();
             lblTrendState = new Label();
             chkEnableStrategy = new CheckBox();
             chkAutoFitY = new CheckBox();
@@ -52,6 +54,7 @@ namespace WinFormsApp1
             button1 = new Button();
             ((System.ComponentModel.ISupportInitialize)numTakeProfit).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numStopLoss).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numExpectedProfit).BeginInit();
             SuspendLayout();
             // 
             // formsPlot1
@@ -220,6 +223,32 @@ namespace WinFormsApp1
             numStopLoss.TabIndex = 13;
             numStopLoss.Value = new decimal(new int[] { 10, 0, 0, 65536 });
             // 
+            // lblExpectedProfit
+            // 
+            lblExpectedProfit.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblExpectedProfit.AutoSize = true;
+            lblExpectedProfit.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            lblExpectedProfit.Location = new Point(815, 298);
+            lblExpectedProfit.Name = "lblExpectedProfit";
+            lblExpectedProfit.Size = new Size(172, 17);
+            lblExpectedProfit.TabIndex = 14;
+            lblExpectedProfit.Text = "6. 策略开仓利润期望 (%):";
+            // 
+            // numExpectedProfit
+            // 
+            numExpectedProfit.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            numExpectedProfit.DecimalPlaces = 1;
+            numExpectedProfit.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            numExpectedProfit.ForeColor = Color.DarkBlue;
+            numExpectedProfit.Increment = new decimal(new int[] { 1, 0, 0, 65536 });
+            numExpectedProfit.Location = new Point(815, 318);
+            numExpectedProfit.Maximum = new decimal(new int[] { 100, 0, 0, 0 });
+            numExpectedProfit.Minimum = new decimal(new int[] { 1, 0, 0, 65536 });
+            numExpectedProfit.Name = "numExpectedProfit";
+            numExpectedProfit.Size = new Size(200, 23);
+            numExpectedProfit.TabIndex = 15;
+            numExpectedProfit.Value = new decimal(new int[] { 30, 0, 0, 65536 });
+            // 
             // lblTrendState
             // 
             lblTrendState.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -227,10 +256,10 @@ namespace WinFormsApp1
             lblTrendState.BorderStyle = BorderStyle.FixedSingle;
             lblTrendState.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold);
             lblTrendState.ForeColor = Color.DimGray;
-            lblTrendState.Location = new Point(815, 298);
+            lblTrendState.Location = new Point(815, 348);
             lblTrendState.Name = "lblTrendState";
-            lblTrendState.Size = new Size(200, 72);
-            lblTrendState.TabIndex = 14;
+            lblTrendState.Size = new Size(200, 70);
+            lblTrendState.TabIndex = 16;
             lblTrendState.Text = "策略状态: 监控中...";
             lblTrendState.TextAlign = ContentAlignment.MiddleCenter;
             // 
@@ -241,10 +270,10 @@ namespace WinFormsApp1
             chkEnableStrategy.Checked = true;
             chkEnableStrategy.CheckState = CheckState.Checked;
             chkEnableStrategy.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            chkEnableStrategy.Location = new Point(815, 378);
+            chkEnableStrategy.Location = new Point(815, 424);
             chkEnableStrategy.Name = "chkEnableStrategy";
             chkEnableStrategy.Size = new Size(135, 20);
-            chkEnableStrategy.TabIndex = 15;
+            chkEnableStrategy.TabIndex = 17;
             chkEnableStrategy.Text = "启用量化开仓策略";
             chkEnableStrategy.UseVisualStyleBackColor = true;
             // 
@@ -255,10 +284,10 @@ namespace WinFormsApp1
             chkAutoFitY.Checked = true;
             chkAutoFitY.CheckState = CheckState.Checked;
             chkAutoFitY.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            chkAutoFitY.Location = new Point(815, 400);
+            chkAutoFitY.Location = new Point(815, 446);
             chkAutoFitY.Name = "chkAutoFitY";
             chkAutoFitY.Size = new Size(135, 20);
-            chkAutoFitY.TabIndex = 16;
+            chkAutoFitY.TabIndex = 18;
             chkAutoFitY.Text = "自动更新 Y 轴范围";
             chkAutoFitY.UseVisualStyleBackColor = true;
             // 
@@ -269,10 +298,10 @@ namespace WinFormsApp1
             chkTickReplay.Checked = false;
             chkTickReplay.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             chkTickReplay.ForeColor = Color.DarkMagenta;
-            chkTickReplay.Location = new Point(815, 422);
+            chkTickReplay.Location = new Point(815, 468);
             chkTickReplay.Name = "chkTickReplay";
             chkTickReplay.Size = new Size(160, 20);
-            chkTickReplay.TabIndex = 17;
+            chkTickReplay.TabIndex = 19;
             chkTickReplay.Text = "逐笔 Tick 回放模式";
             chkTickReplay.UseVisualStyleBackColor = true;
             // 
@@ -283,10 +312,10 @@ namespace WinFormsApp1
             btnRewind.FlatStyle = FlatStyle.Flat;
             btnRewind.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnRewind.ForeColor = Color.White;
-            btnRewind.Location = new Point(815, 448);
+            btnRewind.Location = new Point(815, 494);
             btnRewind.Name = "btnRewind";
             btnRewind.Size = new Size(96, 30);
-            btnRewind.TabIndex = 18;
+            btnRewind.TabIndex = 20;
             btnRewind.Text = "⏪ 单击回退";
             btnRewind.UseVisualStyleBackColor = false;
             btnRewind.Click += btnRewind_Click;
@@ -298,10 +327,10 @@ namespace WinFormsApp1
             btnStepForward.FlatStyle = FlatStyle.Flat;
             btnStepForward.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             btnStepForward.ForeColor = Color.White;
-            btnStepForward.Location = new Point(919, 448);
+            btnStepForward.Location = new Point(919, 494);
             btnStepForward.Name = "btnStepForward";
             btnStepForward.Size = new Size(96, 30);
-            btnStepForward.TabIndex = 19;
+            btnStepForward.TabIndex = 21;
             btnStepForward.Text = "⏩ 单击向前";
             btnStepForward.UseVisualStyleBackColor = false;
             btnStepForward.Click += btnStepForward_Click;
@@ -309,10 +338,10 @@ namespace WinFormsApp1
             // btn_puase
             // 
             btn_puase.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btn_puase.Location = new Point(815, 484);
+            btn_puase.Location = new Point(815, 530);
             btn_puase.Name = "btn_puase";
             btn_puase.Size = new Size(200, 32);
-            btn_puase.TabIndex = 20;
+            btn_puase.TabIndex = 22;
             btn_puase.Text = "暂停数据播放";
             btn_puase.UseVisualStyleBackColor = true;
             btn_puase.Click += btn_puase_Click;
@@ -320,10 +349,10 @@ namespace WinFormsApp1
             // button1
             // 
             button1.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            button1.Location = new Point(815, 522);
+            button1.Location = new Point(815, 568);
             button1.Name = "button1";
             button1.Size = new Size(200, 32);
-            button1.TabIndex = 21;
+            button1.TabIndex = 23;
             button1.Text = "重置/复位图表";
             button1.UseVisualStyleBackColor = true;
             button1.Click += button1_Click;
@@ -342,6 +371,8 @@ namespace WinFormsApp1
             Controls.Add(chkAutoFitY);
             Controls.Add(chkEnableStrategy);
             Controls.Add(lblTrendState);
+            Controls.Add(numExpectedProfit);
+            Controls.Add(lblExpectedProfit);
             Controls.Add(numStopLoss);
             Controls.Add(numTakeProfit);
             Controls.Add(lblRiskReward);
@@ -360,6 +391,7 @@ namespace WinFormsApp1
             Text = "币安合约历史数据实时队列接入分析器";
             ((System.ComponentModel.ISupportInitialize)numTakeProfit).EndInit();
             ((System.ComponentModel.ISupportInitialize)numStopLoss).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numExpectedProfit).EndInit();
             ResumeLayout(false);
             PerformLayout();
         }
@@ -380,6 +412,8 @@ namespace WinFormsApp1
         private Label lblRiskReward;
         private NumericUpDown numTakeProfit;
         private NumericUpDown numStopLoss;
+        private Label lblExpectedProfit;
+        private NumericUpDown numExpectedProfit;
         private Label lblTrendState;
         private CheckBox chkEnableStrategy;
         private CheckBox chkAutoFitY;

@@ -163,12 +163,12 @@ namespace WinFormsApp1
                     int batchSize = speedIndex switch
                     {
                         0 => 1,
-                        1 => 3,
-                        2 => 10,
-                        3 => 30,
-                        4 => 100,
+                        1 => 1,
+                        2 => 1,
+                        3 => 1,
+                        4 => 1,
                         5 => _tickQueue.Count,
-                        _ => 3
+                        _ => 1
                     };
 
                     List<double> tickPrices = new();
@@ -323,6 +323,14 @@ namespace WinFormsApp1
                 numStopLoss.TextChanged += (s, e) => UpdateStrategyRiskReward();
                 numStopLoss.Leave += (s, e) => UpdateStrategyRiskReward();
 
+                if (numExpectedProfit != null)
+                {
+                    numExpectedProfit.ValueChanged += (s, e) => UpdateStrategyRiskReward();
+                    numExpectedProfit.KeyUp += (s, e) => UpdateStrategyRiskReward();
+                    numExpectedProfit.TextChanged += (s, e) => UpdateStrategyRiskReward();
+                    numExpectedProfit.Leave += (s, e) => UpdateStrategyRiskReward();
+                }
+
                 UpdateStrategyRiskReward();
             }
         }
@@ -347,6 +355,18 @@ namespace WinFormsApp1
                 else
                 {
                     _strategyEngine.StopLossPct = (double)numStopLoss.Value;
+                }
+
+                if (numExpectedProfit != null)
+                {
+                    if (double.TryParse(numExpectedProfit.Text, out double ep) && ep > 0)
+                    {
+                        _strategyEngine.ExpectedProfitPct = ep;
+                    }
+                    else
+                    {
+                        _strategyEngine.ExpectedProfitPct = (double)numExpectedProfit.Value;
+                    }
                 }
             }
         }
@@ -1027,25 +1047,25 @@ namespace WinFormsApp1
             _cachedLinesToDraw.Clear();
             _cachedLinesToDraw.AddRange(allCandidates.Where(c => c.Keep && !c.IsBroken));
 
-            // 5. 策略评测：【开多开空转换后】红色趋势线 (Peak 高点) 满足时触发做多 (LONG)，绿色趋势线 (Valley 低点) 满足时触发做空 (SHORT)
+            // 5. 策略评测：校验高低趋势线通道宽幅是否满足策略开仓利润期望 (期望默认 3.0%)
             double currentPrice = rawData[(nextIndex + length - 1) % length];
 
-            // 统计触碰/试探 红色趋势线 (Peak 高点线) 的数量 -> 触发做多 (LONG)
-            int activeRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken && Math.Abs(currentPrice - d.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
-            // 统计触碰/试探 绿色趋势线 (Valley 低点线) 的数量 -> 触发做空 (SHORT)
-            int activeGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken && Math.Abs(currentPrice - u.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025);
+            double latestPeakY = validPeakLines.Any() ? validPeakLines.Last().GetY(length - 1) : currentPrice * 1.05;
+            double latestValleyY = validValleyLines.Any() ? validValleyLines.Last().GetY(length - 1) : currentPrice * 0.95;
+            double channelSpreadPct = Math.Abs(latestPeakY - latestValleyY) / Math.Max(currentPrice, 1.0) * 100.0;
 
             int latestPeakX = _peaksBuffer.Count > 0 ? _peaksBuffer[_peaksBuffer.Count - 1] : -1;
             int latestValleyX = _valleysBuffer.Count > 0 ? _valleysBuffer[_valleysBuffer.Count - 1] : -1;
 
-            if (latestPeakX >= 0)
-            {
-                activeRedLinesCount += validPeakLines.Count(d => d.Keep && !d.IsBroken && (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX));
-            }
-            if (latestValleyX >= 0)
-            {
-                activeGreenLinesCount += validValleyLines.Count(u => u.Keep && !u.IsBroken && (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX));
-            }
+            // 统计触碰/试探 红色趋势线 (Peak 高点线) 的去重真正线条数量
+            int activeRedLinesCount = validPeakLines.Count(d => d.Keep && !d.IsBroken &&
+                (Math.Abs(currentPrice - d.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025 ||
+                 (latestPeakX >= 0 && (d.Pivot1Index == latestPeakX || d.Pivot2Index == latestPeakX))));
+
+            // 统计触碰/试探 绿色趋势线 (Valley 低点线) 的去重真正线条数量
+            int activeGreenLinesCount = validValleyLines.Count(u => u.Keep && !u.IsBroken &&
+                (Math.Abs(currentPrice - u.GetY(length - 1)) / Math.Max(currentPrice, 1.0) <= 0.0025 ||
+                 (latestValleyX >= 0 && (u.Pivot1Index == latestValleyX || u.Pivot2Index == latestValleyX))));
 
             _cachedActiveRedCount = activeRedLinesCount;
             _cachedActiveGreenCount = activeGreenLinesCount;
@@ -1055,7 +1075,7 @@ namespace WinFormsApp1
 
             if (chkEnableStrategy != null && chkEnableStrategy.Checked)
             {
-                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, activeRedLinesCount, activeGreenLinesCount);
+                _strategyEngine.Evaluate(latestKlineIndex, currentPrice, activeRedLinesCount, activeGreenLinesCount, channelSpreadPct);
             }
         }
 
@@ -1443,6 +1463,7 @@ namespace WinFormsApp1
 
         public double TakeProfitPct { get; set; } = 1.0;
         public double StopLossPct { get; set; } = 1.0;
+        public double ExpectedProfitPct { get; set; } = 3.0;
 
         public event Action<TradeRecord>? OnTradeClosed;
         public event Action<StrategyPositionType, double, int>? OnTradeOpened;
@@ -1474,7 +1495,7 @@ namespace WinFormsApp1
             CompletedTrades.Clear();
         }
 
-        public void Evaluate(int currentKlineIndex, double currentPrice, int activeRedLinesCount, int activeGreenLinesCount)
+        public void Evaluate(int currentKlineIndex, double currentPrice, int activeRedLinesCount, int activeGreenLinesCount, double channelSpreadPct = 0)
         {
             if (currentKlineIndex < 0) return;
 
@@ -1558,7 +1579,7 @@ namespace WinFormsApp1
             if (CurrentPosition == StrategyPositionType.None)
             {
                 // A. 判定是否触碰【绿色趋势线 (Valley 支撑线)】 (≥ 2 条) -> 准备开仓做多 (LONG)
-                if (activeGreenLinesCount >= 2)
+                if (activeGreenLinesCount >= 5)
                 {
                     if (!_isTestingSupport)
                     {
@@ -1573,7 +1594,7 @@ namespace WinFormsApp1
                 }
 
                 // B. 判定是否触碰【红色趋势线 (Peak 阻力下压线)】 (≥ 2 条) -> 准备开仓做空 (SHORT)
-                if (activeRedLinesCount >= 2)
+                if (activeRedLinesCount >= 5)
                 {
                     if (!_isTestingResistance)
                     {
