@@ -1122,30 +1122,48 @@ namespace WinFormsApp1
             var allPivots = peakIndices.Select(p => (X: (double)p, Y: rawData[(nextIndex + p) % length]))
                 .Concat(valleyIndices.Select(v => (X: (double)v, Y: rawData[(nextIndex + v) % length]))).ToList();
 
-            // 3. 执行【价格穿透破位校验】与【碰撞触碰次数统计与加权】 (增加 0.15% 影线破位容差与 0.25% 触碰容差)
+            // 3. 执行【穿透破位校验】：从 X1 锚点起，任何 K 线价格穿透趋势线均直接彻底销毁删除
             foreach (var line in allCandidates)
             {
                 int startX = (int)Math.Max(0, line.X1);
+                bool brokeOut = false;
 
                 for (int x = startX + 1; x < length; x++)
                 {
                     double price = rawData[(nextIndex + x) % length];
                     double lineY = line.GetY(x);
 
-                    // 增加 0.15% 动态破位容差，避免正常阴阳线插针误杀有效线条
-                    if (line.IsPeak && price > lineY * 1.0015)
+                    // 校验锚点之间或延伸过程中是否被 K 线实体/影线穿过
+                    if (line.IsPeak && price > lineY)
                     {
                         line.IsBroken = true;
+                        line.Keep = false;
+                        line.Line_Extension_Range = Math.Max(0, x - line.X2);
+                        brokeOut = true;
                         break;
                     }
-                    else if (!line.IsPeak && price < lineY * 0.9985)
+                    else if (!line.IsPeak && price < lineY)
                     {
                         line.IsBroken = true;
+                        line.Keep = false;
+                        line.Line_Extension_Range = Math.Max(0, x - line.X2);
+                        brokeOut = true;
                         break;
                     }
                 }
 
-                if (line.IsBroken) continue;
+                if (!brokeOut)
+                {
+                    line.IsBroken = false;
+                    line.Line_Extension_Range = (length - 1) - line.X2;
+                }
+
+                // 一旦被穿过，立即彻底丢弃不予保留
+                if (line.IsBroken)
+                {
+                    line.Keep = false;
+                    continue;
+                }
 
                 // 统计 0.25% 允许波动偏差内的附加触碰点位 (0.0025)
                 foreach (var pivot in allPivots)
@@ -1169,9 +1187,14 @@ namespace WinFormsApp1
                 }
             }
 
-            // 4. 有效趋势线统计与最新标识 (严格保留 TouchCount >= 3 且未破位的有效线条)
+            // 彻底从集合中物理删除销毁被穿越/破位 (IsBroken || !Keep) 的趋势线
+            peakLines.RemoveAll(d => d.IsBroken || !d.Keep);
+            valleyLines.RemoveAll(u => u.IsBroken || !u.Keep);
+            allCandidates.RemoveAll(c => c.IsBroken || !c.Keep);
+
+            // 4. 有效趋势线统计与最新标识
             var validPeakLines = peakLines.Where(d => !d.IsBroken && d.Keep).ToList();
-            var validValleyLines = valleyLines.Where(u => !u.IsBroken && u.Keep).ToList();
+            var validValleyLines = valleyLines.Where(u => u.IsBroken && u.Keep).ToList();
 
             if (validPeakLines.Any())
             {
@@ -1312,38 +1335,39 @@ namespace WinFormsApp1
                 _currentOverlayPlottables.Add(marker);
             }
 
-            // 3. 渲染预计算出的趋势延伸线
+            // 3. 渲染每新增 K 线数据连接绘制的趋势延伸线 (延伸至碰撞第一根 K 线处 X2 + Line_Extension_Range)
             foreach (var lineData in _cachedLinesToDraw)
             {
-                double xLeft = -5000;
-                double yLeft = lineData.GetY(xLeft);
-                double xRight = length - 1 + 5000;
+                double xLeft = lineData.X1;
+                double yLeft = lineData.Y1;
+                double xRight = lineData.X2 + lineData.Line_Extension_Range;
                 double yRight = lineData.GetY(xRight);
 
                 var line = formsPlot1.Plot.Add.Line(xLeft, yLeft, xRight, yRight);
-                float lineWidth = 0.5f;
+                float lineWidth = 1.0f;
 
                 byte alpha = lineData.TouchCount switch
                 {
                     >= 4 => (byte)255,
-                    3 => (byte)200,
-                    _ => lineData.IsLatest ? (byte)210 : (byte)110
+                    3 => (byte)210,
+                    _ => (byte)160
                 };
 
                 if (lineData.IsPeak)
                 {
                     line.LineStyle.Color = ScottPlot.Colors.Red.WithAlpha(alpha / 255.0f);
-                    line.LineStyle.Width = lineWidth;
                 }
                 else
                 {
                     line.LineStyle.Color = ScottPlot.Colors.Green.WithAlpha(alpha / 255.0f);
-                    line.LineStyle.Width = lineWidth;
                 }
 
+                line.LineStyle.Width = lineWidth;
                 line.LineStyle.Pattern = LinePattern.Solid;
                 _currentOverlayPlottables.Add(line);
             }
+
+
 
             // 4. 渲染交易 Marker 标记与气泡文本
             double currentPrice = streamer1Data[(nextIndex + length - 1) % length];

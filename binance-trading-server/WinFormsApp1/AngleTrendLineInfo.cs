@@ -22,19 +22,29 @@ namespace WinFormsApp1
         public bool IsExpectedProfitBoundary { get; set; }
 
         /// <summary>
-        /// 权重 1：趋势线两锚点在 X 轴上的跨度差值 (X2 - X1)
+        /// line_x1_x2: x1 到 x2 的跨度差值 (|x2 - x1|)
         /// </summary>
-        public double Weight1 => Math.Abs(X2 - X1);
+        public double Line_X1_X2 => Math.Abs(X2 - X1);
 
         /// <summary>
-        /// 趋势线时间年龄 (Line_Age)：当前趋势线 X2 和最新 K 线 X 的差值 (X_latest - X2)
+        /// 兼容属性 Weight1 -> Line_X1_X2
+        /// </summary>
+        public double Weight1 => Line_X1_X2;
+
+        /// <summary>
+        /// line_age: x2 到最新 K 线点 (X_latest) 的差值 (X_latest - X2)
         /// </summary>
         public double Line_Age { get; set; }
 
         /// <summary>
-        /// 综合权重得分 (结合跨度 Weight1、触碰次数 TouchCount 与线条年龄 Line_Age)
+        /// line_extension_range: 趋势线向后延伸穿过碰撞第一根 K 线的范围 (x_break - x2)
         /// </summary>
-        public double CompositeWeight => (Weight1 * TouchCount) / (1.0 + 0.05 * Line_Age);
+        public double Line_Extension_Range { get; set; }
+
+        /// <summary>
+        /// 综合权重得分 (结合跨度 Line_X1_X2、触碰次数 TouchCount 与线条年龄 Line_Age)
+        /// </summary>
+        public double CompositeWeight => (Line_X1_X2 * TouchCount) / (1.0 + 0.05 * Line_Age);
 
         public double GetY(double x) => Y1 + K * (x - X1);
     }
