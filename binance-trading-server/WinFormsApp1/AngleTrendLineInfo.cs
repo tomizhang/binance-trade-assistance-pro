@@ -22,6 +22,11 @@ namespace WinFormsApp1
         public bool IsExpectedProfitBoundary { get; set; }
 
         /// <summary>
+        /// 判定是否属于同方向且角度/斜率相等 (偏差 ≤ 0.3%) 的相对有效平行趋势线集群
+        /// </summary>
+        public bool IsParallelClusterValid { get; set; }
+
+        /// <summary>
         /// line_x1_x2: x1 到 x2 的跨度差值 (|x2 - x1|)
         /// </summary>
         public double Line_X1_X2 => Math.Abs(X2 - X1);

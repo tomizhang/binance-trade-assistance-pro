@@ -1040,38 +1040,60 @@ namespace WinFormsApp1
         }
 
         /// <summary>
-        /// 数据层算法：收集趋势线候选集、破位校验、碰撞加权、夹角保留与策略评测
+        /// 数据层极速算法：高效极值点对极值点 (Pivot-to-Pivot) 匹配 + 线性数组预提取零余数寻址 + 早期破位裁剪剪枝
         /// </summary>
         private void ComputeAngleTrendLinesData(List<int> peakIndices, List<int> valleyIndices, double[] rawData, int nextIndex, int length)
         {
-            if (peakIndices == null || valleyIndices == null) return;
+            if (peakIndices == null || valleyIndices == null || length <= 0) return;
+
+            // 极速提取当前视口线性化价格数组，彻底消除循环内取模运算 (% length)
+            double[] priceArray = new double[length];
+            for (int idx = 0; idx < length; idx++)
+            {
+                priceArray[idx] = rawData[(nextIndex + idx) % length];
+            }
 
             var peakLines = new List<AngleTrendLineInfo>();
             var valleyLines = new List<AngleTrendLineInfo>();
 
-            // 1. 每根 K 线均与前面的各个历史高点 (Peak) 进行连接匹配
-            for (int i = 1; i < length; i++)
+            // 1. 高效极值高点 (Peak to Peak) 匹配构建红色阻力趋势线
+            for (int i = 0; i < peakIndices.Count; i++)
             {
-                double x2 = i;
-                double y2 = rawData[(nextIndex + i) % length];
+                int p1 = peakIndices[i];
+                double x1 = p1;
+                double y1 = priceArray[p1];
 
-                foreach (int p in peakIndices)
+                for (int j = i + 1; j < peakIndices.Count; j++)
                 {
-                    if (p >= i) break; // 仅与前面的高点连接
-                    double x1 = p;
-                    double y1 = rawData[(nextIndex + p) % length];
+                    int p2 = peakIndices[j];
+                    double x2 = p2;
+                    double y2 = priceArray[p2];
 
-                    if (Math.Abs(x2 - x1) < 2) continue;
+                    if (x2 - x1 < 2) continue;
                     double k = (y2 - y1) / (x2 - x1);
                     double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
                     if (normK > 0.05) continue;
-                    //if (k >= 0) continue; // 红色下压阻力线：角度/斜率为负 (k < 0)
+
+                    // 早期破位检查：在构造前预判 X1 -> length 范围内是否有价格超越阻力线
+                    bool isBroken = false;
+                    double extRange = (length - 1) - x2;
+                    for (int x = (int)x1 + 1; x < length; x++)
+                    {
+                        if (priceArray[x] > y1 + k * (x - x1))
+                        {
+                            isBroken = true;
+                            extRange = Math.Max(0, x - x2);
+                            break;
+                        }
+                    }
+
+                    if (isBroken) continue; // 破位线条直接抛弃剪枝，不分配内存
 
                     peakLines.Add(new AngleTrendLineInfo
                     {
-                        Pivot1Index = p,
-                        Pivot2Index = i,
+                        Pivot1Index = p1,
+                        Pivot2Index = p2,
                         X1 = x1,
                         Y1 = y1,
                         X2 = x2,
@@ -1079,33 +1101,51 @@ namespace WinFormsApp1
                         K = k,
                         NormK = normK,
                         IsPeak = true,
-                        Line_Age = Math.Abs((length - 1) - x2)
+                        Keep = true,
+                        Line_Age = (length - 1) - x2,
+                        Line_Extension_Range = extRange
                     });
                 }
             }
 
-            // 2. 每根 K 线均与前面的各个历史低点 (Valley) 进行连接匹配 (消除 k <= 0 过度筛选，提升绿色支撑线条数)
-            for (int i = 1; i < length; i++)
+            // 2. 高效极值低点 (Valley to Valley) 匹配构建绿色支撑趋势线
+            for (int i = 0; i < valleyIndices.Count; i++)
             {
-                double x2 = i;
-                double y2 = rawData[(nextIndex + i) % length];
+                int v1 = valleyIndices[i];
+                double x1 = v1;
+                double y1 = priceArray[v1];
 
-                foreach (int v in valleyIndices)
+                for (int j = i + 1; j < valleyIndices.Count; j++)
                 {
-                    if (v >= i) break; // 仅与前面的低点连接
-                    double x1 = v;
-                    double y1 = rawData[(nextIndex + v) % length];
+                    int v2 = valleyIndices[j];
+                    double x2 = v2;
+                    double y2 = priceArray[v2];
 
-                    if (Math.Abs(x2 - x1) < 2) continue;
+                    if (x2 - x1 < 2) continue;
                     double k = (y2 - y1) / (x2 - x1);
                     double normK = Math.Abs(k) / Math.Max(Math.Abs(y1), 1.0);
 
                     if (normK > 0.05) continue;
 
+                    // 早期破位检查：在构造前预判 X1 -> length 范围内是否有价格跌破支撑线
+                    bool isBroken = false;
+                    double extRange = (length - 1) - x2;
+                    for (int x = (int)x1 + 1; x < length; x++)
+                    {
+                        if (priceArray[x] < y1 + k * (x - x1))
+                        {
+                            isBroken = true;
+                            extRange = Math.Max(0, x - x2);
+                            break;
+                        }
+                    }
+
+                    if (isBroken) continue; // 破位线条直接抛弃剪枝
+
                     valleyLines.Add(new AngleTrendLineInfo
                     {
-                        Pivot1Index = v,
-                        Pivot2Index = i,
+                        Pivot1Index = v1,
+                        Pivot2Index = v2,
                         X1 = x1,
                         Y1 = y1,
                         X2 = x2,
@@ -1113,59 +1153,20 @@ namespace WinFormsApp1
                         K = k,
                         NormK = normK,
                         IsPeak = false,
-                        Line_Age = Math.Abs((length - 1) - x2)
+                        Keep = true,
+                        Line_Age = (length - 1) - x2,
+                        Line_Extension_Range = extRange
                     });
                 }
             }
 
             var allCandidates = peakLines.Concat(valleyLines).ToList();
-            var allPivots = peakIndices.Select(p => (X: (double)p, Y: rawData[(nextIndex + p) % length]))
-                .Concat(valleyIndices.Select(v => (X: (double)v, Y: rawData[(nextIndex + v) % length]))).ToList();
+            var allPivots = peakIndices.Select(p => (X: (double)p, Y: priceArray[p]))
+                .Concat(valleyIndices.Select(v => (X: (double)v, Y: priceArray[v]))).ToList();
 
-            // 3. 执行【穿透破位校验】：从 X1 锚点起，任何 K 线价格穿透趋势线均直接彻底销毁删除
+            // 3. 极速附加触碰次数统计 (0.25% 容差)
             foreach (var line in allCandidates)
             {
-                int startX = (int)Math.Max(0, line.X1);
-                bool brokeOut = false;
-
-                for (int x = startX + 1; x < length; x++)
-                {
-                    double price = rawData[(nextIndex + x) % length];
-                    double lineY = line.GetY(x);
-
-                    // 校验锚点之间或延伸过程中是否被 K 线实体/影线穿过
-                    if (line.IsPeak && price > lineY)
-                    {
-                        line.IsBroken = true;
-                        line.Keep = false;
-                        line.Line_Extension_Range = Math.Max(0, x - line.X2);
-                        brokeOut = true;
-                        break;
-                    }
-                    else if (!line.IsPeak && price < lineY)
-                    {
-                        line.IsBroken = true;
-                        line.Keep = false;
-                        line.Line_Extension_Range = Math.Max(0, x - line.X2);
-                        brokeOut = true;
-                        break;
-                    }
-                }
-
-                if (!brokeOut)
-                {
-                    line.IsBroken = false;
-                    line.Line_Extension_Range = (length - 1) - line.X2;
-                }
-
-                // 一旦被穿过，立即彻底丢弃不予保留
-                if (line.IsBroken)
-                {
-                    line.Keep = false;
-                    continue;
-                }
-
-                // 统计 0.25% 允许波动偏差内的附加触碰点位 (0.0025)
                 foreach (var pivot in allPivots)
                 {
                     if (Math.Abs(pivot.X - line.X1) < 1e-3 || Math.Abs(pivot.X - line.X2) < 1e-3) continue;
@@ -1173,24 +1174,12 @@ namespace WinFormsApp1
                     double expectedY = line.GetY(pivot.X);
                     double relDiff = Math.Abs(pivot.Y - expectedY) / Math.Max(Math.Abs(pivot.Y), 1.0);
 
-                    // 允许 0.25% 的上下波动偏差
                     if (relDiff <= 0.0025)
                     {
                         line.TouchCount++;
                     }
                 }
-
-                // 只要由 2 个或以上极值点构成且未破位即保留该趋势线
-                if (line.TouchCount >= 2)
-                {
-                    line.Keep = true;
-                }
             }
-
-            // 彻底从集合中物理删除销毁被穿越/破位 (IsBroken || !Keep) 的趋势线
-            peakLines.RemoveAll(d => d.IsBroken || !d.Keep);
-            valleyLines.RemoveAll(u => u.IsBroken || !u.Keep);
-            allCandidates.RemoveAll(c => c.IsBroken || !c.Keep);
 
             // 4. 有效趋势线统计与最新标识
             var validPeakLines = peakLines.Where(d => !d.IsBroken && d.Keep).ToList();
@@ -1353,16 +1342,21 @@ namespace WinFormsApp1
                     _ => (byte)160
                 };
 
-                if (lineData.IsPeak)
+                if (lineData.IsParallelClusterValid)
+                {
+                    line.LineStyle.Color = ScottPlot.Colors.Black.WithAlpha(alpha / 255.0f);
+                    line.LineStyle.Width = 1.8f;
+                }
+                else if (lineData.IsPeak)
                 {
                     line.LineStyle.Color = ScottPlot.Colors.Red.WithAlpha(alpha / 255.0f);
+                    line.LineStyle.Width = lineWidth;
                 }
                 else
                 {
                     line.LineStyle.Color = ScottPlot.Colors.Green.WithAlpha(alpha / 255.0f);
+                    line.LineStyle.Width = lineWidth;
                 }
-
-                line.LineStyle.Width = lineWidth;
                 line.LineStyle.Pattern = LinePattern.Solid;
                 _currentOverlayPlottables.Add(line);
             }
