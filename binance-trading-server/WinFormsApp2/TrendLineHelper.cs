@@ -87,17 +87,62 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 根据枢轴高低点列表自动匹配生成所有相对高点阻力趋势线与相对低点支撑趋势线
+        /// 检查趋势线是否在 [x1 + 1, klines.Length - 1] 区间内被任意 K 线穿透破位
+        /// 高点阻力趋势线: 若任意 K 线的 HighPrice > TrendLinePrice(x)，则算作向上穿透破位；
+        /// 低点支撑趋势线: 若任意 K 线的 LowPrice < TrendLinePrice(x)，则算作向下跌破。
         /// </summary>
-        public static List<TrendLine> GenerateTrendLinesFromPivots(Kline[] klines, List<PivotPoint> pivots)
+        public static bool IsTrendLinePenetrated(Kline[] klines, TrendLine tl)
         {
-            List<TrendLine> trendLines = new List<TrendLine>();
-            if (klines == null || klines.Length == 0 || pivots == null || pivots.Count < 2)
+            if (klines == null || klines.Length == 0) return false;
+
+            int endCheckIndex = klines.Length - 1;
+
+            // 逐根检查从 x1 + 1 到最新 K 线 (包含 x1 与 x2 之间的中间 K 线，以及 x2 之后的后续延伸 K 线)
+            for (int x = tl.X1 + 1; x <= endCheckIndex; x++)
             {
-                return trendLines;
+                // 跳过锚点 x2 本身 (x2 为连线终点)
+                if (x == tl.X2) continue;
+
+                decimal linePrice = tl.GetPriceAt(x);
+                var kline = klines[x];
+
+                if (tl.Type == PivotType.High)
+                {
+                    // 高点阻力线: 只要有 K 线的 HighPrice 超过趋势线价格，即为向上穿透破位
+                    if (kline.HighPrice > linePrice)
+                    {
+                        return true;
+                    }
+                }
+                else if (tl.Type == PivotType.Low)
+                {
+                    // 低点支撑线: 只要有 K 线的 LowPrice 跌破趋势线价格，即为向下跌破
+                    if (kline.LowPrice < linePrice)
+                    {
+                        return true;
+                    }
+                }
             }
 
-            // 提取所有高点 (Pivot Highs) 生成高点阻力趋势线
+            return false;
+        }
+
+        /// <summary>
+        /// 根据枢轴高低点列表自动匹配生成所有未被后续 K 线穿透破位的“有效存活趋势线”
+        /// (若 filterPenetrated 为 true，凡是被后续 K 线穿过/破位的趋势线一律自动剔除删除)
+        /// </summary>
+        public static List<TrendLine> GenerateTrendLinesFromPivots(
+            Kline[] klines,
+            List<PivotPoint> pivots,
+            bool filterPenetrated = true)
+        {
+            List<TrendLine> result = new List<TrendLine>();
+            if (klines == null || klines.Length == 0 || pivots == null || pivots.Count < 2)
+            {
+                return result;
+            }
+
+            // 1. 匹配高点阻力趋势线
             var highPivots = pivots.Where(p => p.Type == PivotType.High).OrderBy(p => p.Index).ToList();
             for (int i = 0; i < highPivots.Count - 1; i++)
             {
@@ -105,11 +150,20 @@ namespace WinFormsApp2
                 {
                     var p1 = highPivots[i];
                     var p2 = highPivots[j];
-                    trendLines.Add(CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.High));
+
+                    var tl = CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.High);
+
+                    // 交互检查: 若被后续 K 线穿透突破，则自动删除剔除
+                    if (filterPenetrated && IsTrendLinePenetrated(klines, tl))
+                    {
+                        continue;
+                    }
+
+                    result.Add(tl);
                 }
             }
 
-            // 提取所有低点 (Pivot Lows) 生成低点支撑趋势线
+            // 2. 匹配低点支撑趋势线
             var lowPivots = pivots.Where(p => p.Type == PivotType.Low).OrderBy(p => p.Index).ToList();
             for (int i = 0; i < lowPivots.Count - 1; i++)
             {
@@ -117,11 +171,20 @@ namespace WinFormsApp2
                 {
                     var p1 = lowPivots[i];
                     var p2 = lowPivots[j];
-                    trendLines.Add(CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.Low));
+
+                    var tl = CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.Low);
+
+                    // 交互检查: 若被后续 K 线穿透跌破，则自动删除剔除
+                    if (filterPenetrated && IsTrendLinePenetrated(klines, tl))
+                    {
+                        continue;
+                    }
+
+                    result.Add(tl);
                 }
             }
 
-            return trendLines;
+            return result;
         }
     }
 }

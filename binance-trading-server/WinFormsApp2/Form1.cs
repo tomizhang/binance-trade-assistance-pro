@@ -223,7 +223,7 @@ namespace WinFormsApp2
                             double[] highYs = highs.Select(p => (double)p.Price).ToArray();
                             var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs, highYs);
                             spHigh.Color = ScottPlot.Colors.Red;
-                            spHigh.MarkerSize = 7;
+                            spHigh.MarkerSize = 3;
                         }
 
                         // 相对低点 (使用 LowPrice，绿色标记)
@@ -234,7 +234,7 @@ namespace WinFormsApp2
                             double[] lowYs = lows.Select(p => (double)p.Price).ToArray();
                             var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs, lowYs);
                             spLow.Color = ScottPlot.Colors.LimeGreen;
-                            spLow.MarkerSize = 7;
+                            spLow.MarkerSize = 3;
                         }
 
                         // C. 计算并在图表上绘制延伸趋势线 (高点阻力线显示淡红 #FF8080，低点支撑线显示淡绿 #80FF80)
@@ -258,7 +258,7 @@ namespace WinFormsApp2
 
                             var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
                             linePlot.Color = tl.Type == PivotType.High ? lightRed : lightGreen;
-                            linePlot.LineWidth = 1.2f;
+                            linePlot.LineWidth = 0.8f;
                         }
                     }
 
@@ -325,11 +325,11 @@ namespace WinFormsApp2
                 int lowCount = pivots.Count(p => p.Type == PivotType.Low);
                 AppendLog($"[Pivot 枢轴计算] 在 1000 根 K 线范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
 
-                var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(displayKlinesSample, pivots);
-                AppendLog($"[TrendLine 趋势线生成] 在 1000 根 K 线范围内生成 {trendLines.Count} 条延伸趋势线 (高点淡红 #FF8080 / 低点淡绿 #80FF80) 已绘制于图表上。示例分析:");
+                var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(displayKlinesSample, pivots, filterPenetrated: true);
+                AppendLog($"[TrendLine 趋势线交互] 已自动删除被后续 K 线穿透破位的趋势线。最终保留未破位有效趋势线 {trendLines.Count} 条 (淡红 #FF8080 / 淡绿 #80FF80) 已绘制于图表。示例分析:");
                 foreach (var tl in trendLines.Take(3))
                 {
-                    AppendLog($"   ├─ [{tl.Type}趋势线] 归一化斜率K: {tl.K:F4}%/bar | line_x1_x2: {tl.LineX1X2} | line_age: {tl.LineAge} | line_extension_range: {tl.LineExtensionRange}");
+                    AppendLog($"   ├─ [未破位{tl.Type}趋势线] 归一化斜率K: {tl.K:F4}%/bar | line_x1_x2: {tl.LineX1X2} | line_age: {tl.LineAge} | line_extension_range: {tl.LineExtensionRange}");
                 }
 
                 // 4. 复位图表并启动回放引擎
@@ -391,12 +391,12 @@ namespace WinFormsApp2
             _chartTitle = $"[{_currentSymbol}] 动态回放中 ({current}/{total}) - {kline.OpenTime:yyyy-MM-dd HH:mm:ss}";
             _needChartRefresh = true;
 
-            EnqueueLog($"[K线帧 {current}/{total}] {kline.OpenTime:yyyy-MM-dd HH:mm:ss} | 开:{kline.OpenPrice} 高:{kline.HighPrice} 低:{kline.LowPrice} 收:{kline.ClosePrice} 量:{kline.Volume}");
+            //EnqueueLog($"[K线帧 {current}/{total}] {kline.OpenTime:yyyy-MM-dd HH:mm:ss} | 开:{kline.OpenPrice} 高:{kline.HighPrice} 低:{kline.LowPrice} 收:{kline.ClosePrice} 量:{kline.Volume}");
         }
 
         private void Replayer_OnTickPushed(Tick tick)
         {
-            EnqueueLog($"   └─ [Tick 细粒度推送] {tick.Time:HH:mm:ss.fff} | 成交价:{tick.LastPrice} 成交量:{tick.Volume}");
+            //EnqueueLog($"   └─ [Tick 细粒度推送] {tick.Time:HH:mm:ss.fff} | 成交价:{tick.LastPrice} 成交量:{tick.Volume}");
         }
 
         private void Replayer_OnPlaybackCompleted()
