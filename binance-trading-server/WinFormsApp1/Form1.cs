@@ -63,6 +63,12 @@ namespace WinFormsApp1
         private bool _isRewinding = false;
         private readonly TrendlineStrategyEngine _strategyEngine = new();
 
+        // 重构回放引擎数据指针与集合 (对齐 Python 回测与 Tick 无失真回放引擎)
+        private List<BinanceFuturesKlineItem> _allFetchedKlines = new();
+        private List<BinanceFuturesAggTradeItem> _allFetchedTrades = new();
+        private int _replayKlineIndex = 0;
+        private int _replayTradeIndex = 0;
+
         
 
         public Form1()
@@ -152,114 +158,84 @@ namespace WinFormsApp1
 
             AppendLog("系统就绪：请选择币种与周期后点击【获取币种历史数据】（支持在按钮上滚动鼠标滚轮触发单步步进/回退）", Color.DimGray);
 
-            // 4. 定时器 1：根据选择的播放速度倍速，从 ConcurrentQueue 队列中消费 K 线数据并接入 ScottPlot
-            AddNewDataTimer.Interval = 100; // 20ms 默认
+            // 4. 重构无失真回放引擎 (对齐 Python 双重循环：K 线主帧步进 + 帧内 Tick 真实串行响应)
+            AddNewDataTimer.Interval = 50;
             AddNewDataTimer.Tick += (s, e) =>
             {
-                // 核心增加【逐笔 Tick 数据回放模式】支持
-                if (!_isRewinding && chkTickReplay != null && chkTickReplay.Checked && !_tickQueue.IsEmpty)
+                if (_isRewinding || _allFetchedKlines.Count == 0 || _replayKlineIndex >= _allFetchedKlines.Count) return;
+
+                int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
+                int targetInterval = speedIndex switch
                 {
-                    int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
-                    int batchSize = speedIndex switch
-                    {
-                        0 => 1,
-                        1 => 1,
-                        2 => 1,
-                        3 => 1,
-                        4 => 1,
-                        5 => _tickQueue.Count,
-                        _ => 1
-                    };
+                    0 => 150,
+                    1 => 80,
+                    2 => 30,
+                    3 => 15,
+                    _ => 10
+                };
+                if (AddNewDataTimer.Interval != targetInterval) AddNewDataTimer.Interval = targetInterval;
 
-                    List<double> tickPrices = new();
-                    List<double> tickVolumes = new();
+                // 1. 提取当前主帧 K 线数据
+                var currentKline = _allFetchedKlines[_replayKlineIndex];
+                _historyKlines.Add(currentKline);
+                Streamer1.Add((double)currentKline.Close);
 
-                    for (int i = 0; i < batchSize && _tickQueue.TryDequeue(out var tick); i++)
-                    {
-                        tickPrices.Add(tick.Price);
-                        tickVolumes.Add(tick.Quantity);
-                        _historyTicks.Add(tick);
+                // 2. 触发 K 线层级的趋势线分析与策略评估
+                PerformTrendlineAnalysisAndEvaluation();
 
-                        // 逐笔 Tick 动态更新或生成 K 线
-                        if (_historyKlines.Count == 0)
-                        {
-                            _historyKlines.Add(new BinanceFuturesKlineItem
-                            {
-                                OpenTimeMs = tick.TradeTimeMs,
-                                CloseTimeMs = tick.TradeTimeMs,
-                                Open = (decimal)tick.Price,
-                                High = (decimal)tick.Price,
-                                Low = (decimal)tick.Price,
-                                Close = (decimal)tick.Price,
-                                Volume = (decimal)tick.Quantity
-                            });
-                        }
-                        else
-                        {
-                            var currentKline = _historyKlines[^1];
-                            currentKline.Close = (decimal)tick.Price;
-                            if ((decimal)tick.Price > currentKline.High) currentKline.High = (decimal)tick.Price;
-                            if ((decimal)tick.Price < currentKline.Low) currentKline.Low = (decimal)tick.Price;
-                            currentKline.Volume += (decimal)tick.Quantity;
-                        }
-                    }
-
-                    if (tickPrices.Count > 0)
-                    {
-                        Streamer1.AddRange(tickPrices);
-                        //StreamerVolume.AddRange(tickVolumes);
-                        PerformTrendlineAnalysisAndEvaluation();
-                    }
-                    return;
+                // 3. 帧内 Tick/影线拟合无失真回放 (如存在 Tick 明细则按真实时间戳推进；无 Tick 明细则按 Open->High/Low->Close 拟合)
+                long klineIntervalMs = 60000;
+                string intervalStr = cmbInterval.SelectedItem?.ToString() ?? "15m";
+                if (FuturesKlineIntervalExtensions.TryParseInterval(intervalStr, out var intervalEnum))
+                {
+                    klineIntervalMs = (long)intervalEnum.ToTimeSpan().TotalMilliseconds;
                 }
 
-                if (!_isRewinding && !_klineQueue.IsEmpty)
+                if (_allFetchedTrades.Count > 0)
                 {
-                    int speedIndex = cmbPlaySpeed.SelectedIndex >= 0 ? cmbPlaySpeed.SelectedIndex : 1;
-
-                    // 动态调整定时器间隔 (0.5x=35ms, 1.0x=20ms, 2.0x=15ms, 5.0x/10.0x/全速=10ms)
-                    int targetInterval = speedIndex switch
+                    while (_replayTradeIndex < _allFetchedTrades.Count)
                     {
-                        0 => 150,
-                        1 => 100,
-                        2 => 50,
-                        _ => 10
-                    };
-                    if (AddNewDataTimer.Interval != targetInterval)
-                    {
-                        AddNewDataTimer.Interval = targetInterval;
-                    }
-
-                    // 动态计算每次提取的 BatchSize 批量大小
-                    int batchSize = speedIndex switch
-                    {
-                        0 => 1,                
-                        1 => 1,                
-                        2 => 1,                
-                        3 => 1,                
-                        4 => 1,                
-                        5 => 1,
-                        _ => 1
-                    };
-
-                    List<double> valuesToAdd = new();
-                    List<double> volumesToAdd = new();
-                    for (int i = 0; i < batchSize && _klineQueue.TryDequeue(out var kline); i++)
-                    {
-                        valuesToAdd.Add((double)kline.Close);
-                        volumesToAdd.Add((double)kline.Volume);
-                        _historyKlines.Add(kline);
-                    }
-
-                    if (valuesToAdd.Count > 0)
-                    {
-                        Streamer1.AddRange(valuesToAdd);
-                        //StreamerVolume.AddRange(volumesToAdd);
-                        
-                        // 核心架构优化：高低点位计算、趋势线运算与策略评测彻底放在数据 Tick 中完成 (计算与 UI 彻底解耦)
-                        PerformTrendlineAnalysisAndEvaluation();
+                        var trade = _allFetchedTrades[_replayTradeIndex];
+                        if (trade.TradeTimeMs - currentKline.OpenTimeMs > klineIntervalMs)
+                        {
+                            break; // 超过当前 K 线时间窗口，留待下一根 K 线回放
+                        }
+                        if (trade.TradeTimeMs >= currentKline.OpenTimeMs)
+                        {
+                            _historyTicks.Add(trade);
+                            int latestKlineIndex = _historyKlines.Count - 1;
+                            // 精准驱动 Tick 层级的实时价格止盈/止损与触碰评估
+                            _strategyEngine.Evaluate(latestKlineIndex, trade.Price, _cachedActiveRedCount, _cachedActiveGreenCount);
+                        }
+                        _replayTradeIndex++;
                     }
                 }
+                else
+                {
+                    // 标准 K 线模式：模拟帧内 4 笔关键插针价格 (Open -> High/Low -> Close)，消除跳帧失真
+                    double openP = (double)currentKline.Open;
+                    double highP = (double)currentKline.High;
+                    double lowP = (double)currentKline.Low;
+                    double closeP = (double)currentKline.Close;
+                    int latestKlineIndex = _historyKlines.Count - 1;
+
+                    if (closeP >= openP)
+                    {
+                        _strategyEngine.Evaluate(latestKlineIndex, openP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                        _strategyEngine.Evaluate(latestKlineIndex, lowP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                        _strategyEngine.Evaluate(latestKlineIndex, highP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                        _strategyEngine.Evaluate(latestKlineIndex, closeP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                    }
+                    else
+                    {
+                        _strategyEngine.Evaluate(latestKlineIndex, openP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                        _strategyEngine.Evaluate(latestKlineIndex, highP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                        _strategyEngine.Evaluate(latestKlineIndex, lowP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                        _strategyEngine.Evaluate(latestKlineIndex, closeP, _cachedActiveRedCount, _cachedActiveGreenCount);
+                    }
+                }
+
+                _replayKlineIndex++;
             };
 
             // 5. 定时器 2：UI 渲染刷新 (UI 仅负责轻量级画布刷新，计算与 Overlay 图层生成已在数据 Tick 原子完成)
@@ -659,6 +635,11 @@ namespace WinFormsApp1
                         .OrderBy(k => k.OpenTimeMs)
                         .ToList();
 
+                    _allFetchedKlines = sortedPriorityKlines;
+                    _allFetchedTrades = rawTicks.OrderBy(t => t.TradeTimeMs).ToList();
+                    _replayKlineIndex = 0;
+                    _replayTradeIndex = 0;
+
                     foreach (var kline in sortedPriorityKlines)
                     {
                         _klineQueue.Enqueue(kline);
@@ -682,6 +663,10 @@ namespace WinFormsApp1
                         .OrderBy(k => k.OpenTimeMs)
                         .ToList();
 
+                    _allFetchedKlines = sortedKlines;
+                    _replayKlineIndex = 0;
+                    _replayTradeIndex = 0;
+
                     foreach (var kline in sortedKlines)
                     {
                         _klineQueue.Enqueue(kline);
@@ -689,7 +674,7 @@ namespace WinFormsApp1
                     }
 
                     int fetchedCount = sortedKlines.Count;
-                    AppendLog($"[KLINE FETCH OK] 成功载入 [{symbol}] {fetchedCount} 条标准 K 线并排队播放", Color.Blue, true);
+                    AppendLog($"[KLINE FETCH OK] 成功载入 [{symbol}] {fetchedCount} 条标准 K 线并注入无失真回放引擎！", Color.Blue, true);
                 }
             }
             catch (OperationCanceledException)
@@ -1026,7 +1011,7 @@ namespace WinFormsApp1
                 _highsCache.AsSpan(0, length),
                 _lowsCache.AsSpan(0, length),
                 peaksBuffer,
-                valleysBuffer,reversalBars:3, fractalArm:3
+                valleysBuffer,reversalBars:2, fractalArm:2
             );
 
             _peaksBuffer = peaksBuffer.Where(x=>x.IsFractalConfirmed).Select(x => x.Index).ToList();
