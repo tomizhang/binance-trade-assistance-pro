@@ -15,6 +15,7 @@ namespace WinFormsApp2
         private readonly List<Kline> _replayKlines = new List<Kline>();
         private readonly ConcurrentQueue<string> _logBufferQueue = new ConcurrentQueue<string>();
         private readonly System.Windows.Forms.Timer _uiRenderTimer = new System.Windows.Forms.Timer();
+        private UserSettings _userSettings = new UserSettings();
 
         private string _currentSymbol = "BTCUSDT";
         private bool _needChartRefresh = false;
@@ -27,11 +28,12 @@ namespace WinFormsApp2
             InitReplayer();
             InitUiTimer();
             InitializePlot();
-            AppendLog("系统初始化完成。准备就绪。");
+            AppendLog("系统初始化完成。自动加载历史参数配置成功。");
         }
 
         private void InitControls()
         {
+            // 1. 初始化下拉选项
             cmbKlineInterval.Items.Clear();
             cmbKlineInterval.Items.Add(new { Text = "1分钟 (OneMinute)", Value = KlineInterval.OneMinute });
             cmbKlineInterval.Items.Add(new { Text = "15分钟 (FifteenMinutes)", Value = KlineInterval.FifteenMinutes });
@@ -39,10 +41,78 @@ namespace WinFormsApp2
             cmbKlineInterval.Items.Add(new { Text = "1天 (OneDay)", Value = KlineInterval.OneDay });
             cmbKlineInterval.DisplayMember = "Text";
             cmbKlineInterval.ValueMember = "Value";
-            cmbKlineInterval.SelectedIndex = 0; // 默认 1分钟
 
-            dtpStartDate.Value = DateTime.Today.AddDays(-1);
-            dtpEndDate.Value = DateTime.Today;
+            // 2. 读取并应用持久化的用户右侧参数设置
+            _userSettings = UserSettings.Load();
+
+            txtSymbol.Text = string.IsNullOrWhiteSpace(_userSettings.Symbol) ? "BTCUSDT" : _userSettings.Symbol;
+
+            int matchedIndex = 0;
+            for (int i = 0; i < cmbKlineInterval.Items.Count; i++)
+            {
+                dynamic item = cmbKlineInterval.Items[i];
+                if ((KlineInterval)item.Value == _userSettings.KlineInterval)
+                {
+                    matchedIndex = i;
+                    break;
+                }
+            }
+            cmbKlineInterval.SelectedIndex = matchedIndex;
+
+            if (_userSettings.StartDate > DateTime.MinValue && _userSettings.StartDate < DateTime.MaxValue)
+            {
+                dtpStartDate.Value = _userSettings.StartDate;
+            }
+            else
+            {
+                dtpStartDate.Value = DateTime.Today.AddDays(-1);
+            }
+
+            if (_userSettings.EndDate > DateTime.MinValue && _userSettings.EndDate < DateTime.MaxValue)
+            {
+                dtpEndDate.Value = _userSettings.EndDate;
+            }
+            else
+            {
+                dtpEndDate.Value = DateTime.Today;
+            }
+
+            numInterval.Value = Math.Max(numInterval.Minimum, Math.Min(numInterval.Maximum, _userSettings.PlaybackIntervalMs));
+            chkEnableTickPush.Checked = _userSettings.EnableTickPush;
+
+            // 3. 绑定参数控件变动自动保存逻辑
+            txtSymbol.TextChanged += (s, e) => SaveCurrentSettings();
+            cmbKlineInterval.SelectedIndexChanged += (s, e) => SaveCurrentSettings();
+            dtpStartDate.ValueChanged += (s, e) => SaveCurrentSettings();
+            dtpEndDate.ValueChanged += (s, e) => SaveCurrentSettings();
+            numInterval.ValueChanged += (s, e) => SaveCurrentSettings();
+            chkEnableTickPush.CheckedChanged += (s, e) => SaveCurrentSettings();
+            FormClosing += (s, e) => SaveCurrentSettings();
+        }
+
+        /// <summary>
+        /// 将用户在右侧控制面板修改的参数即时保存到本地 JSON 配置文件
+        /// </summary>
+        private void SaveCurrentSettings()
+        {
+            try
+            {
+                _userSettings.Symbol = txtSymbol.Text.Trim();
+                if (cmbKlineInterval.SelectedItem != null)
+                {
+                    dynamic selectedIntervalObj = cmbKlineInterval.SelectedItem;
+                    _userSettings.KlineInterval = (KlineInterval)selectedIntervalObj.Value;
+                }
+                _userSettings.StartDate = dtpStartDate.Value.Date;
+                _userSettings.EndDate = dtpEndDate.Value.Date;
+                _userSettings.PlaybackIntervalMs = (int)numInterval.Value;
+                _userSettings.EnableTickPush = chkEnableTickPush.Checked;
+                _userSettings.Save();
+            }
+            catch
+            {
+                // 忽略配置保存时的偶发异常
+            }
         }
 
         private void InitReplayer()
@@ -153,7 +223,7 @@ namespace WinFormsApp2
                             double[] highYs = highs.Select(p => (double)p.Price).ToArray();
                             var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs, highYs);
                             spHigh.Color = ScottPlot.Colors.Red;
-                            spHigh.MarkerSize = 3;
+                            spHigh.MarkerSize = 7;
                         }
 
                         // 相对低点 (使用 LowPrice，绿色标记)
@@ -164,7 +234,7 @@ namespace WinFormsApp2
                             double[] lowYs = lows.Select(p => (double)p.Price).ToArray();
                             var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs, lowYs);
                             spLow.Color = ScottPlot.Colors.LimeGreen;
-                            spLow.MarkerSize = 3;
+                            spLow.MarkerSize = 7;
                         }
 
                         // C. 计算并在图表上绘制延伸趋势线 (高点阻力线显示淡红 #FF8080，低点支撑线显示淡绿 #80FF80)
@@ -188,7 +258,7 @@ namespace WinFormsApp2
 
                             var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
                             linePlot.Color = tl.Type == PivotType.High ? lightRed : lightGreen;
-                            linePlot.LineWidth = 0.8f;
+                            linePlot.LineWidth = 1.2f;
                         }
                     }
 
@@ -199,6 +269,8 @@ namespace WinFormsApp2
 
         private async void btnStart_Click(object sender, EventArgs e)
         {
+            SaveCurrentSettings(); // 点击开始回放时主动同步持久化设置
+
             _currentSymbol = txtSymbol.Text.Trim();
             if (string.IsNullOrEmpty(_currentSymbol))
             {
