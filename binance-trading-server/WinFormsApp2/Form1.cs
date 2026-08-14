@@ -12,7 +12,7 @@ namespace WinFormsApp2
     public partial class Form1 : Form
     {
         private readonly MarketReplayer _replayer = new MarketReplayer();
-        private readonly List<double> _replayPrices = new List<double>();
+        private readonly List<Kline> _replayKlines = new List<Kline>();
         private readonly ConcurrentQueue<string> _logBufferQueue = new ConcurrentQueue<string>();
         private readonly System.Windows.Forms.Timer _uiRenderTimer = new System.Windows.Forms.Timer();
 
@@ -48,14 +48,13 @@ namespace WinFormsApp2
         private void InitReplayer()
         {
             _replayer.OnKlinePushed += Replayer_OnKlinePushed;
-            //_replayer.OnTickPushed += Replayer_OnTickPushed;
+            _replayer.OnTickPushed += Replayer_OnTickPushed;
             _replayer.OnPlaybackCompleted += Replayer_OnPlaybackCompleted;
             _replayer.OnLog += msg => EnqueueLog($"[回放引擎] {msg}");
         }
 
         private void InitUiTimer()
         {
-            // 每 100ms 批量合并数据渲染至 UI 线程 (抗高频刷新，彻底解决 UI 界面卡死问题)
             _uiRenderTimer.Interval = 100;
             _uiRenderTimer.Tick += UiRenderTimer_Tick;
             _uiRenderTimer.Start();
@@ -64,6 +63,8 @@ namespace WinFormsApp2
         private void InitializePlot()
         {
             double[] ys = ScottPlot.Generate.Sin(50);
+            formsPlot1.Plot.Clear();
+            formsPlot1.Plot.Grid.IsVisible = false; // 隐藏网格线
             formsPlot1.Plot.Add.Signal(ys);
             formsPlot1.Plot.Title("实时行情 / 数据回放 (ScottPlot 5)");
             formsPlot1.Plot.XLabel("序列 (Frame)");
@@ -87,7 +88,7 @@ namespace WinFormsApp2
 
         private void UiRenderTimer_Tick(object sender, EventArgs e)
         {
-            // 1. 批量渲染日志文本 (避免高频 Invoke 卡死消息循环)
+            // 1. 批量渲染日志文本
             if (!_logBufferQueue.IsEmpty)
             {
                 StringBuilder sb = new StringBuilder();
@@ -102,7 +103,6 @@ namespace WinFormsApp2
                 {
                     rtbLog.AppendText(sb.ToString());
 
-                    // 控制 RichTextBox 最大字符长度，防止超大字符串导致 WinForms 原生文本框卡顿
                     if (rtbLog.TextLength > 300000)
                     {
                         rtbLog.Text = rtbLog.Text.Substring(rtbLog.TextLength - 100000);
@@ -113,21 +113,55 @@ namespace WinFormsApp2
                 }
             }
 
-            // 2. 批量渲染 ScottPlot 图表
+            // 2. 批量渲染 ScottPlot 图表及相对高低点
             if (_needChartRefresh)
             {
                 _needChartRefresh = false;
-                double[] currentArray;
-                lock (_replayPrices)
+                Kline[] klineArray;
+                lock (_replayKlines)
                 {
-                    currentArray = _replayPrices.ToArray();
+                    klineArray = _replayKlines.ToArray();
                 }
 
-                if (currentArray.Length > 0)
+                if (klineArray.Length > 0)
                 {
+                    double[] currentPrices = klineArray.Select(k => (double)k.ClosePrice).ToArray();
+
                     formsPlot1.Plot.Clear();
-                    formsPlot1.Plot.Add.Signal(currentArray);
+                    formsPlot1.Plot.Grid.IsVisible = false; // 隐藏/关闭图表网格线
+
+                    // 绘制价格主曲线
+                    formsPlot1.Plot.Add.Signal(currentPrices);
                     formsPlot1.Plot.Title(_chartTitle);
+
+                    // 计算并渲染相对高点 (红色) 与相对低点 (绿色)
+                    if (klineArray.Length >= 5)
+                    {
+                        var pivots = PivotHelper.CalculatePivotPoints(klineArray, leftBars: 2, rightBars: 2);
+
+                        // 相对高点 (使用 HighPrice，红色标记)
+                        var highs = pivots.Where(p => p.Type == PivotType.High).ToList();
+                        if (highs.Count > 0)
+                        {
+                            double[] highXs = highs.Select(p => (double)p.Index).ToArray();
+                            double[] highYs = highs.Select(p => (double)p.Price).ToArray();
+                            var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs, highYs);
+                            spHigh.Color = ScottPlot.Colors.Red;
+                            spHigh.MarkerSize = 3;
+                        }
+
+                        // 相对低点 (使用 LowPrice，绿色标记)
+                        var lows = pivots.Where(p => p.Type == PivotType.Low).ToList();
+                        if (lows.Count > 0)
+                        {
+                            double[] lowXs = lows.Select(p => (double)p.Index).ToArray();
+                            double[] lowYs = lows.Select(p => (double)p.Price).ToArray();
+                            var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs, lowYs);
+                            spLow.Color = ScottPlot.Colors.LimeGreen;
+                            spLow.MarkerSize = 3;
+                        }
+                    }
+
                     formsPlot1.Refresh();
                 }
             }
@@ -182,13 +216,20 @@ namespace WinFormsApp2
                     return;
                 }
 
-                // 3. 复位图表并启动回放引擎
-                lock (_replayPrices)
+                // 3. 使用 PivotHelper 分析相对高点与相对低点
+                var pivots = PivotHelper.CalculatePivotPoints(klines, leftBars: 2, rightBars: 2);
+                int highCount = pivots.Count(p => p.Type == PivotType.High);
+                int lowCount = pivots.Count(p => p.Type == PivotType.Low);
+                AppendLog($"[Pivot 枢轴计算] 相对高点 (HighPrice, 红色): {highCount} 个，相对低点 (LowPrice, 绿色): {lowCount} 个。");
+
+                // 4. 复位图表并启动回放引擎
+                lock (_replayKlines)
                 {
-                    _replayPrices.Clear();
+                    _replayKlines.Clear();
                 }
 
                 formsPlot1.Plot.Clear();
+                formsPlot1.Plot.Grid.IsVisible = false; // 隐藏网格
                 formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (共 {klines.Length} 帧)");
                 formsPlot1.Refresh();
 
@@ -228,19 +269,19 @@ namespace WinFormsApp2
             AppendLog("日志已清空。");
         }
 
-        #region 回放事件响应 (无锁入队，彻底消除 UI 界面卡死)
+        #region 回放事件响应 (无锁入队，无卡顿渲染)
 
         private void Replayer_OnKlinePushed(Kline kline, int current, int total)
         {
-            lock (_replayPrices)
+            lock (_replayKlines)
             {
-                _replayPrices.Add((double)kline.ClosePrice);
+                _replayKlines.Add(kline);
             }
 
             _chartTitle = $"[{_currentSymbol}] 动态回放中 ({current}/{total}) - {kline.OpenTime:yyyy-MM-dd HH:mm:ss}";
             _needChartRefresh = true;
 
-            //EnqueueLog($"[K线帧 {current}/{total}] {kline.OpenTime:yyyy-MM-dd HH:mm:ss} | 开:{kline.OpenPrice} 高:{kline.HighPrice} 低:{kline.LowPrice} 收:{kline.ClosePrice} 量:{kline.Volume}");
+            EnqueueLog($"[K线帧 {current}/{total}] {kline.OpenTime:yyyy-MM-dd HH:mm:ss} | 开:{kline.OpenPrice} 高:{kline.HighPrice} 低:{kline.LowPrice} 收:{kline.ClosePrice} 量:{kline.Volume}");
         }
 
         private void Replayer_OnTickPushed(Tick tick)
