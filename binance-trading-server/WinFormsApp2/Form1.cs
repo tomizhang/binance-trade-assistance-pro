@@ -91,7 +91,25 @@ namespace WinFormsApp2
             chkEnableTickPush.CheckedChanged += (s, e) => SaveCurrentSettings();
             chkAutoFitPrice.CheckedChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
             chkHighlightHighVolume.CheckedChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
+            btnStepForward.MouseWheel += StepButton_MouseWheel;
+            btnStepBackward.MouseWheel += StepButton_MouseWheel;
             FormClosing += (s, e) => SaveCurrentSettings();
+        }
+
+        private void StepButton_MouseWheel(object sender, MouseEventArgs e)
+        {
+            if (_replayer == null) return;
+
+            if (e.Delta > 0)
+            {
+                // 向上滚动滚轮 -> 单步向前 (Step Forward)
+                _replayer.StepForward();
+            }
+            else if (e.Delta < 0)
+            {
+                // 向下滚动滚轮 -> 单步向后 (Step Backward)
+                _replayer.StepBackward();
+            }
         }
 
         private void SaveCurrentSettings()
@@ -143,34 +161,7 @@ namespace WinFormsApp2
             formsPlot1.Plot.Title("实时行情 / 数据回放 (ScottPlot 5)");
             formsPlot1.Plot.XLabel("序列 (Frame)");
             formsPlot1.Plot.YLabel("价格 (Price)");
-            formsPlot1.MouseWheel += FormsPlot1_MouseWheel;
-            formsPlot1.MouseEnter += (s, e) => formsPlot1.Focus();
             formsPlot1.Refresh();
-        }
-
-        protected override void OnMouseWheel(MouseEventArgs e)
-        {
-            base.OnMouseWheel(e);
-            HandleStepWheel(e.Delta);
-        }
-
-        private void FormsPlot1_MouseWheel(object sender, MouseEventArgs e)
-        {
-            HandleStepWheel(e.Delta);
-        }
-
-        private void HandleStepWheel(int delta)
-        {
-            // 鼠标滚轮向上 (delta > 0): 单步向前 ►
-            // 鼠标滚轮向下 (delta < 0): 单步向后 ◄
-            if (delta > 0)
-            {
-                _replayer.StepForward();
-            }
-            else if (delta < 0)
-            {
-                _replayer.StepBackward();
-            }
         }
 
         /// <summary>
@@ -244,7 +235,7 @@ namespace WinFormsApp2
                     // B. 在最多 500 根 K 线范围内计算并标注相对高低点与延长趋势线 (跨度为 3)
                     if (klineArray.Length >= 7)
                     {
-                        var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 3, rightBars: 3);
+                        var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 2, rightBars: 2);
 
                         // 相对高点 (使用 HighPrice，红色标记)
                         var highs = pivots.Where(p => p.Type == PivotType.High).ToList();
@@ -397,7 +388,7 @@ namespace WinFormsApp2
 
                 // 3. 使用 PivotHelper (跨度=3) 与 TrendLineHelper 分析 UI 展示窗口 (默认 500 根) 范围内的高低点与延伸趋势线
                 var displayKlinesSample = klines.Length > 500 ? klines.Skip(klines.Length - 500).ToArray() : klines;
-                var pivots = PivotHelper.CalculatePeaksCombinedFast(displayKlinesSample, leftBars: 3, rightBars: 3);
+                var pivots = PivotHelper.CalculatePeaksCombinedFast(displayKlinesSample, leftBars: 2, rightBars: 2);
                 int highCount = pivots.Count(p => p.Type == PivotType.High);
                 int lowCount = pivots.Count(p => p.Type == PivotType.Low);
                 AppendLog($"[Pivot 枢轴计算] 在 500 根 K 线 UI 展示范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
