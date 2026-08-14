@@ -255,7 +255,7 @@ namespace WinFormsApp2
             // 
             numInterval.Location = new Point(16, 248);
             numInterval.Maximum = new decimal(new int[] { 60000, 0, 0, 0 });
-            numInterval.Minimum = new decimal(new int[] { 50, 0, 0, 0 });
+            numInterval.Minimum = new decimal(new int[] { 10, 0, 0, 0 });
             numInterval.Name = "numInterval";
             numInterval.Size = new Size(248, 23);
             numInterval.TabIndex = 9;

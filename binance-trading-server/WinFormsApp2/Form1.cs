@@ -184,7 +184,7 @@ namespace WinFormsApp2
                 }
             }
 
-            // 2. 批量渲染 ScottPlot 图表、枢轴高低点及延长趋势线 (限制最多展示最新 1000 根 K 线)
+            // 2. 批量渲染 ScottPlot 图表、枢轴高低点及延长趋势线 (UI 界面默认渲染展示最新 500 根 K 线，后台完整数据队列保持不变)
             if (_needChartRefresh)
             {
                 _needChartRefresh = false;
@@ -196,8 +196,8 @@ namespace WinFormsApp2
 
                 if (fullArray.Length > 0)
                 {
-                    // 限制图表最多展示最新 1000 根 K 线信息
-                    const int maxDisplayKlines = 1000;
+                    // UI 界面默认限制展示最新 500 根 K 线信息 (后台处理数据队列保持全量不变)
+                    const int maxDisplayKlines = 500;
                     Kline[] klineArray = fullArray.Length > maxDisplayKlines 
                         ? fullArray.Skip(fullArray.Length - maxDisplayKlines).ToArray() 
                         : fullArray;
@@ -211,7 +211,7 @@ namespace WinFormsApp2
                     formsPlot1.Plot.Add.Signal(currentPrices);
                     formsPlot1.Plot.Title(_chartTitle);
 
-                    // B. 在最多 1000 根 K 线范围内计算并标注相对高低点与延长趋势线 (跨度为 3)
+                    // B. 在最多 500 根 K 线范围内计算并标注相对高低点与延长趋势线 (跨度为 3)
                     if (klineArray.Length >= 7)
                     {
                         var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 3, rightBars: 3);
@@ -310,7 +310,7 @@ namespace WinFormsApp2
 
             try
             {
-                // 1. 多线程并发装载 K线数据
+                // 1. 多线程并发装载 K线数据 (后台完整处理数据队列保持全量)
                 Kline[] klines = await MultiThreadDownloader.DownloadKlinesParallelAsync(
                     _currentSymbol,
                     interval,
@@ -338,12 +338,12 @@ namespace WinFormsApp2
                     return;
                 }
 
-                // 3. 使用 PivotHelper (跨度=3) 与 TrendLineHelper 分析 1000 根范围内的高低点与延伸趋势线
-                var displayKlinesSample = klines.Length > 1000 ? klines.Skip(klines.Length - 1000).ToArray() : klines;
+                // 3. 使用 PivotHelper (跨度=3) 与 TrendLineHelper 分析 UI 展示窗口 (默认 500 根) 范围内的高低点与延伸趋势线
+                var displayKlinesSample = klines.Length > 500 ? klines.Skip(klines.Length - 500).ToArray() : klines;
                 var pivots = PivotHelper.CalculatePeaksCombinedFast(displayKlinesSample, leftBars: 3, rightBars: 3);
                 int highCount = pivots.Count(p => p.Type == PivotType.High);
                 int lowCount = pivots.Count(p => p.Type == PivotType.Low);
-                AppendLog($"[Pivot 枢轴计算] 在 1000 根 K 线范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
+                AppendLog($"[Pivot 枢轴计算] 在 500 根 K 线 UI 展示范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
 
                 var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(displayKlinesSample, pivots, filterPenetrated: true);
                 AppendLog($"[TrendLine 趋势线交互] 已自动删除被后续 K 线穿透破位的趋势线。最终保留未破位有效趋势线 {trendLines.Count} 条 (淡红 #FF8080 / 淡绿 #80FF80) 已绘制于图表。示例分析:");
@@ -360,10 +360,10 @@ namespace WinFormsApp2
 
                 formsPlot1.Plot.Clear();
                 formsPlot1.Plot.Grid.IsVisible = false; // 隐藏网格
-                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (共 {klines.Length} 帧，图表显示最新1000帧)");
+                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (后台总数据量 {klines.Length} 帧，UI 视图默认显示最新500帧)");
                 formsPlot1.Refresh();
 
-                AppendLog($"▶ 启动行情回放 | K线总帧数: {klines.Length} | 图表限制展示: 最新 1000 帧 | Tick推送: {(enableTickPush ? "开启" : "关闭")} | 步进间隔: {intervalMs}ms");
+                AppendLog($"▶ 启动行情回放 | 后台全量 K线总帧数: {klines.Length} | UI 界面限制展示: 最新 500 帧 | Tick推送: {(enableTickPush ? "开启" : "关闭")} | 步进间隔: {intervalMs}ms");
                 _replayer.StartPlayback(klines, ticks, enableTickPush, intervalMs);
             }
             catch (Exception ex)
