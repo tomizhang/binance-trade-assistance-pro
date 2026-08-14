@@ -128,13 +128,16 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 根据枢轴高低点列表自动匹配生成所有未被后续 K 线穿透破位的“有效存活趋势线”
-        /// (若 filterPenetrated 为 true，凡是被后续 K 线穿过/破位的趋势线一律自动剔除删除)
+        /// 根据枢轴高低点列表自动匹配生成所有满足保留条件且未被后续 K 线穿透破位的“有效存活趋势线”
+        /// (保留条件: LineAge >= minLineAge(4), LineX1X2 >= minLineX1X2(40), LineExtensionRange >= minLineExtensionRange(4))
         /// </summary>
         public static List<TrendLine> GenerateTrendLinesFromPivots(
             Kline[] klines,
             List<PivotPoint> pivots,
-            bool filterPenetrated = true)
+            bool filterPenetrated = true,
+            int minLineAge = 4,
+            int minLineX1X2 = 40,
+            int minLineExtensionRange = 4)
         {
             List<TrendLine> result = new List<TrendLine>();
             if (klines == null || klines.Length == 0 || pivots == null || pivots.Count < 2)
@@ -153,7 +156,13 @@ namespace WinFormsApp2
 
                     var tl = CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.High);
 
-                    // 交互检查: 若被后续 K 线穿透突破，则自动删除剔除
+                    // 三重硬性保留条件校验: LineAge >= 4, LineX1X2 >= 40, LineExtensionRange >= 4
+                    if (tl.LineAge < minLineAge || tl.LineX1X2 < minLineX1X2 || tl.LineExtensionRange < minLineExtensionRange)
+                    {
+                        continue;
+                    }
+
+                    // 交互穿透破位校验
                     if (filterPenetrated && IsTrendLinePenetrated(klines, tl))
                     {
                         continue;
@@ -174,7 +183,13 @@ namespace WinFormsApp2
 
                     var tl = CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.Low);
 
-                    // 交互检查: 若被后续 K 线穿透跌破，则自动删除剔除
+                    // 三重硬性保留条件校验: LineAge >= 4, LineX1X2 >= 40, LineExtensionRange >= 4
+                    if (tl.LineAge < minLineAge || tl.LineX1X2 < minLineX1X2 || tl.LineExtensionRange < minLineExtensionRange)
+                    {
+                        continue;
+                    }
+
+                    // 交互穿透破位校验
                     if (filterPenetrated && IsTrendLinePenetrated(klines, tl))
                     {
                         continue;

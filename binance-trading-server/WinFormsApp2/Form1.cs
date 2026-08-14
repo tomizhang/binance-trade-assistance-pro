@@ -81,7 +81,11 @@ namespace WinFormsApp2
             chkEnableTickPush.Checked = _userSettings.EnableTickPush;
             chkAutoFitPrice.Checked = _userSettings.AutoFitPrice;
 
-            // 3. 绑定参数控件变动自动保存逻辑
+            numMinLineAge.Value = Math.Max(numMinLineAge.Minimum, Math.Min(numMinLineAge.Maximum, _userSettings.MinLineAge));
+            numMinLineX1X2.Value = Math.Max(numMinLineX1X2.Minimum, Math.Min(numMinLineX1X2.Maximum, _userSettings.MinLineX1X2));
+            numMinLineExtensionRange.Value = Math.Max(numMinLineExtensionRange.Minimum, Math.Min(numMinLineExtensionRange.Maximum, _userSettings.MinLineExtensionRange));
+
+            // 3. 绑定参数控件变动自动保存与即时图表重绘逻辑
             txtSymbol.TextChanged += (s, e) => SaveCurrentSettings();
             cmbKlineInterval.SelectedIndexChanged += (s, e) => SaveCurrentSettings();
             dtpStartDate.ValueChanged += (s, e) => SaveCurrentSettings();
@@ -89,6 +93,9 @@ namespace WinFormsApp2
             numInterval.ValueChanged += (s, e) => SaveCurrentSettings();
             chkEnableTickPush.CheckedChanged += (s, e) => SaveCurrentSettings();
             chkAutoFitPrice.CheckedChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
+            numMinLineAge.ValueChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
+            numMinLineX1X2.ValueChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
+            numMinLineExtensionRange.ValueChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
             FormClosing += (s, e) => SaveCurrentSettings();
         }
 
@@ -107,6 +114,9 @@ namespace WinFormsApp2
                 _userSettings.PlaybackIntervalMs = (int)numInterval.Value;
                 _userSettings.EnableTickPush = chkEnableTickPush.Checked;
                 _userSettings.AutoFitPrice = chkAutoFitPrice.Checked;
+                _userSettings.MinLineAge = (int)numMinLineAge.Value;
+                _userSettings.MinLineX1X2 = (int)numMinLineX1X2.Value;
+                _userSettings.MinLineExtensionRange = (int)numMinLineExtensionRange.Value;
                 _userSettings.Save();
             }
             catch
@@ -238,8 +248,14 @@ namespace WinFormsApp2
                             spLow.MarkerSize = 3;
                         }
 
-                        // C. 计算并在图表上绘制延伸趋势线 (高点阻力线显示淡红 #FF8080，低点支撑线显示淡绿 #80FF80)
-                        var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(klineArray, pivots, filterPenetrated: true);
+                        // C. 计算并在图表上绘制过滤后的延伸趋势线 (三重保留条件: LineAge>=4, LineX1X2>=40, LineExtRange>=4)
+                        var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(
+                            klineArray,
+                            pivots,
+                            filterPenetrated: true,
+                            minLineAge: (int)numMinLineAge.Value,
+                            minLineX1X2: (int)numMinLineX1X2.Value,
+                            minLineExtensionRange: (int)numMinLineExtensionRange.Value);
                         
                         var displayLines = trendLines
                             .OrderByDescending(tl => tl.LineX1X2)
@@ -301,6 +317,10 @@ namespace WinFormsApp2
             int intervalMs = (int)numInterval.Value;
             bool enableTickPush = chkEnableTickPush.Checked;
 
+            int minLineAge = (int)numMinLineAge.Value;
+            int minLineX1X2 = (int)numMinLineX1X2.Value;
+            int minLineExtRange = (int)numMinLineExtensionRange.Value;
+
             AppendLog($"准备加载 [{_currentSymbol}] [{interval}] 日期范围 [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}] 数据以启动回放...");
 
             try
@@ -333,18 +353,25 @@ namespace WinFormsApp2
                     return;
                 }
 
-                // 3. 使用 PivotHelper (跨度=3) 与 TrendLineHelper 分析 1000 根范围内的高低点与延伸趋势线
+                // 3. 使用 PivotHelper (跨度=3) 与 TrendLineHelper (三重保留条件: LineAge>=4, LineX1X2>=40, LineExtRange>=4) 分析趋势线
                 var displayKlinesSample = klines.Length > 1000 ? klines.Skip(klines.Length - 1000).ToArray() : klines;
                 var pivots = PivotHelper.CalculatePivotPoints(displayKlinesSample, leftBars: 3, rightBars: 3);
                 int highCount = pivots.Count(p => p.Type == PivotType.High);
                 int lowCount = pivots.Count(p => p.Type == PivotType.Low);
                 AppendLog($"[Pivot 枢轴计算] 在 1000 根 K 线范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
 
-                var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(displayKlinesSample, pivots, filterPenetrated: true);
-                AppendLog($"[TrendLine 趋势线交互] 已自动删除被后续 K 线穿透破位的趋势线。最终保留未破位有效趋势线 {trendLines.Count} 条 (淡红 #FF8080 / 淡绿 #80FF80) 已绘制于图表。示例分析:");
+                var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(
+                    displayKlinesSample,
+                    pivots,
+                    filterPenetrated: true,
+                    minLineAge: minLineAge,
+                    minLineX1X2: minLineX1X2,
+                    minLineExtensionRange: minLineExtRange);
+
+                AppendLog($"[TrendLine 趋势线筛选] 保留条件 (LineAge>={minLineAge}, LineX1X2>={minLineX1X2}, LineExtRange>={minLineExtRange}) 过滤完成: 最终精选保留 {trendLines.Count} 条趋势线已绘制于图表。示例分析:");
                 foreach (var tl in trendLines.Take(3))
                 {
-                    AppendLog($"   ├─ [未破位{tl.Type}趋势线] 归一化斜率K: {tl.K:F4}%/bar | line_x1_x2: {tl.LineX1X2} | line_age: {tl.LineAge} | line_extension_range: {tl.LineExtensionRange}");
+                    AppendLog($"   ├─ [精选{tl.Type}趋势线] 归一化斜率K: {tl.K:F4}%/bar | line_x1_x2: {tl.LineX1X2} | line_age: {tl.LineAge} | line_extension_range: {tl.LineExtensionRange}");
                 }
 
                 // 4. 复位图表并启动回放引擎

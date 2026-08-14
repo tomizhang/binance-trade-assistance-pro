@@ -17,6 +17,9 @@ namespace WinFormsApp2
         public int PlaybackIntervalMs { get; set; } = 500;
         public bool EnableTickPush { get; set; } = true;
         public bool AutoFitPrice { get; set; } = true;
+        public int MinLineAge { get; set; } = 4;
+        public int MinLineX1X2 { get; set; } = 40;
+        public int MinLineExtensionRange { get; set; } = 4;
 
         private static string SettingsDirectory => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
