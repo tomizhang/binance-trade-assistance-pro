@@ -143,7 +143,34 @@ namespace WinFormsApp2
             formsPlot1.Plot.Title("实时行情 / 数据回放 (ScottPlot 5)");
             formsPlot1.Plot.XLabel("序列 (Frame)");
             formsPlot1.Plot.YLabel("价格 (Price)");
+            formsPlot1.MouseWheel += FormsPlot1_MouseWheel;
+            formsPlot1.MouseEnter += (s, e) => formsPlot1.Focus();
             formsPlot1.Refresh();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            HandleStepWheel(e.Delta);
+        }
+
+        private void FormsPlot1_MouseWheel(object sender, MouseEventArgs e)
+        {
+            HandleStepWheel(e.Delta);
+        }
+
+        private void HandleStepWheel(int delta)
+        {
+            // 鼠标滚轮向上 (delta > 0): 单步向前 ►
+            // 鼠标滚轮向下 (delta < 0): 单步向后 ◄
+            if (delta > 0)
+            {
+                _replayer.StepForward();
+            }
+            else if (delta < 0)
+            {
+                _replayer.StepBackward();
+            }
         }
 
         /// <summary>
