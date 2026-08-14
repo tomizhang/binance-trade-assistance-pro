@@ -214,7 +214,7 @@ namespace WinFormsApp2
                     // B. 在最多 1000 根 K 线范围内计算并标注相对高低点与延长趋势线 (跨度为 3)
                     if (klineArray.Length >= 7)
                     {
-                        var pivots = PivotHelper.CalculatePivotPoints(klineArray, leftBars: 3, rightBars: 3);
+                        var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 3, rightBars: 3);
 
                         // 相对高点 (使用 HighPrice，红色标记)
                         var highs = pivots.Where(p => p.Type == PivotType.High).ToList();
@@ -340,7 +340,7 @@ namespace WinFormsApp2
 
                 // 3. 使用 PivotHelper (跨度=3) 与 TrendLineHelper 分析 1000 根范围内的高低点与延伸趋势线
                 var displayKlinesSample = klines.Length > 1000 ? klines.Skip(klines.Length - 1000).ToArray() : klines;
-                var pivots = PivotHelper.CalculatePivotPoints(displayKlinesSample, leftBars: 3, rightBars: 3);
+                var pivots = PivotHelper.CalculatePeaksCombinedFast(displayKlinesSample, leftBars: 3, rightBars: 3);
                 int highCount = pivots.Count(p => p.Type == PivotType.High);
                 int lowCount = pivots.Count(p => p.Type == PivotType.Low);
                 AppendLog($"[Pivot 枢轴计算] 在 1000 根 K 线范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");

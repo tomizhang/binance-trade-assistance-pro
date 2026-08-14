@@ -45,14 +45,11 @@ namespace WinFormsApp2
     public static class PivotHelper
     {
         /// <summary>
-        /// 计算 K 线数组中的所有相对高点与相对低点 (枢轴点)
+        /// 低延迟单次内存全扫合并算法 (CalculatePeaksCombinedFast)：
+        /// 并行并发计算高点与低点，带双重早退剪枝，实现极低延迟高频性能。
         /// 规则：相对高点使用 HighPrice，相对低点使用 LowPrice
         /// </summary>
-        /// <param name="klines">K线数据数组</param>
-        /// <param name="leftBars">左侧比较的 K 线数量 (默认 2)</param>
-        /// <param name="rightBars">右侧比较的 K 线数量 (默认 2)</param>
-        /// <returns>枢轴高低点列表</returns>
-        public static List<PivotPoint> CalculatePivotPoints(Kline[] klines, int leftBars = 3, int rightBars = 3)
+        public static List<PivotPoint> CalculatePeaksCombinedFast(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
             List<PivotPoint> pivots = new List<PivotPoint>();
             if (klines == null || klines.Length < (leftBars + rightBars + 1))
@@ -60,30 +57,45 @@ namespace WinFormsApp2
                 return pivots;
             }
 
-            for (int i = leftBars; i < klines.Length - rightBars; i++)
-            {
-                // 1. 计算相对高点 (Pivot High) - 必须使用 HighPrice
-                bool isHigh = true;
-                decimal currentHigh = klines[i].HighPrice;
+            int count = klines.Length;
+            int maxIdx = count - rightBars;
 
+            for (int i = leftBars; i < maxIdx; i++)
+            {
+                decimal currHigh = klines[i].HighPrice;
+                decimal currLow = klines[i].LowPrice;
+
+                bool isHigh = true;
+                bool isLow = true;
+
+                // 左侧窗口扫描带双重早退剪枝
                 for (int l = i - leftBars; l < i; l++)
                 {
-                    if (klines[l].HighPrice >= currentHigh)
+                    if (isHigh && klines[l].HighPrice >= currHigh)
                     {
                         isHigh = false;
-                        break;
                     }
+                    if (isLow && klines[l].LowPrice <= currLow)
+                    {
+                        isLow = false;
+                    }
+                    if (!isHigh && !isLow) break;
                 }
 
-                if (isHigh)
+                // 右侧窗口扫描带双重早退剪枝
+                if (isHigh || isLow)
                 {
                     for (int r = i + 1; r <= i + rightBars; r++)
                     {
-                        if (klines[r].HighPrice > currentHigh)
+                        if (isHigh && klines[r].HighPrice > currHigh)
                         {
                             isHigh = false;
-                            break;
                         }
+                        if (isLow && klines[r].LowPrice < currLow)
+                        {
+                            isLow = false;
+                        }
+                        if (!isHigh && !isLow) break;
                     }
                 }
 
@@ -93,43 +105,18 @@ namespace WinFormsApp2
                     {
                         Index = i,
                         Time = klines[i].OpenTime,
-                        Price = currentHigh, // 相对高点使用 HighPrice
+                        Price = currHigh, // 相对高点使用 HighPrice
                         Type = PivotType.High
                     });
                 }
 
-                // 2. 计算相对低点 (Pivot Low) - 必须使用 LowPrice
-                bool isLow = true;
-                decimal currentLow = klines[i].LowPrice;
-
-                for (int l = i - leftBars; l < i; l++)
-                {
-                    if (klines[l].LowPrice <= currentLow)
-                    {
-                        isLow = false;
-                        break;
-                    }
-                }
-
-                if (isLow)
-                {
-                    for (int r = i + 1; r <= i + rightBars; r++)
-                    {
-                        if (klines[r].LowPrice < currentLow)
-                        {
-                            isLow = false;
-                            break;
-                        }
-                    }
-                }
-
                 if (isLow)
                 {
                     pivots.Add(new PivotPoint
                     {
                         Index = i,
                         Time = klines[i].OpenTime,
-                        Price = currentLow, // 相对低点使用 LowPrice
+                        Price = currLow, // 相对低点使用 LowPrice
                         Type = PivotType.Low
                     });
                 }
@@ -139,11 +126,19 @@ namespace WinFormsApp2
         }
 
         /// <summary>
+        /// 计算 K 线数组中的所有相对高点与相对低点 (调用低延迟算法 CalculatePeaksCombinedFast)
+        /// </summary>
+        public static List<PivotPoint> CalculatePivotPoints(Kline[] klines, int leftBars = 3, int rightBars = 3)
+        {
+            return CalculatePeaksCombinedFast(klines, leftBars, rightBars);
+        }
+
+        /// <summary>
         /// 只提取相对高点 (Pivot High)，价格使用 HighPrice
         /// </summary>
         public static List<PivotPoint> GetPivotHighs(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
-            return CalculatePivotPoints(klines, leftBars, rightBars)
+            return CalculatePeaksCombinedFast(klines, leftBars, rightBars)
                 .Where(p => p.Type == PivotType.High)
                 .ToList();
         }
@@ -153,7 +148,7 @@ namespace WinFormsApp2
         /// </summary>
         public static List<PivotPoint> GetPivotLows(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
-            return CalculatePivotPoints(klines, leftBars, rightBars)
+            return CalculatePeaksCombinedFast(klines, leftBars, rightBars)
                 .Where(p => p.Type == PivotType.Low)
                 .ToList();
         }
