@@ -37,8 +37,10 @@ namespace WinFormsApp2
             grpActions = new GroupBox();
             btnClearLog = new Button();
             btnStop = new Button();
+            btnPause = new Button();
             btnStart = new Button();
             grpParams = new GroupBox();
+            chkEnableTickPush = new CheckBox();
             dtpEndDate = new DateTimePicker();
             lblEndDate = new Label();
             dtpStartDate = new DateTimePicker();
@@ -49,7 +51,6 @@ namespace WinFormsApp2
             lblInterval = new Label();
             txtSymbol = new TextBox();
             lblSymbol = new Label();
-
             ((System.ComponentModel.ISupportInitialize)splitContainerMain).BeginInit();
             splitContainerMain.Panel1.SuspendLayout();
             splitContainerMain.Panel2.SuspendLayout();
@@ -102,7 +103,6 @@ namespace WinFormsApp2
             // 
             // formsPlot1
             // 
-            formsPlot1.DisplayScale = 1F;
             formsPlot1.Dock = DockStyle.Fill;
             formsPlot1.Location = new Point(0, 0);
             formsPlot1.Name = "formsPlot1";
@@ -126,7 +126,7 @@ namespace WinFormsApp2
             rtbLog.BackColor = Color.FromArgb(30, 30, 30);
             rtbLog.BorderStyle = BorderStyle.None;
             rtbLog.Dock = DockStyle.Fill;
-            rtbLog.Font = new Font("Consolas", 9.75F, FontStyle.Regular, GraphicsUnit.Point);
+            rtbLog.Font = new Font("Consolas", 9.75F);
             rtbLog.ForeColor = Color.Gainsboro;
             rtbLog.Location = new Point(8, 24);
             rtbLog.Name = "rtbLog";
@@ -146,8 +146,63 @@ namespace WinFormsApp2
             panelRight.Size = new Size(300, 761);
             panelRight.TabIndex = 0;
             // 
+            // grpActions
+            // 
+            grpActions.Controls.Add(btnClearLog);
+            grpActions.Controls.Add(btnStop);
+            grpActions.Controls.Add(btnPause);
+            grpActions.Controls.Add(btnStart);
+            grpActions.Dock = DockStyle.Top;
+            grpActions.Location = new Point(8, 343);
+            grpActions.Name = "grpActions";
+            grpActions.Size = new Size(284, 215);
+            grpActions.TabIndex = 1;
+            grpActions.TabStop = false;
+            grpActions.Text = "控制面板 (Controls)";
+            // 
+            // btnClearLog
+            // 
+            btnClearLog.Location = new Point(16, 165);
+            btnClearLog.Name = "btnClearLog";
+            btnClearLog.Size = new Size(248, 35);
+            btnClearLog.TabIndex = 3;
+            btnClearLog.Text = "清空日志 (Clear Log)";
+            btnClearLog.UseVisualStyleBackColor = true;
+            btnClearLog.Click += btnClearLog_Click;
+            // 
+            // btnStop
+            // 
+            btnStop.Location = new Point(16, 120);
+            btnStop.Name = "btnStop";
+            btnStop.Size = new Size(248, 35);
+            btnStop.TabIndex = 2;
+            btnStop.Text = "停止回放 (Stop)";
+            btnStop.UseVisualStyleBackColor = true;
+            btnStop.Click += btnStop_Click;
+            // 
+            // btnPause
+            // 
+            btnPause.Location = new Point(16, 75);
+            btnPause.Name = "btnPause";
+            btnPause.Size = new Size(248, 35);
+            btnPause.TabIndex = 1;
+            btnPause.Text = "暂停/恢复 (Pause/Resume)";
+            btnPause.UseVisualStyleBackColor = true;
+            btnPause.Click += btnPause_Click;
+            // 
+            // btnStart
+            // 
+            btnStart.Location = new Point(16, 30);
+            btnStart.Name = "btnStart";
+            btnStart.Size = new Size(248, 35);
+            btnStart.TabIndex = 0;
+            btnStart.Text = "开始回放 (Play)";
+            btnStart.UseVisualStyleBackColor = true;
+            btnStart.Click += btnStart_Click;
+            // 
             // grpParams
             // 
+            grpParams.Controls.Add(chkEnableTickPush);
             grpParams.Controls.Add(dtpEndDate);
             grpParams.Controls.Add(lblEndDate);
             grpParams.Controls.Add(dtpStartDate);
@@ -161,72 +216,22 @@ namespace WinFormsApp2
             grpParams.Dock = DockStyle.Top;
             grpParams.Location = new Point(8, 8);
             grpParams.Name = "grpParams";
-            grpParams.Size = new Size(284, 340);
+            grpParams.Size = new Size(284, 335);
             grpParams.TabIndex = 0;
             grpParams.TabStop = false;
             grpParams.Text = "参数设置 (Parameters)";
             // 
-            // lblSymbol
+            // chkEnableTickPush
             // 
-            lblSymbol.AutoSize = true;
-            lblSymbol.Location = new Point(16, 25);
-            lblSymbol.Name = "lblSymbol";
-            lblSymbol.Size = new Size(51, 17);
-            lblSymbol.TabIndex = 0;
-            lblSymbol.Text = "交易对:";
-            // 
-            // txtSymbol
-            // 
-            txtSymbol.Location = new Point(16, 45);
-            txtSymbol.Name = "txtSymbol";
-            txtSymbol.Size = new Size(248, 23);
-            txtSymbol.TabIndex = 1;
-            txtSymbol.Text = "BTCUSDT";
-            // 
-            // lblKlineInterval
-            // 
-            lblKlineInterval.AutoSize = true;
-            lblKlineInterval.Location = new Point(16, 75);
-            lblKlineInterval.Name = "lblKlineInterval";
-            lblKlineInterval.Size = new Size(87, 17);
-            lblKlineInterval.TabIndex = 2;
-            lblKlineInterval.Text = "K线周期:";
-            // 
-            // cmbKlineInterval
-            // 
-            cmbKlineInterval.DropDownStyle = ComboBoxStyle.DropDownList;
-            cmbKlineInterval.FormattingEnabled = true;
-            cmbKlineInterval.Location = new Point(16, 95);
-            cmbKlineInterval.Name = "cmbKlineInterval";
-            cmbKlineInterval.Size = new Size(248, 25);
-            cmbKlineInterval.TabIndex = 3;
-            // 
-            // lblStartDate
-            // 
-            lblStartDate.AutoSize = true;
-            lblStartDate.Location = new Point(16, 128);
-            lblStartDate.Name = "lblStartDate";
-            lblStartDate.Size = new Size(116, 17);
-            lblStartDate.TabIndex = 4;
-            lblStartDate.Text = "开始日期 (最小单位: 天):";
-            // 
-            // dtpStartDate
-            // 
-            dtpStartDate.CustomFormat = "yyyy-MM-dd";
-            dtpStartDate.Format = DateTimePickerFormat.Custom;
-            dtpStartDate.Location = new Point(16, 148);
-            dtpStartDate.Name = "dtpStartDate";
-            dtpStartDate.Size = new Size(248, 23);
-            dtpStartDate.TabIndex = 5;
-            // 
-            // lblEndDate
-            // 
-            lblEndDate.AutoSize = true;
-            lblEndDate.Location = new Point(16, 178);
-            lblEndDate.Name = "lblEndDate";
-            lblEndDate.Size = new Size(116, 17);
-            lblEndDate.TabIndex = 6;
-            lblEndDate.Text = "结束日期 (最小单位: 天):";
+            chkEnableTickPush.AutoSize = true;
+            chkEnableTickPush.Checked = true;
+            chkEnableTickPush.CheckState = CheckState.Checked;
+            chkEnableTickPush.Location = new Point(16, 285);
+            chkEnableTickPush.Name = "chkEnableTickPush";
+            chkEnableTickPush.Size = new Size(142, 21);
+            chkEnableTickPush.TabIndex = 10;
+            chkEnableTickPush.Text = "启用 Tick 细粒度推送";
+            chkEnableTickPush.UseVisualStyleBackColor = true;
             // 
             // dtpEndDate
             // 
@@ -237,67 +242,86 @@ namespace WinFormsApp2
             dtpEndDate.Size = new Size(248, 23);
             dtpEndDate.TabIndex = 7;
             // 
-            // lblInterval
+            // lblEndDate
             // 
-            lblInterval.AutoSize = true;
-            lblInterval.Location = new Point(16, 228);
-            lblInterval.Name = "lblInterval";
-            lblInterval.Size = new Size(87, 17);
-            lblInterval.TabIndex = 8;
-            lblInterval.Text = "刷新间隔 (ms):";
+            lblEndDate.AutoSize = true;
+            lblEndDate.Location = new Point(16, 178);
+            lblEndDate.Name = "lblEndDate";
+            lblEndDate.Size = new Size(138, 17);
+            lblEndDate.TabIndex = 6;
+            lblEndDate.Text = "结束日期 (最小单位: 天):";
+            // 
+            // dtpStartDate
+            // 
+            dtpStartDate.CustomFormat = "yyyy-MM-dd";
+            dtpStartDate.Format = DateTimePickerFormat.Custom;
+            dtpStartDate.Location = new Point(16, 148);
+            dtpStartDate.Name = "dtpStartDate";
+            dtpStartDate.Size = new Size(248, 23);
+            dtpStartDate.TabIndex = 5;
+            // 
+            // lblStartDate
+            // 
+            lblStartDate.AutoSize = true;
+            lblStartDate.Location = new Point(16, 128);
+            lblStartDate.Name = "lblStartDate";
+            lblStartDate.Size = new Size(138, 17);
+            lblStartDate.TabIndex = 4;
+            lblStartDate.Text = "开始日期 (最小单位: 天):";
+            // 
+            // cmbKlineInterval
+            // 
+            cmbKlineInterval.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbKlineInterval.FormattingEnabled = true;
+            cmbKlineInterval.Location = new Point(16, 95);
+            cmbKlineInterval.Name = "cmbKlineInterval";
+            cmbKlineInterval.Size = new Size(248, 25);
+            cmbKlineInterval.TabIndex = 3;
+            // 
+            // lblKlineInterval
+            // 
+            lblKlineInterval.AutoSize = true;
+            lblKlineInterval.Location = new Point(16, 75);
+            lblKlineInterval.Name = "lblKlineInterval";
+            lblKlineInterval.Size = new Size(55, 17);
+            lblKlineInterval.TabIndex = 2;
+            lblKlineInterval.Text = "K线周期:";
             // 
             // numInterval
             // 
             numInterval.Location = new Point(16, 248);
             numInterval.Maximum = new decimal(new int[] { 60000, 0, 0, 0 });
-            numInterval.Minimum = new decimal(new int[] { 100, 0, 0, 0 });
+            numInterval.Minimum = new decimal(new int[] { 50, 0, 0, 0 });
             numInterval.Name = "numInterval";
             numInterval.Size = new Size(248, 23);
             numInterval.TabIndex = 9;
-            numInterval.Value = new decimal(new int[] { 1000, 0, 0, 0 });
+            numInterval.Value = new decimal(new int[] { 100, 0, 0, 0 });
             // 
-            // grpActions
+            // lblInterval
             // 
-            grpActions.Controls.Add(btnClearLog);
-            grpActions.Controls.Add(btnStop);
-            grpActions.Controls.Add(btnStart);
-            grpActions.Dock = DockStyle.Top;
-            grpActions.Location = new Point(8, 356);
-            grpActions.Name = "grpActions";
-            grpActions.Size = new Size(284, 170);
-            grpActions.TabIndex = 1;
-            grpActions.TabStop = false;
-            grpActions.Text = "控制面板 (Controls)";
+            lblInterval.AutoSize = true;
+            lblInterval.Location = new Point(16, 228);
+            lblInterval.Name = "lblInterval";
+            lblInterval.Size = new Size(117, 17);
+            lblInterval.TabIndex = 8;
+            lblInterval.Text = "刷新/回放间隔 (ms):";
             // 
-            // btnStart
+            // txtSymbol
             // 
-            btnStart.Location = new Point(16, 30);
-            btnStart.Name = "btnStart";
-            btnStart.Size = new Size(248, 35);
-            btnStart.TabIndex = 0;
-            btnStart.Text = "加载并查看数据 (Start)";
-            btnStart.UseVisualStyleBackColor = true;
-            btnStart.Click += btnStart_Click;
+            txtSymbol.Location = new Point(16, 45);
+            txtSymbol.Name = "txtSymbol";
+            txtSymbol.Size = new Size(248, 23);
+            txtSymbol.TabIndex = 1;
+            txtSymbol.Text = "BTCUSDT";
             // 
-            // btnStop
+            // lblSymbol
             // 
-            btnStop.Location = new Point(16, 75);
-            btnStop.Name = "btnStop";
-            btnStop.Size = new Size(248, 35);
-            btnStop.TabIndex = 1;
-            btnStop.Text = "停止 (Stop)";
-            btnStop.UseVisualStyleBackColor = true;
-            btnStop.Click += btnStop_Click;
-            // 
-            // btnClearLog
-            // 
-            btnClearLog.Location = new Point(16, 120);
-            btnClearLog.Name = "btnClearLog";
-            btnClearLog.Size = new Size(248, 35);
-            btnClearLog.TabIndex = 2;
-            btnClearLog.Text = "清空日志 (Clear Log)";
-            btnClearLog.UseVisualStyleBackColor = true;
-            btnClearLog.Click += btnClearLog_Click;
+            lblSymbol.AutoSize = true;
+            lblSymbol.Location = new Point(16, 25);
+            lblSymbol.Name = "lblSymbol";
+            lblSymbol.Size = new Size(47, 17);
+            lblSymbol.TabIndex = 0;
+            lblSymbol.Text = "交易对:";
             // 
             // Form1
             // 
@@ -345,8 +369,10 @@ namespace WinFormsApp2
         private DateTimePicker dtpEndDate;
         private Label lblInterval;
         private NumericUpDown numInterval;
+        private CheckBox chkEnableTickPush;
         private GroupBox grpActions;
         private Button btnStart;
+        private Button btnPause;
         private Button btnStop;
         private Button btnClearLog;
     }
