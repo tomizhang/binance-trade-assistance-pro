@@ -17,6 +17,7 @@ namespace WinFormsApp2
         public int PlaybackIntervalMs { get; set; } = 500;
         public bool EnableTickPush { get; set; } = true;
         public bool AutoFitPrice { get; set; } = true;
+        public bool HighlightHighVolume { get; set; } = true;
 
         private static string SettingsDirectory => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

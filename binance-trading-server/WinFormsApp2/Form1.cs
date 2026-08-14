@@ -80,6 +80,7 @@ namespace WinFormsApp2
             numInterval.Value = Math.Max(numInterval.Minimum, Math.Min(numInterval.Maximum, _userSettings.PlaybackIntervalMs));
             chkEnableTickPush.Checked = _userSettings.EnableTickPush;
             chkAutoFitPrice.Checked = _userSettings.AutoFitPrice;
+            chkHighlightHighVolume.Checked = _userSettings.HighlightHighVolume;
 
             // 3. 绑定参数控件变动自动保存逻辑
             txtSymbol.TextChanged += (s, e) => SaveCurrentSettings();
@@ -89,6 +90,7 @@ namespace WinFormsApp2
             numInterval.ValueChanged += (s, e) => SaveCurrentSettings();
             chkEnableTickPush.CheckedChanged += (s, e) => SaveCurrentSettings();
             chkAutoFitPrice.CheckedChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
+            chkHighlightHighVolume.CheckedChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
             FormClosing += (s, e) => SaveCurrentSettings();
         }
 
@@ -107,6 +109,7 @@ namespace WinFormsApp2
                 _userSettings.PlaybackIntervalMs = (int)numInterval.Value;
                 _userSettings.EnableTickPush = chkEnableTickPush.Checked;
                 _userSettings.AutoFitPrice = chkAutoFitPrice.Checked;
+                _userSettings.HighlightHighVolume = chkHighlightHighVolume.Checked;
                 _userSettings.Save();
             }
             catch
@@ -238,7 +241,7 @@ namespace WinFormsApp2
                             spLow.MarkerSize = 3;
                         }
 
-                        // C. 计算并在图表上绘制延伸趋势线 (高点阻力线显示淡红 #FF8080，低点支撑线显示淡绿 #80FF80)
+                        // C. 计算并在图表上绘制延伸趋势线 (柔和超淡半透明淡红/淡绿)
                         var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(klineArray, pivots, filterPenetrated: true);
                         
                         // 过滤规则: 若趋势线 X 锚点位不再当前图表中显示，则该趋势线也不再显示
@@ -250,8 +253,9 @@ namespace WinFormsApp2
                         var displayLines = visibleTrendLines
                             .OrderByDescending(tl => tl.LineX1X2);
 
-                        ScottPlot.Color lightRed = ScottPlot.Color.FromHex("#FF8080");   // 淡红
-                        ScottPlot.Color lightGreen = ScottPlot.Color.FromHex("#80FF80"); // 淡绿
+                        // 超淡柔和半透明色调，提升图盘清爽度 (#45 为 alpha 透明度)
+                        ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
+                        ScottPlot.Color extraLightGreen = ScottPlot.Color.FromHex("#4580FF80"); // 超淡柔和绿
 
                         foreach (var tl in displayLines)
                         {
@@ -263,12 +267,38 @@ namespace WinFormsApp2
                             double y2 = (double)tl.GetPriceAt((int)x2);
 
                             var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
-                            linePlot.Color = tl.Type == PivotType.High ? lightRed : lightGreen;
+                            linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
                             linePlot.LineWidth = 0.8f;
                         }
                     }
 
-                    // D. 视口自动缩放/聚焦最新价格附近 (当勾选 chkAutoFitPrice 时)
+                    // D. 高成交量 K 线标记标注 (当勾选 chkHighlightHighVolume 时)
+                    if (chkHighlightHighVolume.Checked && klineArray.Length > 0)
+                    {
+                        double avgVol = (double)klineArray.Average(k => k.Volume);
+                        double thresholdVol = avgVol * 2.0; // 成交量高于当前窗口均值 2 倍定义为高成交量
+
+                        List<double> volXs = new List<double>();
+                        List<double> volYs = new List<double>();
+
+                        for (int i = 0; i < klineArray.Length; i++)
+                        {
+                            if ((double)klineArray[i].Volume >= thresholdVol)
+                            {
+                                volXs.Add(i);
+                                volYs.Add((double)klineArray[i].LowPrice * 0.9985); // 标于 LowPrice 下方
+                            }
+                        }
+
+                        if (volXs.Count > 0)
+                        {
+                            var spVol = formsPlot1.Plot.Add.ScatterPoints(volXs.ToArray(), volYs.ToArray());
+                            spVol.Color = ScottPlot.Colors.Gold; // 金黄色亮点
+                            spVol.MarkerSize = 5;
+                        }
+                    }
+
+                    // E. 视口自动缩放/聚焦最新价格附近 (当勾选 chkAutoFitPrice 时)
                     if (chkAutoFitPrice.Checked && klineArray.Length > 0)
                     {
                         int sampleSize = Math.Min(klineArray.Length, 80);
@@ -346,7 +376,7 @@ namespace WinFormsApp2
                 AppendLog($"[Pivot 枢轴计算] 在 500 根 K 线 UI 展示范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
 
                 var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(displayKlinesSample, pivots, filterPenetrated: true);
-                AppendLog($"[TrendLine 趋势线交互] 已自动删除被后续 K 线穿透破位的趋势线。最终保留未破位有效趋势线 {trendLines.Count} 条 (淡红 #FF8080 / 淡绿 #80FF80) 已绘制于图表。示例分析:");
+                AppendLog($"[TrendLine 趋势线交互] 已自动删除被后续 K 线穿透破位的趋势线。最终保留未破位有效趋势线 {trendLines.Count} 条 (超淡半透明红/绿) 已绘制于图表。示例分析:");
                 foreach (var tl in trendLines.Take(3))
                 {
                     AppendLog($"   ├─ [未破位{tl.Type}趋势线] 归一化斜率K: {tl.K:F4}%/bar | line_x1_x2: {tl.LineX1X2} | line_age: {tl.LineAge} | line_extension_range: {tl.LineExtensionRange}");

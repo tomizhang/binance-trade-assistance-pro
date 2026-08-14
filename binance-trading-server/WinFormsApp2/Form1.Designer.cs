@@ -42,6 +42,7 @@ namespace WinFormsApp2
             btnPause = new Button();
             btnStart = new Button();
             grpParams = new GroupBox();
+            chkHighlightHighVolume = new CheckBox();
             chkAutoFitPrice = new CheckBox();
             chkEnableTickPush = new CheckBox();
             dtpEndDate = new DateTimePicker();
@@ -153,6 +154,7 @@ namespace WinFormsApp2
             // 
             // grpParams
             // 
+            grpParams.Controls.Add(chkHighlightHighVolume);
             grpParams.Controls.Add(chkAutoFitPrice);
             grpParams.Controls.Add(chkEnableTickPush);
             grpParams.Controls.Add(dtpEndDate);
@@ -168,10 +170,22 @@ namespace WinFormsApp2
             grpParams.Dock = DockStyle.Top;
             grpParams.Location = new Point(8, 8);
             grpParams.Name = "grpParams";
-            grpParams.Size = new Size(284, 345);
+            grpParams.Size = new Size(284, 370);
             grpParams.TabIndex = 0;
             grpParams.TabStop = false;
             grpParams.Text = "参数设置 (Parameters)";
+            // 
+            // chkHighlightHighVolume
+            // 
+            chkHighlightHighVolume.AutoSize = true;
+            chkHighlightHighVolume.Checked = true;
+            chkHighlightHighVolume.CheckState = CheckState.Checked;
+            chkHighlightHighVolume.Location = new Point(16, 335);
+            chkHighlightHighVolume.Name = "chkHighlightHighVolume";
+            chkHighlightHighVolume.Size = new Size(165, 21);
+            chkHighlightHighVolume.TabIndex = 12;
+            chkHighlightHighVolume.Text = "标注高成交量 K线";
+            chkHighlightHighVolume.UseVisualStyleBackColor = true;
             // 
             // chkAutoFitPrice
             // 
@@ -255,7 +269,7 @@ namespace WinFormsApp2
             // 
             numInterval.Location = new Point(16, 248);
             numInterval.Maximum = new decimal(new int[] { 60000, 0, 0, 0 });
-            numInterval.Minimum = new decimal(new int[] { 10, 0, 0, 0 });
+            numInterval.Minimum = new decimal(new int[] { 50, 0, 0, 0 });
             numInterval.Name = "numInterval";
             numInterval.Size = new Size(248, 23);
             numInterval.TabIndex = 9;
@@ -296,7 +310,7 @@ namespace WinFormsApp2
             grpActions.Controls.Add(btnPause);
             grpActions.Controls.Add(btnStart);
             grpActions.Dock = DockStyle.Top;
-            grpActions.Location = new Point(8, 353);
+            grpActions.Location = new Point(8, 378);
             grpActions.Name = "grpActions";
             grpActions.Size = new Size(284, 215);
             grpActions.TabIndex = 1;
@@ -411,6 +425,7 @@ namespace WinFormsApp2
         private NumericUpDown numInterval;
         private CheckBox chkEnableTickPush;
         private CheckBox chkAutoFitPrice;
+        private CheckBox chkHighlightHighVolume;
         private GroupBox grpActions;
         private Button btnStart;
         private Button btnPause;
