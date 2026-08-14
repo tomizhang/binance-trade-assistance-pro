@@ -42,12 +42,6 @@ namespace WinFormsApp2
             btnPause = new Button();
             btnStart = new Button();
             grpParams = new GroupBox();
-            numMinLineExtensionRange = new NumericUpDown();
-            lblMinLineExtRange = new Label();
-            numMinLineX1X2 = new NumericUpDown();
-            lblMinLineX1X2 = new Label();
-            numMinLineAge = new NumericUpDown();
-            lblMinLineAge = new Label();
             chkAutoFitPrice = new CheckBox();
             chkEnableTickPush = new CheckBox();
             dtpEndDate = new DateTimePicker();
@@ -73,9 +67,6 @@ namespace WinFormsApp2
             panelRight.SuspendLayout();
             grpActions.SuspendLayout();
             grpParams.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)numMinLineExtensionRange).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numMinLineX1X2).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numMinLineAge).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numInterval).BeginInit();
             SuspendLayout();
             // 
@@ -162,12 +153,6 @@ namespace WinFormsApp2
             // 
             // grpParams
             // 
-            grpParams.Controls.Add(numMinLineExtensionRange);
-            grpParams.Controls.Add(lblMinLineExtRange);
-            grpParams.Controls.Add(numMinLineX1X2);
-            grpParams.Controls.Add(lblMinLineX1X2);
-            grpParams.Controls.Add(numMinLineAge);
-            grpParams.Controls.Add(lblMinLineAge);
             grpParams.Controls.Add(chkAutoFitPrice);
             grpParams.Controls.Add(chkEnableTickPush);
             grpParams.Controls.Add(dtpEndDate);
@@ -183,67 +168,10 @@ namespace WinFormsApp2
             grpParams.Dock = DockStyle.Top;
             grpParams.Location = new Point(8, 8);
             grpParams.Name = "grpParams";
-            grpParams.Size = new Size(284, 395);
+            grpParams.Size = new Size(284, 345);
             grpParams.TabIndex = 0;
             grpParams.TabStop = false;
             grpParams.Text = "参数设置 (Parameters)";
-            // 
-            // lblMinLineAge
-            // 
-            lblMinLineAge.AutoSize = true;
-            lblMinLineAge.Location = new Point(16, 338);
-            lblMinLineAge.Name = "lblMinLineAge";
-            lblMinLineAge.Size = new Size(72, 17);
-            lblMinLineAge.TabIndex = 12;
-            lblMinLineAge.Text = "LineAge >=:";
-            // 
-            // numMinLineAge
-            // 
-            numMinLineAge.Location = new Point(16, 358);
-            numMinLineAge.Maximum = new decimal(new int[] { 1000, 0, 0, 0 });
-            numMinLineAge.Minimum = new decimal(new int[] { 0, 0, 0, 0 });
-            numMinLineAge.Name = "numMinLineAge";
-            numMinLineAge.Size = new Size(75, 23);
-            numMinLineAge.TabIndex = 13;
-            numMinLineAge.Value = new decimal(new int[] { 4, 0, 0, 0 });
-            // 
-            // lblMinLineX1X2
-            // 
-            lblMinLineX1X2.AutoSize = true;
-            lblMinLineX1X2.Location = new Point(100, 338);
-            lblMinLineX1X2.Name = "lblMinLineX1X2";
-            lblMinLineX1X2.Size = new Size(82, 17);
-            lblMinLineX1X2.TabIndex = 14;
-            lblMinLineX1X2.Text = "LineX1X2 >=:";
-            // 
-            // numMinLineX1X2
-            // 
-            numMinLineX1X2.Location = new Point(100, 358);
-            numMinLineX1X2.Maximum = new decimal(new int[] { 1000, 0, 0, 0 });
-            numMinLineX1X2.Minimum = new decimal(new int[] { 0, 0, 0, 0 });
-            numMinLineX1X2.Name = "numMinLineX1X2";
-            numMinLineX1X2.Size = new Size(75, 23);
-            numMinLineX1X2.TabIndex = 15;
-            numMinLineX1X2.Value = new decimal(new int[] { 40, 0, 0, 0 });
-            // 
-            // lblMinLineExtRange
-            // 
-            lblMinLineExtRange.AutoSize = true;
-            lblMinLineExtRange.Location = new Point(184, 338);
-            lblMinLineExtRange.Name = "lblMinLineExtRange";
-            lblMinLineExtRange.Size = new Size(85, 17);
-            lblMinLineExtRange.TabIndex = 16;
-            lblMinLineExtRange.Text = "LineExtRange:";
-            // 
-            // numMinLineExtensionRange
-            // 
-            numMinLineExtensionRange.Location = new Point(184, 358);
-            numMinLineExtensionRange.Maximum = new decimal(new int[] { 1000, 0, 0, 0 });
-            numMinLineExtensionRange.Minimum = new decimal(new int[] { 0, 0, 0, 0 });
-            numMinLineExtensionRange.Name = "numMinLineExtensionRange";
-            numMinLineExtensionRange.Size = new Size(75, 23);
-            numMinLineExtensionRange.TabIndex = 17;
-            numMinLineExtensionRange.Value = new decimal(new int[] { 4, 0, 0, 0 });
             // 
             // chkAutoFitPrice
             // 
@@ -368,7 +296,7 @@ namespace WinFormsApp2
             grpActions.Controls.Add(btnPause);
             grpActions.Controls.Add(btnStart);
             grpActions.Dock = DockStyle.Top;
-            grpActions.Location = new Point(8, 410);
+            grpActions.Location = new Point(8, 353);
             grpActions.Name = "grpActions";
             grpActions.Size = new Size(284, 215);
             grpActions.TabIndex = 1;
@@ -458,9 +386,6 @@ namespace WinFormsApp2
             grpActions.ResumeLayout(false);
             grpParams.ResumeLayout(false);
             grpParams.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)numMinLineExtensionRange).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numMinLineX1X2).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numMinLineAge).EndInit();
             ((System.ComponentModel.ISupportInitialize)numInterval).EndInit();
             ResumeLayout(false);
         }
@@ -486,12 +411,6 @@ namespace WinFormsApp2
         private NumericUpDown numInterval;
         private CheckBox chkEnableTickPush;
         private CheckBox chkAutoFitPrice;
-        private Label lblMinLineAge;
-        private NumericUpDown numMinLineAge;
-        private Label lblMinLineX1X2;
-        private NumericUpDown numMinLineX1X2;
-        private Label lblMinLineExtRange;
-        private NumericUpDown numMinLineExtensionRange;
         private GroupBox grpActions;
         private Button btnStart;
         private Button btnPause;

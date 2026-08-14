@@ -87,28 +87,28 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 检查趋势线是否在 [x1 + 1, klines.Length - 1] 区间内被任意 K 线穿透破位
-        /// 高点阻力趋势线: 若任意 K 线的 HighPrice > TrendLinePrice(x)，则算作向上穿透破位；
-        /// 低点支撑趋势线: 若任意 K 线的 LowPrice < TrendLinePrice(x)，则算作向下跌破。
+        /// 检查趋势线是否被任意 K 线穿透破位 (从 x1 + 1 到最新 K 线，排除 x2 锚点本身)
+        /// 规则：
+        /// - 高点阻力趋势线: 只要有任意 K 线的 HighPrice > TrendLinePrice(x)，说明该 K 线在图面上已向上穿透突破，判定为破位被删除；
+        /// - 低点支撑趋势线: 只要有任意 K 线的 LowPrice < TrendLinePrice(x)，说明该 K 线在图面上已向下跌破穿透，判定为跌破被删除。
         /// </summary>
         public static bool IsTrendLinePenetrated(Kline[] klines, TrendLine tl)
         {
             if (klines == null || klines.Length == 0) return false;
 
-            int endCheckIndex = klines.Length - 1;
+            int totalKlines = klines.Length;
 
-            // 逐根检查从 x1 + 1 到最新 K 线 (包含 x1 与 x2 之间的中间 K 线，以及 x2 之后的后续延伸 K 线)
-            for (int x = tl.X1 + 1; x <= endCheckIndex; x++)
+            // 逐根检查从 x1 + 1 到最新 K 线 (排除锚点 x2 本身)
+            for (int x = tl.X1 + 1; x < totalKlines; x++)
             {
-                // 跳过锚点 x2 本身 (x2 为连线终点)
-                if (x == tl.X2) continue;
+                if (x == tl.X2) continue; // 跳过终点锚点 x2 本身
 
                 decimal linePrice = tl.GetPriceAt(x);
                 var kline = klines[x];
 
                 if (tl.Type == PivotType.High)
                 {
-                    // 高点阻力线: 只要有 K 线的 HighPrice 超过趋势线价格，即为向上穿透破位
+                    // 高点阻力趋势线: 只要 K 线最高价 HighPrice 超过趋势线价格，图面上即为明显向上穿过破位
                     if (kline.HighPrice > linePrice)
                     {
                         return true;
@@ -116,7 +116,7 @@ namespace WinFormsApp2
                 }
                 else if (tl.Type == PivotType.Low)
                 {
-                    // 低点支撑线: 只要有 K 线的 LowPrice 跌破趋势线价格，即为向下跌破
+                    // 低点支撑趋势线: 只要 K 线最低价 LowPrice 跌破趋势线价格，图面上即为明显向下跌破穿透
                     if (kline.LowPrice < linePrice)
                     {
                         return true;
@@ -128,16 +128,13 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 根据枢轴高低点列表自动匹配生成所有满足保留条件且未被后续 K 线穿透破位的“有效存活趋势线”
-        /// (保留条件: LineAge >= minLineAge(4), LineX1X2 >= minLineX1X2(40), LineExtensionRange >= minLineExtensionRange(4))
+        /// 根据枢轴高低点列表自动匹配生成所有未被后续 K 线穿透破位的“有效存活趋势线”
+        /// (若 filterPenetrated 为 true，凡是被 K 线穿过/破位的趋势线一律自动剔除删除)
         /// </summary>
         public static List<TrendLine> GenerateTrendLinesFromPivots(
             Kline[] klines,
             List<PivotPoint> pivots,
-            bool filterPenetrated = true,
-            int minLineAge = 4,
-            int minLineX1X2 = 40,
-            int minLineExtensionRange = 4)
+            bool filterPenetrated = true)
         {
             List<TrendLine> result = new List<TrendLine>();
             if (klines == null || klines.Length == 0 || pivots == null || pivots.Count < 2)
@@ -156,13 +153,7 @@ namespace WinFormsApp2
 
                     var tl = CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.High);
 
-                    // 三重硬性保留条件校验: LineAge >= 4, LineX1X2 >= 40, LineExtensionRange >= 4
-                    if (tl.LineAge < minLineAge || tl.LineX1X2 < minLineX1X2 || tl.LineExtensionRange < minLineExtensionRange)
-                    {
-                        continue;
-                    }
-
-                    // 交互穿透破位校验
+                    // 交互检查: 若被任意 K 线（中间或延伸段）穿透突破，则自动删除剔除
                     if (filterPenetrated && IsTrendLinePenetrated(klines, tl))
                     {
                         continue;
@@ -183,13 +174,7 @@ namespace WinFormsApp2
 
                     var tl = CreateTrendLine(klines, p1.Index, p1.Price, p1.Time, p2.Index, p2.Price, p2.Time, PivotType.Low);
 
-                    // 三重硬性保留条件校验: LineAge >= 4, LineX1X2 >= 40, LineExtensionRange >= 4
-                    if (tl.LineAge < minLineAge || tl.LineX1X2 < minLineX1X2 || tl.LineExtensionRange < minLineExtensionRange)
-                    {
-                        continue;
-                    }
-
-                    // 交互穿透破位校验
+                    // 交互检查: 若被任意 K 线（中间或延伸段）穿透跌破，则自动删除剔除
                     if (filterPenetrated && IsTrendLinePenetrated(klines, tl))
                     {
                         continue;
