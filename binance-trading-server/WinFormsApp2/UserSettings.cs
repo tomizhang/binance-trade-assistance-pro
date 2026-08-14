@@ -16,6 +16,7 @@ namespace WinFormsApp2
         public DateTime EndDate { get; set; } = DateTime.Today;
         public int PlaybackIntervalMs { get; set; } = 500;
         public bool EnableTickPush { get; set; } = true;
+        public bool AutoFitPrice { get; set; } = true;
 
         private static string SettingsDirectory => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

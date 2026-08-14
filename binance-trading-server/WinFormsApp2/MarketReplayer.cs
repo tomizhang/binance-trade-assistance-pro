@@ -14,7 +14,7 @@ namespace WinFormsApp2
     }
 
     /// <summary>
-    /// K线行情回放与可选 Tick 细粒度推送引擎 (纯后台解耦，0 UI 阻塞)
+    /// K线行情回放与可选 Tick 细粒度推送引擎 (支持单步向前/向后，纯后台解耦，0 UI 阻塞)
     /// </summary>
     public class MarketReplayer
     {
@@ -28,6 +28,7 @@ namespace WinFormsApp2
         public int IntervalMs { get; set; } = 500;
 
         public event Action<Kline, int, int>? OnKlinePushed;
+        public event Action<Kline[], int, int>? OnStepBackward;
         public event Action<Tick>? OnTickPushed;
         public event Action? OnPlaybackCompleted;
         public event Action<string>? OnLog;
@@ -94,6 +95,74 @@ namespace WinFormsApp2
             }
         }
 
+        /// <summary>
+        /// 单步向前 / 下一帧 (Step Forward)
+        /// </summary>
+        public void StepForward()
+        {
+            if (_klines == null || _klines.Length == 0) return;
+
+            if (State == ReplayState.Playing)
+            {
+                PausePlayback();
+            }
+            else if (State == ReplayState.Stopped)
+            {
+                State = ReplayState.Paused;
+            }
+
+            if (_currentIndex < _klines.Length)
+            {
+                Kline kline = _klines[_currentIndex];
+
+                if (EnableTickPush && _ticks.Length > 0)
+                {
+                    DateTime klineStart = kline.OpenTime;
+                    DateTime klineEnd = kline.CloseTime > klineStart ? kline.CloseTime : klineStart.AddMinutes(1);
+                    var matchingTicks = _ticks.Where(t => t.Time >= klineStart && t.Time <= klineEnd).ToArray();
+                    foreach (var tick in matchingTicks)
+                    {
+                        OnTickPushed?.Invoke(tick);
+                    }
+                }
+
+                _currentIndex++;
+                OnKlinePushed?.Invoke(kline, _currentIndex, _klines.Length);
+            }
+            else
+            {
+                OnLog?.Invoke("已经处于最后一帧，无法继续单步向前。");
+            }
+        }
+
+        /// <summary>
+        /// 单步向后 / 上一帧 (Step Backward)
+        /// </summary>
+        public void StepBackward()
+        {
+            if (_klines == null || _klines.Length == 0) return;
+
+            if (State == ReplayState.Playing)
+            {
+                PausePlayback();
+            }
+            else if (State == ReplayState.Stopped)
+            {
+                State = ReplayState.Paused;
+            }
+
+            if (_currentIndex > 1)
+            {
+                _currentIndex--;
+                var subKlines = _klines.Take(_currentIndex).ToArray();
+                OnStepBackward?.Invoke(subKlines, _currentIndex, _klines.Length);
+            }
+            else
+            {
+                OnLog?.Invoke("已经处于第一帧，无法继续单步向后。");
+            }
+        }
+
         private async Task ReplayLoopAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested && _currentIndex < _klines.Length)
@@ -123,7 +192,6 @@ namespace WinFormsApp2
 
                         var matchingTicks = _ticks.Where(t => t.Time >= klineStart && t.Time <= klineEnd).ToArray();
                         
-                        // 针对大量 Tick 采用微量间隔分步推送，防止短时间刷屏
                         foreach (var tick in matchingTicks)
                         {
                             if (token.IsCancellationRequested || State == ReplayState.Stopped) break;

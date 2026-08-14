@@ -79,6 +79,7 @@ namespace WinFormsApp2
 
             numInterval.Value = Math.Max(numInterval.Minimum, Math.Min(numInterval.Maximum, _userSettings.PlaybackIntervalMs));
             chkEnableTickPush.Checked = _userSettings.EnableTickPush;
+            chkAutoFitPrice.Checked = _userSettings.AutoFitPrice;
 
             // 3. 绑定参数控件变动自动保存逻辑
             txtSymbol.TextChanged += (s, e) => SaveCurrentSettings();
@@ -87,12 +88,10 @@ namespace WinFormsApp2
             dtpEndDate.ValueChanged += (s, e) => SaveCurrentSettings();
             numInterval.ValueChanged += (s, e) => SaveCurrentSettings();
             chkEnableTickPush.CheckedChanged += (s, e) => SaveCurrentSettings();
+            chkAutoFitPrice.CheckedChanged += (s, e) => { SaveCurrentSettings(); _needChartRefresh = true; };
             FormClosing += (s, e) => SaveCurrentSettings();
         }
 
-        /// <summary>
-        /// 将用户在右侧控制面板修改的参数即时保存到本地 JSON 配置文件
-        /// </summary>
         private void SaveCurrentSettings()
         {
             try
@@ -107,6 +106,7 @@ namespace WinFormsApp2
                 _userSettings.EndDate = dtpEndDate.Value.Date;
                 _userSettings.PlaybackIntervalMs = (int)numInterval.Value;
                 _userSettings.EnableTickPush = chkEnableTickPush.Checked;
+                _userSettings.AutoFitPrice = chkAutoFitPrice.Checked;
                 _userSettings.Save();
             }
             catch
@@ -118,6 +118,7 @@ namespace WinFormsApp2
         private void InitReplayer()
         {
             _replayer.OnKlinePushed += Replayer_OnKlinePushed;
+            _replayer.OnStepBackward += Replayer_OnStepBackward;
             _replayer.OnTickPushed += Replayer_OnTickPushed;
             _replayer.OnPlaybackCompleted += Replayer_OnPlaybackCompleted;
             _replayer.OnLog += msg => EnqueueLog($"[回放引擎] {msg}");
@@ -238,7 +239,7 @@ namespace WinFormsApp2
                         }
 
                         // C. 计算并在图表上绘制延伸趋势线 (高点阻力线显示淡红 #FF8080，低点支撑线显示淡绿 #80FF80)
-                        var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(klineArray, pivots);
+                        var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(klineArray, pivots, filterPenetrated: true);
                         
                         var displayLines = trendLines
                             .OrderByDescending(tl => tl.LineX1X2)
@@ -260,6 +261,20 @@ namespace WinFormsApp2
                             linePlot.Color = tl.Type == PivotType.High ? lightRed : lightGreen;
                             linePlot.LineWidth = 0.8f;
                         }
+                    }
+
+                    // D. 视口自动缩放/聚焦最新价格附近 (当勾选 chkAutoFitPrice 时)
+                    if (chkAutoFitPrice.Checked && klineArray.Length > 0)
+                    {
+                        int sampleSize = Math.Min(klineArray.Length, 80);
+                        var recentKlines = klineArray.Skip(klineArray.Length - sampleSize).ToArray();
+                        double minPrice = (double)recentKlines.Min(k => k.LowPrice);
+                        double maxPrice = (double)recentKlines.Max(k => k.HighPrice);
+                        double margin = (maxPrice - minPrice) * 0.12;
+                        if (margin == 0) margin = maxPrice * 0.01;
+                        if (margin == 0) margin = 1.0;
+
+                        formsPlot1.Plot.Axes.SetLimitsY(minPrice - margin, maxPrice + margin);
                     }
 
                     formsPlot1.Refresh();
@@ -368,6 +383,16 @@ namespace WinFormsApp2
             }
         }
 
+        private void btnStepForward_Click(object sender, EventArgs e)
+        {
+            _replayer.StepForward();
+        }
+
+        private void btnStepBackward_Click(object sender, EventArgs e)
+        {
+            _replayer.StepBackward();
+        }
+
         private void btnStop_Click(object sender, EventArgs e)
         {
             _replayer.StopPlayback();
@@ -391,12 +416,30 @@ namespace WinFormsApp2
             _chartTitle = $"[{_currentSymbol}] 动态回放中 ({current}/{total}) - {kline.OpenTime:yyyy-MM-dd HH:mm:ss}";
             _needChartRefresh = true;
 
-            //EnqueueLog($"[K线帧 {current}/{total}] {kline.OpenTime:yyyy-MM-dd HH:mm:ss} | 开:{kline.OpenPrice} 高:{kline.HighPrice} 低:{kline.LowPrice} 收:{kline.ClosePrice} 量:{kline.Volume}");
+            // 已注释高频 K线回放推流日志，避免刷屏
+            // EnqueueLog($"[► 单步/播放向前 {current}/{total}] {kline.OpenTime:yyyy-MM-dd HH:mm:ss} | 开:{kline.OpenPrice} 高:{kline.HighPrice} 低:{kline.LowPrice} 收:{kline.ClosePrice} 量:{kline.Volume}");
+        }
+
+        private void Replayer_OnStepBackward(Kline[] subKlines, int current, int total)
+        {
+            lock (_replayKlines)
+            {
+                _replayKlines.Clear();
+                _replayKlines.AddRange(subKlines);
+            }
+
+            var lastTime = subKlines.Length > 0 ? subKlines[subKlines.Length - 1].OpenTime.ToString("yyyy-MM-dd HH:mm:ss") : "";
+            _chartTitle = $"[{_currentSymbol}] 单步向后 ({current}/{total}) - {lastTime}";
+            _needChartRefresh = true;
+
+            // 已注释单步向后频繁日志，避免刷屏
+            // EnqueueLog($"[◄ 单步向后 {current}/{total}] 已回退至 {lastTime}");
         }
 
         private void Replayer_OnTickPushed(Tick tick)
         {
-            //EnqueueLog($"   └─ [Tick 细粒度推送] {tick.Time:HH:mm:ss.fff} | 成交价:{tick.LastPrice} 成交量:{tick.Volume}");
+            // 已注释高频 Tick 细粒度推送日志，避免刷屏
+            // EnqueueLog($"   └─ [Tick 细粒度推送] {tick.Time:HH:mm:ss.fff} | 成交价:{tick.LastPrice} 成交量:{tick.Volume}");
         }
 
         private void Replayer_OnPlaybackCompleted()

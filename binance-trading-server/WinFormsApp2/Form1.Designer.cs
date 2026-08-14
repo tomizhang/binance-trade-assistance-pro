@@ -37,9 +37,12 @@ namespace WinFormsApp2
             grpActions = new GroupBox();
             btnClearLog = new Button();
             btnStop = new Button();
+            btnStepForward = new Button();
+            btnStepBackward = new Button();
             btnPause = new Button();
             btnStart = new Button();
             grpParams = new GroupBox();
+            chkAutoFitPrice = new CheckBox();
             chkEnableTickPush = new CheckBox();
             dtpEndDate = new DateTimePicker();
             lblEndDate = new Label();
@@ -51,6 +54,7 @@ namespace WinFormsApp2
             lblInterval = new Label();
             txtSymbol = new TextBox();
             lblSymbol = new Label();
+
             ((System.ComponentModel.ISupportInitialize)splitContainerMain).BeginInit();
             splitContainerMain.Panel1.SuspendLayout();
             splitContainerMain.Panel2.SuspendLayout();
@@ -103,6 +107,7 @@ namespace WinFormsApp2
             // 
             // formsPlot1
             // 
+            formsPlot1.DisplayScale = 1F;
             formsPlot1.Dock = DockStyle.Fill;
             formsPlot1.Location = new Point(0, 0);
             formsPlot1.Name = "formsPlot1";
@@ -126,7 +131,7 @@ namespace WinFormsApp2
             rtbLog.BackColor = Color.FromArgb(30, 30, 30);
             rtbLog.BorderStyle = BorderStyle.None;
             rtbLog.Dock = DockStyle.Fill;
-            rtbLog.Font = new Font("Consolas", 9.75F);
+            rtbLog.Font = new Font("Consolas", 9.75F, FontStyle.Regular, GraphicsUnit.Point);
             rtbLog.ForeColor = Color.Gainsboro;
             rtbLog.Location = new Point(8, 24);
             rtbLog.Name = "rtbLog";
@@ -146,62 +151,9 @@ namespace WinFormsApp2
             panelRight.Size = new Size(300, 761);
             panelRight.TabIndex = 0;
             // 
-            // grpActions
-            // 
-            grpActions.Controls.Add(btnClearLog);
-            grpActions.Controls.Add(btnStop);
-            grpActions.Controls.Add(btnPause);
-            grpActions.Controls.Add(btnStart);
-            grpActions.Dock = DockStyle.Top;
-            grpActions.Location = new Point(8, 343);
-            grpActions.Name = "grpActions";
-            grpActions.Size = new Size(284, 215);
-            grpActions.TabIndex = 1;
-            grpActions.TabStop = false;
-            grpActions.Text = "控制面板 (Controls)";
-            // 
-            // btnClearLog
-            // 
-            btnClearLog.Location = new Point(16, 165);
-            btnClearLog.Name = "btnClearLog";
-            btnClearLog.Size = new Size(248, 35);
-            btnClearLog.TabIndex = 3;
-            btnClearLog.Text = "清空日志 (Clear Log)";
-            btnClearLog.UseVisualStyleBackColor = true;
-            btnClearLog.Click += btnClearLog_Click;
-            // 
-            // btnStop
-            // 
-            btnStop.Location = new Point(16, 120);
-            btnStop.Name = "btnStop";
-            btnStop.Size = new Size(248, 35);
-            btnStop.TabIndex = 2;
-            btnStop.Text = "停止回放 (Stop)";
-            btnStop.UseVisualStyleBackColor = true;
-            btnStop.Click += btnStop_Click;
-            // 
-            // btnPause
-            // 
-            btnPause.Location = new Point(16, 75);
-            btnPause.Name = "btnPause";
-            btnPause.Size = new Size(248, 35);
-            btnPause.TabIndex = 1;
-            btnPause.Text = "暂停/恢复 (Pause/Resume)";
-            btnPause.UseVisualStyleBackColor = true;
-            btnPause.Click += btnPause_Click;
-            // 
-            // btnStart
-            // 
-            btnStart.Location = new Point(16, 30);
-            btnStart.Name = "btnStart";
-            btnStart.Size = new Size(248, 35);
-            btnStart.TabIndex = 0;
-            btnStart.Text = "开始回放 (Play)";
-            btnStart.UseVisualStyleBackColor = true;
-            btnStart.Click += btnStart_Click;
-            // 
             // grpParams
             // 
+            grpParams.Controls.Add(chkAutoFitPrice);
             grpParams.Controls.Add(chkEnableTickPush);
             grpParams.Controls.Add(dtpEndDate);
             grpParams.Controls.Add(lblEndDate);
@@ -216,10 +168,22 @@ namespace WinFormsApp2
             grpParams.Dock = DockStyle.Top;
             grpParams.Location = new Point(8, 8);
             grpParams.Name = "grpParams";
-            grpParams.Size = new Size(284, 335);
+            grpParams.Size = new Size(284, 345);
             grpParams.TabIndex = 0;
             grpParams.TabStop = false;
             grpParams.Text = "参数设置 (Parameters)";
+            // 
+            // chkAutoFitPrice
+            // 
+            chkAutoFitPrice.AutoSize = true;
+            chkAutoFitPrice.Checked = true;
+            chkAutoFitPrice.CheckState = CheckState.Checked;
+            chkAutoFitPrice.Location = new Point(16, 310);
+            chkAutoFitPrice.Name = "chkAutoFitPrice";
+            chkAutoFitPrice.Size = new Size(165, 21);
+            chkAutoFitPrice.TabIndex = 11;
+            chkAutoFitPrice.Text = "自动聚焦最新价格视口";
+            chkAutoFitPrice.UseVisualStyleBackColor = true;
             // 
             // chkEnableTickPush
             // 
@@ -228,7 +192,7 @@ namespace WinFormsApp2
             chkEnableTickPush.CheckState = CheckState.Checked;
             chkEnableTickPush.Location = new Point(16, 285);
             chkEnableTickPush.Name = "chkEnableTickPush";
-            chkEnableTickPush.Size = new Size(142, 21);
+            chkEnableTickPush.Size = new Size(165, 21);
             chkEnableTickPush.TabIndex = 10;
             chkEnableTickPush.Text = "启用 Tick 细粒度推送";
             chkEnableTickPush.UseVisualStyleBackColor = true;
@@ -323,6 +287,82 @@ namespace WinFormsApp2
             lblSymbol.TabIndex = 0;
             lblSymbol.Text = "交易对:";
             // 
+            // grpActions
+            // 
+            grpActions.Controls.Add(btnClearLog);
+            grpActions.Controls.Add(btnStop);
+            grpActions.Controls.Add(btnStepForward);
+            grpActions.Controls.Add(btnStepBackward);
+            grpActions.Controls.Add(btnPause);
+            grpActions.Controls.Add(btnStart);
+            grpActions.Dock = DockStyle.Top;
+            grpActions.Location = new Point(8, 353);
+            grpActions.Name = "grpActions";
+            grpActions.Size = new Size(284, 215);
+            grpActions.TabIndex = 1;
+            grpActions.TabStop = false;
+            grpActions.Text = "控制面板 (Controls)";
+            // 
+            // btnStart
+            // 
+            btnStart.Location = new Point(16, 25);
+            btnStart.Name = "btnStart";
+            btnStart.Size = new Size(248, 30);
+            btnStart.TabIndex = 0;
+            btnStart.Text = "开始回放 (Play)";
+            btnStart.UseVisualStyleBackColor = true;
+            btnStart.Click += btnStart_Click;
+            // 
+            // btnPause
+            // 
+            btnPause.Location = new Point(16, 60);
+            btnPause.Name = "btnPause";
+            btnPause.Size = new Size(248, 30);
+            btnPause.TabIndex = 1;
+            btnPause.Text = "暂停/恢复 (Pause/Resume)";
+            btnPause.UseVisualStyleBackColor = true;
+            btnPause.Click += btnPause_Click;
+            // 
+            // btnStepBackward
+            // 
+            btnStepBackward.Location = new Point(16, 95);
+            btnStepBackward.Name = "btnStepBackward";
+            btnStepBackward.Size = new Size(120, 30);
+            btnStepBackward.TabIndex = 2;
+            btnStepBackward.Text = "单步向后 ◄";
+            btnStepBackward.UseVisualStyleBackColor = true;
+            btnStepBackward.Click += btnStepBackward_Click;
+            // 
+            // btnStepForward
+            // 
+            btnStepForward.Location = new Point(144, 95);
+            btnStepForward.Name = "btnStepForward";
+            btnStepForward.Size = new Size(120, 30);
+            btnStepForward.TabIndex = 3;
+            btnStepForward.Text = "单步向前 ►";
+            btnStepForward.UseVisualStyleBackColor = true;
+            btnStepForward.Click += btnStepForward_Click;
+            // 
+            // btnStop
+            // 
+            btnStop.Location = new Point(16, 130);
+            btnStop.Name = "btnStop";
+            btnStop.Size = new Size(248, 30);
+            btnStop.TabIndex = 4;
+            btnStop.Text = "停止回放 (Stop)";
+            btnStop.UseVisualStyleBackColor = true;
+            btnStop.Click += btnStop_Click;
+            // 
+            // btnClearLog
+            // 
+            btnClearLog.Location = new Point(16, 165);
+            btnClearLog.Name = "btnClearLog";
+            btnClearLog.Size = new Size(248, 30);
+            btnClearLog.TabIndex = 5;
+            btnClearLog.Text = "清空日志 (Clear Log)";
+            btnClearLog.UseVisualStyleBackColor = true;
+            btnClearLog.Click += btnClearLog_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 17F);
@@ -370,9 +410,12 @@ namespace WinFormsApp2
         private Label lblInterval;
         private NumericUpDown numInterval;
         private CheckBox chkEnableTickPush;
+        private CheckBox chkAutoFitPrice;
         private GroupBox grpActions;
         private Button btnStart;
         private Button btnPause;
+        private Button btnStepBackward;
+        private Button btnStepForward;
         private Button btnStop;
         private Button btnClearLog;
     }
