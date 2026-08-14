@@ -113,31 +113,37 @@ namespace WinFormsApp2
                 }
             }
 
-            // 2. 批量渲染 ScottPlot 图表及相对高低点
+            // 2. 批量渲染 ScottPlot 图表、枢轴高低点及延长趋势线 (限制最多展示最新 1000 根 K 线)
             if (_needChartRefresh)
             {
                 _needChartRefresh = false;
-                Kline[] klineArray;
+                Kline[] fullArray;
                 lock (_replayKlines)
                 {
-                    klineArray = _replayKlines.ToArray();
+                    fullArray = _replayKlines.ToArray();
                 }
 
-                if (klineArray.Length > 0)
+                if (fullArray.Length > 0)
                 {
+                    // 限制图表最多展示最新 1000 根 K 线信息
+                    const int maxDisplayKlines = 1000;
+                    Kline[] klineArray = fullArray.Length > maxDisplayKlines 
+                        ? fullArray.Skip(fullArray.Length - maxDisplayKlines).ToArray() 
+                        : fullArray;
+
                     double[] currentPrices = klineArray.Select(k => (double)k.ClosePrice).ToArray();
 
                     formsPlot1.Plot.Clear();
                     formsPlot1.Plot.Grid.IsVisible = false; // 隐藏/关闭图表网格线
 
-                    // 绘制价格主曲线
+                    // A. 绘制价格主信号曲线
                     formsPlot1.Plot.Add.Signal(currentPrices);
                     formsPlot1.Plot.Title(_chartTitle);
 
-                    // 计算并渲染相对高点 (红色) 与相对低点 (绿色)
-                    if (klineArray.Length >= 5)
+                    // B. 在最多 1000 根 K 线范围内计算并标注相对高低点与延长趋势线 (跨度为 3)
+                    if (klineArray.Length >= 7)
                     {
-                        var pivots = PivotHelper.CalculatePivotPoints(klineArray, leftBars: 2, rightBars: 2);
+                        var pivots = PivotHelper.CalculatePivotPoints(klineArray, leftBars: 3, rightBars: 3);
 
                         // 相对高点 (使用 HighPrice，红色标记)
                         var highs = pivots.Where(p => p.Type == PivotType.High).ToList();
@@ -159,6 +165,30 @@ namespace WinFormsApp2
                             var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs, lowYs);
                             spLow.Color = ScottPlot.Colors.LimeGreen;
                             spLow.MarkerSize = 3;
+                        }
+
+                        // C. 计算并在图表上绘制延伸趋势线 (高点阻力线显示淡红 #FF8080，低点支撑线显示淡绿 #80FF80)
+                        var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(klineArray, pivots);
+                        
+                        var displayLines = trendLines
+                            .OrderByDescending(tl => tl.LineX1X2)
+                            .Take(12);
+
+                        ScottPlot.Color lightRed = ScottPlot.Color.FromHex("#FF8080");   // 淡红
+                        ScottPlot.Color lightGreen = ScottPlot.Color.FromHex("#80FF80"); // 淡绿
+
+                        foreach (var tl in displayLines)
+                        {
+                            double x1 = tl.X1;
+                            double y1 = (double)tl.Y1;
+                            
+                            // 趋势线向右延长至当前 K 线窗口的最新右侧边界
+                            double x2 = klineArray.Length - 1;
+                            double y2 = (double)tl.GetPriceAt((int)x2);
+
+                            var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
+                            linePlot.Color = tl.Type == PivotType.High ? lightRed : lightGreen;
+                            linePlot.LineWidth = 0.8f;
                         }
                     }
 
@@ -216,11 +246,19 @@ namespace WinFormsApp2
                     return;
                 }
 
-                // 3. 使用 PivotHelper 分析相对高点与相对低点
-                var pivots = PivotHelper.CalculatePivotPoints(klines, leftBars: 2, rightBars: 2);
+                // 3. 使用 PivotHelper (跨度=3) 与 TrendLineHelper 分析 1000 根范围内的高低点与延伸趋势线
+                var displayKlinesSample = klines.Length > 1000 ? klines.Skip(klines.Length - 1000).ToArray() : klines;
+                var pivots = PivotHelper.CalculatePivotPoints(displayKlinesSample, leftBars: 3, rightBars: 3);
                 int highCount = pivots.Count(p => p.Type == PivotType.High);
                 int lowCount = pivots.Count(p => p.Type == PivotType.Low);
-                AppendLog($"[Pivot 枢轴计算] 相对高点 (HighPrice, 红色): {highCount} 个，相对低点 (LowPrice, 绿色): {lowCount} 个。");
+                AppendLog($"[Pivot 枢轴计算] 在 1000 根 K 线范围内 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
+
+                var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(displayKlinesSample, pivots);
+                AppendLog($"[TrendLine 趋势线生成] 在 1000 根 K 线范围内生成 {trendLines.Count} 条延伸趋势线 (高点淡红 #FF8080 / 低点淡绿 #80FF80) 已绘制于图表上。示例分析:");
+                foreach (var tl in trendLines.Take(3))
+                {
+                    AppendLog($"   ├─ [{tl.Type}趋势线] 归一化斜率K: {tl.K:F4}%/bar | line_x1_x2: {tl.LineX1X2} | line_age: {tl.LineAge} | line_extension_range: {tl.LineExtensionRange}");
+                }
 
                 // 4. 复位图表并启动回放引擎
                 lock (_replayKlines)
@@ -230,10 +268,10 @@ namespace WinFormsApp2
 
                 formsPlot1.Plot.Clear();
                 formsPlot1.Plot.Grid.IsVisible = false; // 隐藏网格
-                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (共 {klines.Length} 帧)");
+                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (共 {klines.Length} 帧，图表显示最新1000帧)");
                 formsPlot1.Refresh();
 
-                AppendLog($"▶ 启动行情回放 | K线总帧数: {klines.Length} | Tick推送: {(enableTickPush ? "开启" : "关闭")} | 步进间隔: {intervalMs}ms");
+                AppendLog($"▶ 启动行情回放 | K线总帧数: {klines.Length} | 图表限制展示: 最新 1000 帧 | Tick推送: {(enableTickPush ? "开启" : "关闭")} | 步进间隔: {intervalMs}ms");
                 _replayer.StartPlayback(klines, ticks, enableTickPush, intervalMs);
             }
             catch (Exception ex)

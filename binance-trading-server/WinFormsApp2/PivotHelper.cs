@@ -52,7 +52,7 @@ namespace WinFormsApp2
         /// <param name="leftBars">左侧比较的 K 线数量 (默认 2)</param>
         /// <param name="rightBars">右侧比较的 K 线数量 (默认 2)</param>
         /// <returns>枢轴高低点列表</returns>
-        public static List<PivotPoint> CalculatePivotPoints(Kline[] klines, int leftBars = 2, int rightBars = 2)
+        public static List<PivotPoint> CalculatePivotPoints(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
             List<PivotPoint> pivots = new List<PivotPoint>();
             if (klines == null || klines.Length < (leftBars + rightBars + 1))
@@ -141,7 +141,7 @@ namespace WinFormsApp2
         /// <summary>
         /// 只提取相对高点 (Pivot High)，价格使用 HighPrice
         /// </summary>
-        public static List<PivotPoint> GetPivotHighs(Kline[] klines, int leftBars = 2, int rightBars = 2)
+        public static List<PivotPoint> GetPivotHighs(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
             return CalculatePivotPoints(klines, leftBars, rightBars)
                 .Where(p => p.Type == PivotType.High)
@@ -151,7 +151,7 @@ namespace WinFormsApp2
         /// <summary>
         /// 只提取相对低点 (Pivot Low)，价格使用 LowPrice
         /// </summary>
-        public static List<PivotPoint> GetPivotLows(Kline[] klines, int leftBars = 2, int rightBars = 2)
+        public static List<PivotPoint> GetPivotLows(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
             return CalculatePivotPoints(klines, leftBars, rightBars)
                 .Where(p => p.Type == PivotType.Low)
