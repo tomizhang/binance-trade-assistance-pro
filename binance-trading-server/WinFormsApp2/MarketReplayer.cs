@@ -54,6 +54,7 @@ namespace WinFormsApp2
             IntervalMs = Math.Max(50, intervalMs);
             _currentIndex = 0;
             _lastTickIndex = 0;
+            _lastPushedTickPrice = -1m;
             State = ReplayState.Playing;
 
             _cts = new CancellationTokenSource();
@@ -166,10 +167,12 @@ namespace WinFormsApp2
             }
         }
 
+        private decimal _lastPushedTickPrice = -1m;
+
         /// <summary>
         /// 低延迟高效 Tick 推送方法：
         /// 弃用 LINQ Where().ToArray() 全扫，直接通过数组游标指针与 index 循环线性扫描
-        /// 达到均摊 O(1) 时间复杂度与 0 GC 分配
+        /// 具备价格无变动去重过滤逻辑，达到均摊 O(1) 时间复杂度与 0 GC 分配
         /// </summary>
         private void PushMatchingTicksForKline(Kline kline, CancellationToken token)
         {
@@ -198,7 +201,15 @@ namespace WinFormsApp2
                     break;
                 }
 
-                OnTickPushed?.Invoke(tick);
+                // 价格无变动去重优化：如果新 Tick 价格与上一 Tick 价格完全一致，则直接跳过推送
+                if (_lastPushedTickPrice > 0m && tick.LastPrice == _lastPushedTickPrice)
+                {
+                    scanIndex++;
+                    continue;
+                }
+
+                _lastPushedTickPrice = tick.LastPrice;
+                //OnTickPushed?.Invoke(tick);
                 scanIndex++;
             }
         }

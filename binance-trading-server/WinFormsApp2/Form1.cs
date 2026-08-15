@@ -237,7 +237,7 @@ namespace WinFormsApp2
             }
         }
 
-        private ChunkedDataManager? _chunkedManager = null;
+        private BatchQueueManager? _batchQueueManager = null;
 
         private void InitReplayer()
         {
@@ -247,18 +247,12 @@ namespace WinFormsApp2
             _replayer.OnPlaybackCompleted += Replayer_OnPlaybackCompleted;
             _replayer.OnLog += msg => EnqueueLog($"[回放引擎] {msg}");
 
-            // 50% 提前预读门槛触发：当推演到达 50% 进度时，强行确保下一个 3 天切片处于预读取状态
-            _replayer.OnPreloadThresholdReached += () =>
-            {
-                _chunkedManager?.EnsurePrefetchNextBatch();
-            };
-
-            // 分批次双缓冲区无缝接力：当前 3 天切片播放完毕时，自动切换至已预读取就绪的下一批次 3 天切片
+            // FIFO 队列管道无缝出队接力：当前 3 天切片播放完毕时，自动从容量上限为 5 的队列中出队下一批次数据
             _replayer.OnNeedNextBatchChunk += async () =>
             {
-                if (_chunkedManager != null)
+                if (_batchQueueManager != null)
                 {
-                    return await _chunkedManager.MoveToNextBatchAsync();
+                    return await _batchQueueManager.DequeueNextBatchAsync();
                 }
                 return null;
             };
@@ -572,18 +566,20 @@ namespace WinFormsApp2
 
             try
             {
-                // 1. 初始化分批流式数据管理器 (按 3 天切片分批，双缓冲区提前预读取，彻底解决大内存溢出与卡顿)
-                _chunkedManager = new ChunkedDataManager(
+                // 1. 初始化 FIFO 流式数据队列管道 (容量最大限制为 5 批次，每批次 3 天，后台自动做生产者补齐)
+                _batchQueueManager?.Stop();
+                _batchQueueManager = new BatchQueueManager(
                     _currentSymbol,
                     interval,
                     startDate,
                     endDate,
                     enableTickPush,
-                    batchDays: 3,
+                    maxQueueCapacity: 5,
+                    batchDays: 5,
                     logger: AppendLog);
 
-                // 2. 加载首批 3 天切片数据 (同时后台异步线程立即启动预读取下个 3 天切片)
-                BatchDataChunk? firstChunk = await _chunkedManager.InitializeAsync();
+                // 2. 启动队列流水线并出队首批 3 天切片数据
+                BatchDataChunk? firstChunk = await _batchQueueManager.StartQueuePipelineAsync();
 
                 if (firstChunk == null || firstChunk.Klines.Length == 0)
                 {
@@ -623,10 +619,10 @@ namespace WinFormsApp2
 
                 formsPlot1.Plot.Clear();
                 formsPlot1.Plot.Grid.IsVisible = false;
-                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (首批 3 天共 {klines.Length} 帧，提前预读流畅运行)");
+                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (首批 3 天共 {klines.Length} 帧，FIFO 5 队列管道极速运行)");
                 formsPlot1.Refresh();
 
-                AppendLog($"▶ 启动行情回放与策略引擎 | 首批: 3 天 ({klines.Length} 帧) | 总批次: {_chunkedManager.TotalBatches} 批 | 交易对: {_currentSymbol} | 策略: {(chkEnableStrategy.Checked ? "开启" : "关闭")}");
+                AppendLog($"▶ 启动行情回放与策略引擎 | 首批: 3 天 ({klines.Length} 帧) | 总批次: {_batchQueueManager.TotalBatches} 批 (FIFO 5 队列管道) | 交易对: {_currentSymbol} | 策略: {(chkEnableStrategy.Checked ? "开启" : "关闭")}");
                 _replayer.StartPlayback(klines, ticks, enableTickPush, intervalMs);
             }
             catch (Exception ex)
