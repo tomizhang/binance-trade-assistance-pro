@@ -561,6 +561,7 @@ namespace WinFormsApp2
                 AppendLog($"[Pivot 枢轴计算] 基于 1000 根 K 线 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
 
                 var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(baselineKlines, pivots, filterPenetrated: true);
+                _currentActiveTrendLines = trendLines;
                 AppendLog($"[TrendLine 趋势线交互] 基于 1000 根 K 线已计算生成未破位有效基准趋势线 {trendLines.Count} 条 (供策略在回放开始前直接使用)。");
 
                 // 4. 复位图表并启动回放引擎
@@ -620,13 +621,24 @@ namespace WinFormsApp2
             AppendLog("日志已清空。");
         }
 
+        private List<TrendLine> _currentActiveTrendLines = new List<TrendLine>();
+
         #region 回放事件响应 (无锁入队，无卡顿渲染)
 
         private void Replayer_OnKlinePushed(Kline kline, int current, int total)
         {
+            Kline[] currentKlines;
             lock (_replayKlines)
             {
                 _replayKlines.Add(kline);
+                currentKlines = _replayKlines.ToArray();
+            }
+
+            // 新 K 线到达时增量更新当前基准趋势线
+            if (chkEnableStrategy.Checked && currentKlines.Length >= 7)
+            {
+                var pivots = PivotHelper.CalculatePeaksCombinedFast(currentKlines, leftBars: 3, rightBars: 3);
+                _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(currentKlines, pivots, filterPenetrated: true);
             }
 
             _chartTitle = $"[{_currentSymbol}] 动态回放中 ({current}/{total}) - {kline.OpenTime:yyyy-MM-dd HH:mm:ss}";
@@ -641,6 +653,12 @@ namespace WinFormsApp2
                 _replayKlines.AddRange(subKlines);
             }
 
+            if (chkEnableStrategy.Checked && subKlines.Length >= 7)
+            {
+                var pivots = PivotHelper.CalculatePeaksCombinedFast(subKlines, leftBars: 3, rightBars: 3);
+                _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(subKlines, pivots, filterPenetrated: true);
+            }
+
             var lastTime = subKlines.Length > 0 ? subKlines[subKlines.Length - 1].OpenTime.ToString("yyyy-MM-dd HH:mm:ss") : "";
             _chartTitle = $"[{_currentSymbol}] 单步向后 ({current}/{total}) - {lastTime}";
             _needChartRefresh = true;
@@ -648,8 +666,8 @@ namespace WinFormsApp2
 
         private void Replayer_OnTickPushed(Tick tick)
         {
-            // 将 Tick 数据驱动给趋势线回调策略引擎处理
-            if (chkEnableStrategy.Checked)
+            // 直接传入当前已经计算好的趋势线信息，0 冗余重复计算！
+            if (chkEnableStrategy.Checked && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
             {
                 Kline[] currentKlines;
                 lock (_replayKlines)
@@ -657,13 +675,7 @@ namespace WinFormsApp2
                     currentKlines = _replayKlines.ToArray();
                 }
 
-                if (currentKlines.Length >= 7)
-                {
-                    var pivots = PivotHelper.CalculatePeaksCombinedFast(currentKlines, leftBars: 3, rightBars: 3);
-                    var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(currentKlines, pivots, filterPenetrated: true);
-
-                    _strategy.ProcessTick(tick, currentKlines, trendLines);
-                }
+                _strategy.ProcessTick(tick, currentKlines, _currentActiveTrendLines);
             }
         }
 
