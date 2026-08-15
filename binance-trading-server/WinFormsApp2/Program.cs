@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 #if WINDOWS
 using System.Windows.Forms;
@@ -9,7 +11,7 @@ namespace WinFormsApp2
     internal static class Program
     {
         /// <summary>
-        /// 应用程序主入口：自动检测平台与参数，Windows 上运行 GUI 界面，Linux 上运行 64-bit Headless 交易引擎
+        /// 应用程序主入口：自动检测平台与参数，Windows 上运行 GUI 界面，Linux 上运行 64-bit Headless 多币种交易引擎
         /// </summary>
         [STAThread]
         static async Task Main(string[] args)
@@ -23,10 +25,14 @@ namespace WinFormsApp2
             }
 #endif
 
+            // 读取本地 settings.conf 配置文件
+            var settings = UserSettings.Load();
+
             // Linux 64-bit 无界面控制台 / 后台服务模式 (Headless Server Mode)
             Console.WriteLine("=================================================================");
-            Console.WriteLine("  🚀 币安交易助手 Pro (Linux 64-bit Headless Trading Server)     ");
+            Console.WriteLine("  🚀 币安交易助手 Pro (Linux 64-bit Multi-Symbol Trading Server) ");
             Console.WriteLine("=================================================================");
+            Console.WriteLine($"📄 已成功读取配置文件 [{UserSettings.SettingsConfPath}]");
 
             var engine = new TradingServerEngine();
             engine.OnLog += msg => Console.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {msg}");
@@ -41,14 +47,30 @@ namespace WinFormsApp2
                 Console.WriteLine($"🔴 [策略平仓] #{trade.Id} [{reasonStr}] 收益: {trade.ProfitPct:+0.00;-0.00;0.00}% @ {trade.ExitPrice}");
             };
 
-            string symbol = args.Length > 0 && !args[0].StartsWith("-") ? args[0].Trim().ToUpper() : "BTCUSDT";
-            Console.WriteLine($"▶ 正在在线连接币安 WebSocket 实盘行情接口 [{symbol}] 启动盯盘策略推演...");
+            List<string> symbolList = new List<string>();
+            if (args.Length > 0)
+            {
+                foreach (var arg in args)
+                {
+                    if (arg.StartsWith("-")) continue;
+                    var parts = arg.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    symbolList.AddRange(parts);
+                }
+            }
+
+            if (symbolList.Count == 0)
+            {
+                symbolList = settings.SubscribedSymbols ?? new List<string> { "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT" };
+            }
+
+            string symbolsStr = string.Join(", ", symbolList);
+            Console.WriteLine($"▶ 正在在线连接币安 WebSocket 实盘行情接口并发盯盘 [{symbolList.Count}] 个币种: [{symbolsStr}] [{UserSettings.FormatKlineInterval(settings.KlineInterval)}]...");
 
             try
             {
-                await engine.StartLiveStreamAsync(symbol, Binance.Net.Enums.KlineInterval.OneMinute);
+                await engine.StartMultiLiveStreamAsync(symbolList, settings.KlineInterval);
 
-                Console.WriteLine("服务已启动。按下 Ctrl+C 安全退出...");
+                Console.WriteLine("⚡ 多币种实盘盯盘与策略推演服务已常驻运行。按 Ctrl+C 安全退出...");
                 var tcs = new TaskCompletionSource<bool>();
                 Console.CancelKeyPress += (s, e) =>
                 {

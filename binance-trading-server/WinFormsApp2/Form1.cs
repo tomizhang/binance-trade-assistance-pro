@@ -32,7 +32,7 @@ namespace WinFormsApp2
             InitEngineEvents();
             InitUiTimer();
             InitializePlot();
-            AppendLog("系统初始化完成。核心交易引擎与 WinForms GUI 视口解耦完毕，完美支持 Linux 无界面部署。");
+            AppendLog("系统初始化完成。多币种并发交易引擎与 WinForms GUI 视口解耦完毕，完美支持 Linux 无界面多币种部署。");
         }
 
         private void InitEngineEvents()
@@ -55,6 +55,7 @@ namespace WinFormsApp2
         {
             // 1. 初始化交易对与周期下拉选项 (内置热门主流币种)
             cmbSymbol.Items.Clear();
+            cmbSymbol.Items.Add("BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT");
             cmbSymbol.Items.Add("BTCUSDT");
             cmbSymbol.Items.Add("ETHUSDT");
             cmbSymbol.Items.Add("BNBUSDT");
@@ -135,8 +136,20 @@ namespace WinFormsApp2
             numStopLoss.Value = Math.Max(numStopLoss.Minimum, Math.Min(numStopLoss.Maximum, _userSettings.StopLossPct));
 
             // 3. 绑定参数控件变动自动保存逻辑
-            cmbSymbol.TextChanged += (s, e) => SaveCurrentSettings();
-            cmbSymbol.SelectedIndexChanged += (s, e) => SaveCurrentSettings();
+            cmbSymbol.TextChanged += (s, e) =>
+            {
+                string firstSym = cmbSymbol.Text.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "BTCUSDT";
+                _engine.ActiveSymbol = firstSym;
+                _needChartRefresh = true;
+                SaveCurrentSettings();
+            };
+            cmbSymbol.SelectedIndexChanged += (s, e) =>
+            {
+                string firstSym = cmbSymbol.Text.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "BTCUSDT";
+                _engine.ActiveSymbol = firstSym;
+                _needChartRefresh = true;
+                SaveCurrentSettings();
+            };
             cmbKlineInterval.SelectedIndexChanged += (s, e) => SaveCurrentSettings();
             dtpStartDate.ValueChanged += (s, e) => SaveCurrentSettings();
             dtpEndDate.ValueChanged += (s, e) => SaveCurrentSettings();
@@ -161,12 +174,14 @@ namespace WinFormsApp2
 
         private void SyncStrategyParams()
         {
-            var strategy = _engine.Strategy;
-            strategy.Params.Enabled = chkEnableStrategy.Checked;
-            strategy.Params.MinLineX1X2 = (int)numMinLineX1X2.Value;
-            strategy.Params.MinLineAge = (int)numMinLineAge.Value;
-            strategy.Params.TakeProfitPct = numTakeProfit.Value;
-            strategy.Params.StopLossPct = numStopLoss.Value;
+            foreach (var ctx in _engine.AllSymbolContexts)
+            {
+                ctx.Strategy.Params.Enabled = chkEnableStrategy.Checked;
+                ctx.Strategy.Params.MinLineX1X2 = (int)numMinLineX1X2.Value;
+                ctx.Strategy.Params.MinLineAge = (int)numMinLineAge.Value;
+                ctx.Strategy.Params.TakeProfitPct = numTakeProfit.Value;
+                ctx.Strategy.Params.StopLossPct = numStopLoss.Value;
+            }
 
             _needStrategyStatsUpdate = true;
             SaveCurrentSettings();
@@ -206,13 +221,25 @@ namespace WinFormsApp2
 
         private void UpdateStrategyStatsUI()
         {
-            var strategy = _engine.Strategy;
-            int count = strategy.Trades.Count;
-            decimal winRate = strategy.GetWinRate();
-            decimal totalProfit = strategy.GetTotalProfitPct();
+            int activeSymbolCount = _engine.AllSymbolContexts.Count;
+            int totalTrades = _engine.GetTotalTradesCount();
+            decimal overallWinRate = _engine.GetOverallWinRate();
+            decimal overallProfit = _engine.GetOverallProfitPct();
 
-            lblStrategyStats.Text = $"交易次数: {count} 笔 | 胜率: {winRate:F1}%\r\n累计收益: {totalProfit:+0.00;-0.00;0.00}%";
-            lblStrategyStats.ForeColor = totalProfit >= 0 ? Color.DarkGreen : Color.DarkRed;
+            if (activeSymbolCount > 1)
+            {
+                lblStrategyStats.Text = $"多币种并发监控: {activeSymbolCount} 个 | 总交易: {totalTrades} 笔\r\n整体胜率: {overallWinRate:F1}% | 累计盈亏: {overallProfit:+0.00;-0.00;0.00}%";
+            }
+            else
+            {
+                var strategy = _engine.Strategy;
+                int count = strategy.Trades.Count;
+                decimal winRate = strategy.GetWinRate();
+                decimal totalProfit = strategy.GetTotalProfitPct();
+
+                lblStrategyStats.Text = $"交易次数: {count} 笔 | 胜率: {winRate:F1}%\r\n累计收益: {totalProfit:+0.00;-0.00;0.00}%";
+            }
+            lblStrategyStats.ForeColor = overallProfit >= 0 ? Color.DarkGreen : Color.DarkRed;
         }
 
         private void StepButton_MouseWheel(object sender, MouseEventArgs e)
@@ -314,7 +341,7 @@ namespace WinFormsApp2
 
                 // A. 绘制价格主信号曲线
                 formsPlot1.Plot.Add.Signal(pricesSlice);
-                formsPlot1.Plot.Title(_chartTitle);
+                formsPlot1.Plot.Title($"[{_engine.ActiveSymbol}] 实时视口 - {_chartTitle}");
 
                 // B. 标注相对高低点 (基于 OpenTime 严格对齐视口 K 线，100% 绝对精准)
                 var activePivots = _engine.ActivePivots;
@@ -517,7 +544,7 @@ namespace WinFormsApp2
         {
             SaveCurrentSettings(); // 点击开始回放时主动同步持久化设置
 
-            string symbol = cmbSymbol.Text.Trim();
+            string symbol = cmbSymbol.Text.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "BTCUSDT";
             if (string.IsNullOrEmpty(symbol))
             {
                 MessageBox.Show("请输入或选择交易对名称 (如 BTCUSDT)", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -565,11 +592,17 @@ namespace WinFormsApp2
                 return;
             }
 
-            string symbol = cmbSymbol.Text.Trim().ToUpper();
-            if (string.IsNullOrEmpty(symbol))
+            string inputSymbols = cmbSymbol.Text.Trim().ToUpper();
+            if (string.IsNullOrEmpty(inputSymbols))
             {
                 MessageBox.Show("请先选择或输入交易对名称！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
+            }
+
+            string[] symbols = inputSymbols.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (symbols.Length == 0)
+            {
+                symbols = new[] { "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT" };
             }
 
             dynamic selectedIntervalObj = cmbKlineInterval.SelectedItem;
@@ -578,7 +611,7 @@ namespace WinFormsApp2
             btnLiveMode.Enabled = false;
             try
             {
-                await _engine.StartLiveStreamAsync(symbol, interval);
+                await _engine.StartMultiLiveStreamAsync(symbols, interval);
                 btnLiveMode.Text = "🛑 停止币安实盘行情 (Stop Live)";
                 btnLiveMode.ForeColor = Color.Red;
             }
@@ -621,7 +654,8 @@ namespace WinFormsApp2
 
         private async void btnDownloadKlines_Click(object sender, EventArgs e)
         {
-            string symbol = cmbSymbol.Text.Trim().ToUpper();
+            string inputSymbols = cmbSymbol.Text.Trim().ToUpper();
+            string symbol = inputSymbols.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "BTCUSDT";
             if (string.IsNullOrEmpty(symbol))
             {
                 MessageBox.Show("请先选择或输入交易对名称！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -652,7 +686,8 @@ namespace WinFormsApp2
 
         private async void btnDownloadTicks_Click(object sender, EventArgs e)
         {
-            string symbol = cmbSymbol.Text.Trim().ToUpper();
+            string inputSymbols = cmbSymbol.Text.Trim().ToUpper();
+            string symbol = inputSymbols.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "BTCUSDT";
             if (string.IsNullOrEmpty(symbol))
             {
                 MessageBox.Show("请先选择或输入交易对名称！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);

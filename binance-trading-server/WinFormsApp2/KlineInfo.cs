@@ -8,6 +8,12 @@ using System.Threading.Tasks;
 
 namespace WinFormsApp2
 {
+    public enum ExecutionMode
+    {
+        Idle,
+        BacktestReplay,
+        LiveStream
+    }
     // 使用 Kline[] 遍历数据性能最好
     public struct Kline
     {

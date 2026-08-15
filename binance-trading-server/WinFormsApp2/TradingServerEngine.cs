@@ -1,5 +1,6 @@
 using Binance.Net.Enums;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,45 +8,121 @@ using System.Threading.Tasks;
 
 namespace WinFormsApp2
 {
-    public enum ExecutionMode
+    /// <summary>
+    /// 单个币种独立的策略推演与行情状态上下文 (Per-Symbol Trading Engine Context)
+    /// </summary>
+    public class SymbolEngineContext
     {
-        Idle,
-        BacktestReplay,
-        LiveStream
+        public string Symbol { get; }
+        public TrendLineStrategy Strategy { get; } = new TrendLineStrategy();
+        public List<Kline> ReplayKlines { get; } = new List<Kline>(5000);
+        public List<Kline> CombinedHistoryList { get; } = new List<Kline>(1500);
+        public Kline[] WarmupKlinesBuffer { get; set; } = Array.Empty<Kline>();
+        public Kline[] DisplayKlinesBuffer { get; } = new Kline[500];
+
+        public List<PivotPoint> ActivePivots { get; set; } = new List<PivotPoint>();
+        public List<TrendLine> ActiveTrendLines { get; set; } = new List<TrendLine>();
+        public int CurrentKlineIndex { get; set; } = 0;
+
+        public SymbolEngineContext(string symbol)
+        {
+            Symbol = symbol.Trim().ToUpper();
+        }
+
+        public void Reset()
+        {
+            Strategy.Reset();
+            lock (ReplayKlines)
+            {
+                ReplayKlines.Clear();
+            }
+            WarmupKlinesBuffer = Array.Empty<Kline>();
+            ActivePivots.Clear();
+            ActiveTrendLines.Clear();
+            CurrentKlineIndex = 0;
+        }
+
+        public void UpdateDisplayPivotsAndTrendLines()
+        {
+            int sampleSize = 0;
+            lock (ReplayKlines)
+            {
+                CombinedHistoryList.Clear();
+                if (WarmupKlinesBuffer != null && WarmupKlinesBuffer.Length > 0)
+                {
+                    CombinedHistoryList.AddRange(WarmupKlinesBuffer);
+                }
+                CombinedHistoryList.AddRange(ReplayKlines);
+
+                int totalCombined = CombinedHistoryList.Count;
+                if (totalCombined < 7)
+                {
+                    ActivePivots.Clear();
+                    ActiveTrendLines.Clear();
+                    return;
+                }
+
+                sampleSize = Math.Min(totalCombined, 500);
+                CombinedHistoryList.CopyTo(totalCombined - sampleSize, DisplayKlinesBuffer, 0, sampleSize);
+            }
+
+            Kline[] sampleSlice = new Kline[sampleSize];
+            Array.Copy(DisplayKlinesBuffer, 0, sampleSlice, 0, sampleSize);
+
+            ActivePivots = PivotHelper.CalculatePeaksCombinedFast(sampleSlice, leftBars: 3, rightBars: 3);
+            ActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(sampleSlice, ActivePivots, filterPenetrated: true);
+        }
+
+        public void ProcessTick(Tick tick)
+        {
+            if (Strategy.Params.Enabled && ActiveTrendLines != null && ActiveTrendLines.Count > 0)
+            {
+                Kline currentKline = default;
+                int currentSampleIndex = 0;
+                lock (ReplayKlines)
+                {
+                    if (CurrentKlineIndex >= 0 && CurrentKlineIndex < ReplayKlines.Count)
+                    {
+                        currentKline = ReplayKlines[CurrentKlineIndex];
+                    }
+                    currentSampleIndex = Math.Max(0, Math.Min(CombinedHistoryList.Count, 500) - 1);
+                }
+                Strategy.ProcessTick(tick, currentSampleIndex, ActiveTrendLines, currentKline);
+            }
+        }
     }
 
     /// <summary>
-    /// 独立无界面核心交易与回演引擎 (Headless Trading & Replay Engine)
-    /// 0 依赖 Windows GUI / WinForms，可独立在 Linux 各种无界面 Server 系统下直接部署运行
+    /// 独立无界面多币种并发核心交易与回演引擎 (Headless Multi-Symbol Trading & Replay Engine)
+    /// 0 依赖 Windows GUI / WinForms，可独立在 Linux 各种无界面 Server 系统下并发交易多币种
     /// </summary>
     public class TradingServerEngine
     {
         private readonly MarketReplayer _replayer = new MarketReplayer();
         private readonly LiveFeedManager _liveFeedManager = new LiveFeedManager();
-        private readonly TrendLineStrategy _strategy = new TrendLineStrategy();
+        private readonly ConcurrentDictionary<string, SymbolEngineContext> _symbolEngines = new ConcurrentDictionary<string, SymbolEngineContext>();
         private BatchQueueManager? _batchQueueManager;
 
-        private readonly List<Kline> _replayKlines = new List<Kline>(5000);
-        private readonly List<Kline> _combinedHistoryList = new List<Kline>(1500);
-        private Kline[] _warmupKlinesBuffer = Array.Empty<Kline>();
-        private readonly Kline[] _displayKlinesBuffer = new Kline[500];
-
-        private List<PivotPoint> _currentActivePivots = new List<PivotPoint>();
-        private List<TrendLine> _currentActiveTrendLines = new List<TrendLine>();
-
-        private int _currentKlineIndex = 0;
-        private string _currentSymbol = "BTCUSDT";
-
         public ExecutionMode Mode { get; private set; } = ExecutionMode.Idle;
-        public TrendLineStrategy Strategy => _strategy;
         public MarketReplayer Replayer => _replayer;
         public LiveFeedManager LiveFeedManager => _liveFeedManager;
         public bool IsRunning => Mode != ExecutionMode.Idle;
 
-        public IReadOnlyList<Kline> DisplayKlinesBuffer => _displayKlinesBuffer;
-        public IReadOnlyList<PivotPoint> ActivePivots => _currentActivePivots;
-        public IReadOnlyList<TrendLine> ActiveTrendLines => _currentActiveTrendLines;
-        public string CurrentSymbol => _currentSymbol;
+        public string ActiveSymbol { get; set; } = "BTCUSDT";
+
+        public SymbolEngineContext GetOrCreateContext(string symbol)
+        {
+            symbol = symbol.Trim().ToUpper();
+            return _symbolEngines.GetOrAdd(symbol, s => new SymbolEngineContext(s));
+        }
+
+        public SymbolEngineContext ActiveContext => GetOrCreateContext(ActiveSymbol);
+        public IReadOnlyCollection<SymbolEngineContext> AllSymbolContexts => _symbolEngines.Values.ToList();
+
+        public TrendLineStrategy Strategy => ActiveContext.Strategy;
+        public IReadOnlyList<Kline> DisplayKlinesBuffer => ActiveContext.DisplayKlinesBuffer;
+        public IReadOnlyList<PivotPoint> ActivePivots => ActiveContext.ActivePivots;
+        public IReadOnlyList<TrendLine> ActiveTrendLines => ActiveContext.ActiveTrendLines;
 
         public event Action<string>? OnLog;
         public event Action<Tick>? OnTickPushed;
@@ -63,11 +140,8 @@ namespace WinFormsApp2
             _replayer.OnPlaybackCompleted += Core_OnPlaybackCompleted;
 
             _liveFeedManager.OnLog += Log;
-            _liveFeedManager.OnLiveKlinePushed += Core_OnLiveKlinePushed;
-            _liveFeedManager.OnLiveTickPushed += Core_OnLiveTickPushed;
-
-            _strategy.OnTradeOpened += trade => OnTradeOpened?.Invoke(trade);
-            _strategy.OnTradeClosed += trade => OnTradeClosed?.Invoke(trade);
+            _liveFeedManager.OnMultiLiveKlinePushed += Core_OnMultiLiveKlinePushed;
+            _liveFeedManager.OnMultiLiveTickPushed += Core_OnMultiLiveTickPushed;
         }
 
         public void Log(string msg)
@@ -75,42 +149,13 @@ namespace WinFormsApp2
             OnLog?.Invoke(msg);
         }
 
-        /// <summary>
-        /// 更新与提取当前画图视口枢轴点与趋势线
-        /// </summary>
         public void UpdateDisplayPivotsAndTrendLines()
         {
-            int sampleSize = 0;
-            lock (_replayKlines)
-            {
-                _combinedHistoryList.Clear();
-                if (_warmupKlinesBuffer != null && _warmupKlinesBuffer.Length > 0)
-                {
-                    _combinedHistoryList.AddRange(_warmupKlinesBuffer);
-                }
-                _combinedHistoryList.AddRange(_replayKlines);
-
-                int totalCombined = _combinedHistoryList.Count;
-                if (totalCombined < 7)
-                {
-                    _currentActivePivots.Clear();
-                    _currentActiveTrendLines.Clear();
-                    return;
-                }
-
-                sampleSize = Math.Min(totalCombined, 500);
-                _combinedHistoryList.CopyTo(totalCombined - sampleSize, _displayKlinesBuffer, 0, sampleSize);
-            }
-
-            Kline[] sampleSlice = new Kline[sampleSize];
-            Array.Copy(_displayKlinesBuffer, 0, sampleSlice, 0, sampleSize);
-
-            _currentActivePivots = PivotHelper.CalculatePeaksCombinedFast(sampleSlice, leftBars: 3, rightBars: 3);
-            _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(sampleSlice, _currentActivePivots, filterPenetrated: true);
+            ActiveContext.UpdateDisplayPivotsAndTrendLines();
         }
 
         /// <summary>
-        /// 启动历史数据回演引擎 (可被 WinForms 或 Linux 命令行/Web 控制器调用)
+        /// 启动历史数据回演引擎 (支持指定单币种测试)
         /// </summary>
         public async Task StartReplayAsync(
             string symbol,
@@ -123,14 +168,16 @@ namespace WinFormsApp2
         {
             Stop();
 
-            _currentSymbol = symbol;
+            ActiveSymbol = symbol.Trim().ToUpper();
             Mode = ExecutionMode.BacktestReplay;
-            _strategy.Reset();
 
-            Log($"▶ [引擎启动] 开始初始化行情回放: {symbol} | {interval} | {startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}");
+            var ctx = GetOrCreateContext(ActiveSymbol);
+            ctx.Reset();
+
+            Log($"▶ [引擎启动] 开始初始化单币种行情回播: [{ActiveSymbol}] | {interval} | {startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}");
 
             // 1. 初始化 FIFO 多线程后台下载管道
-            _batchQueueManager = new BatchQueueManager(symbol, interval, startDate, endDate, batchDays: 1, prefetchQueueCapacity: 5);
+            _batchQueueManager = new BatchQueueManager(ActiveSymbol, interval, startDate, endDate, enableTickPush: enableTickPush, maxQueueCapacity: 5, batchDays: 1, logger: Log);
             _batchQueueManager.OnLog += Log;
             _batchQueueManager.Start();
 
@@ -147,17 +194,17 @@ namespace WinFormsApp2
             Tick[] ticks = firstChunk.Ticks;
 
             // 3. API 预热控制
-            _warmupKlinesBuffer = Array.Empty<Kline>();
+            ctx.WarmupKlinesBuffer = Array.Empty<Kline>();
             if (enableWarmup)
             {
                 try
                 {
                     DateTime warmupEndDate = startDate.AddTicks(-1);
-                    Log($"[API 预热开启] 准备获取 [{symbol}] [{interval}] 起点前 1000 根历史预热 K 线 (截止 {warmupEndDate:yyyy-MM-dd HH:mm:ss})...");
-                    var fetchedWarmup = await DataHelper.FetchKlinesFromApiAsync(symbol, interval, endTime: warmupEndDate, limit: 1000);
+                    Log($"[API 预热开启] 准备获取 [{ActiveSymbol}] [{interval}] 起点前 1000 根历史预热 K 线 (截止 {warmupEndDate:yyyy-MM-dd HH:mm:ss})...");
+                    var fetchedWarmup = await DataHelper.FetchKlinesFromApiAsync(ActiveSymbol, interval, endTime: warmupEndDate, limit: 1000);
                     if (fetchedWarmup != null && fetchedWarmup.Length > 0)
                     {
-                        _warmupKlinesBuffer = fetchedWarmup;
+                        ctx.WarmupKlinesBuffer = fetchedWarmup;
                         Log($"[API 预热成功] 成功装载 {fetchedWarmup.Length} 根历史预热 K 线。");
                     }
                 }
@@ -167,52 +214,72 @@ namespace WinFormsApp2
                 }
             }
 
-            lock (_replayKlines)
-            {
-                _replayKlines.Clear();
-            }
-
-            UpdateDisplayPivotsAndTrendLines();
+            ctx.UpdateDisplayPivotsAndTrendLines();
             OnChartRefreshRequired?.Invoke();
 
             _replayer.StartPlayback(klines, ticks, enableTickPush, intervalMs);
         }
 
         /// <summary>
-        /// 启动币安实盘 WebSocket 行情接口 (可被 Linux 命令行/Web 控制器直接部署运行)
+        /// 启动多币种并发实盘 WebSocket 行情接口 (如同时监控 BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT)
         /// </summary>
-        public async Task StartLiveStreamAsync(string symbol, KlineInterval interval)
+        public async Task StartMultiLiveStreamAsync(IEnumerable<string> symbols, KlineInterval interval)
         {
             Stop();
 
-            _currentSymbol = symbol;
-            Mode = ExecutionMode.LiveStream;
-            _strategy.Reset();
-
-            Log($"📡 [实盘引擎启动] 正在连接币安 WebSocket 实盘流 [{symbol}] [{interval}]...");
-
-            // 1. 优先预加载 1000 根最新 K 线
-            var initialKlines = await DataHelper.FetchKlinesFromApiAsync(symbol, interval, limit: 1000);
-            lock (_replayKlines)
+            List<string> symbolList = symbols.Select(s => s.Trim().ToUpper()).Distinct().Where(s => !string.IsNullOrEmpty(s)).ToList();
+            if (symbolList.Count == 0)
             {
-                _replayKlines.Clear();
-                if (initialKlines != null && initialKlines.Length > 0)
-                {
-                    _replayKlines.AddRange(initialKlines);
-                    _currentKlineIndex = _replayKlines.Count - 1;
-                }
+                throw new ArgumentException("订阅币种列表不能为空！");
             }
 
-            _warmupKlinesBuffer = Array.Empty<Kline>();
-            UpdateDisplayPivotsAndTrendLines();
+            ActiveSymbol = symbolList[0];
+            Mode = ExecutionMode.LiveStream;
+
+            Log($"📡 [多币种实盘启动] 正在在线连接币安 WebSocket，并发监控 {symbolList.Count} 个币种 [{string.Join(", ", symbolList)}] [{interval}]...");
+
+            // 1. 在线并发为所有币种预加载 1000 根最新 K 线建立基线
+            var preloadTasks = symbolList.Select(async sym =>
+            {
+                var ctx = GetOrCreateContext(sym);
+                ctx.Reset();
+                ctx.Strategy.OnTradeOpened += trade => OnTradeOpened?.Invoke(trade);
+                ctx.Strategy.OnTradeClosed += trade => OnTradeClosed?.Invoke(trade);
+
+                try
+                {
+                    var initialKlines = await DataHelper.FetchKlinesFromApiAsync(sym, interval, limit: 1000);
+                    lock (ctx.ReplayKlines)
+                    {
+                        ctx.ReplayKlines.Clear();
+                        if (initialKlines != null && initialKlines.Length > 0)
+                        {
+                            ctx.ReplayKlines.AddRange(initialKlines);
+                            ctx.CurrentKlineIndex = ctx.ReplayKlines.Count - 1;
+                        }
+                    }
+                    ctx.UpdateDisplayPivotsAndTrendLines();
+                }
+                catch (Exception ex)
+                {
+                    Log($"⚠️ 币种 [{sym}] 在线预加载 1000 根 K线失败: {ex.Message}");
+                }
+            });
+
+            await Task.WhenAll(preloadTasks);
             OnChartRefreshRequired?.Invoke();
 
-            // 2. 建立实盘连接
-            await _liveFeedManager.StartLiveFeedAsync(symbol, interval);
+            // 2. 建立多币种 WebSocket 长连接
+            await _liveFeedManager.StartMultiLiveFeedAsync(symbolList, interval);
+        }
+
+        public Task StartLiveStreamAsync(string symbol, KlineInterval interval)
+        {
+            return StartMultiLiveStreamAsync(new[] { symbol }, interval);
         }
 
         /// <summary>
-        /// 安全停止回放或实盘
+        /// 安全停止所有回放与多币种实盘引擎
         /// </summary>
         public void Stop()
         {
@@ -223,36 +290,24 @@ namespace WinFormsApp2
             Mode = ExecutionMode.Idle;
         }
 
-        #region 底层引擎回调
+        #region 多币种实时事件处理回调
 
         private void Core_OnTickPushed(Tick tick)
         {
-            if (_strategy.Params.Enabled && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
-            {
-                Kline currentKline = default;
-                int currentSampleIndex = 0;
-                lock (_replayKlines)
-                {
-                    if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
-                    {
-                        currentKline = _replayKlines[_currentKlineIndex];
-                    }
-                    currentSampleIndex = Math.Max(0, Math.Min(_combinedHistoryList.Count, 500) - 1);
-                }
-                _strategy.ProcessTick(tick, currentSampleIndex, _currentActiveTrendLines, currentKline);
-            }
+            ActiveContext.ProcessTick(tick);
             OnTickPushed?.Invoke(tick);
         }
 
         private void Core_OnKlinePushed(Kline currentKline, int currentFrameIndex, int totalFrames)
         {
-            lock (_replayKlines)
+            var ctx = ActiveContext;
+            lock (ctx.ReplayKlines)
             {
-                _replayKlines.Add(currentKline);
-                _currentKlineIndex = _replayKlines.Count - 1;
+                ctx.ReplayKlines.Add(currentKline);
+                ctx.CurrentKlineIndex = ctx.ReplayKlines.Count - 1;
             }
 
-            UpdateDisplayPivotsAndTrendLines();
+            ctx.UpdateDisplayPivotsAndTrendLines();
             OnKlinePushed?.Invoke(currentKline);
             OnChartRefreshRequired?.Invoke();
         }
@@ -263,33 +318,70 @@ namespace WinFormsApp2
             Mode = ExecutionMode.Idle;
         }
 
-        private void Core_OnLiveKlinePushed(Kline liveKline)
+        private void Core_OnMultiLiveKlinePushed(string symbol, Kline liveKline)
         {
-            lock (_replayKlines)
+            if (_symbolEngines.TryGetValue(symbol, out var ctx))
             {
-                if (_replayKlines.Count > 0 && _replayKlines.Last().OpenTime == liveKline.OpenTime)
+                lock (ctx.ReplayKlines)
                 {
-                    _replayKlines[_replayKlines.Count - 1] = liveKline;
-                }
-                else
-                {
-                    _replayKlines.Add(liveKline);
-                    if (_replayKlines.Count > 500)
+                    if (ctx.ReplayKlines.Count > 0 && ctx.ReplayKlines.Last().OpenTime == liveKline.OpenTime)
                     {
-                        _replayKlines.RemoveAt(0);
+                        ctx.ReplayKlines[ctx.ReplayKlines.Count - 1] = liveKline;
                     }
+                    else
+                    {
+                        ctx.ReplayKlines.Add(liveKline);
+                        if (ctx.ReplayKlines.Count > 500)
+                        {
+                            ctx.ReplayKlines.RemoveAt(0);
+                        }
+                    }
+                    ctx.CurrentKlineIndex = ctx.ReplayKlines.Count - 1;
                 }
-                _currentKlineIndex = _replayKlines.Count - 1;
-            }
 
-            UpdateDisplayPivotsAndTrendLines();
-            OnKlinePushed?.Invoke(liveKline);
-            OnChartRefreshRequired?.Invoke();
+                ctx.UpdateDisplayPivotsAndTrendLines();
+
+                if (symbol.Equals(ActiveSymbol, StringComparison.OrdinalIgnoreCase))
+                {
+                    OnKlinePushed?.Invoke(liveKline);
+                    OnChartRefreshRequired?.Invoke();
+                }
+            }
         }
 
-        private void Core_OnLiveTickPushed(Tick tick)
+        private void Core_OnMultiLiveTickPushed(string symbol, Tick liveTick)
         {
-            Core_OnTickPushed(tick);
+            if (_symbolEngines.TryGetValue(symbol, out var ctx))
+            {
+                ctx.ProcessTick(liveTick);
+
+                if (symbol.Equals(ActiveSymbol, StringComparison.OrdinalIgnoreCase))
+                {
+                    OnTickPushed?.Invoke(liveTick);
+                }
+            }
+        }
+
+        #endregion
+
+        #region 多币种全局统计统计计算
+
+        public int GetTotalTradesCount()
+        {
+            return _symbolEngines.Values.Sum(ctx => ctx.Strategy.Trades.Count);
+        }
+
+        public decimal GetOverallWinRate()
+        {
+            int totalTrades = GetTotalTradesCount();
+            if (totalTrades == 0) return 0m;
+            int totalWins = _symbolEngines.Values.Sum(ctx => ctx.Strategy.Trades.Count(t => t.IsWin));
+            return (decimal)totalWins / totalTrades * 100m;
+        }
+
+        public decimal GetOverallProfitPct()
+        {
+            return _symbolEngines.Values.Sum(ctx => ctx.Strategy.GetTotalProfitPct());
         }
 
         #endregion
