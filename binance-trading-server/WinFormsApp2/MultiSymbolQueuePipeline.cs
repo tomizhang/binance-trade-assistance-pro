@@ -209,7 +209,16 @@ namespace WinFormsApp2
         {
             ctx.Strategy.OnTradeOpened += trade =>
             {
-                Log($"🟢 [{ctx.Symbol} 策略开仓信号] #{trade.Id} [{(trade.Position == PositionType.Long ? "买入做多" : "卖出做空")}] @ {trade.EntryPrice} ({trade.EntryTime:yyyy-MM-dd HH:mm:ss})");
+                decimal tpPct = ctx.Strategy.Params.TakeProfitPct;
+                decimal slPct = ctx.Strategy.Params.StopLossPct;
+                decimal tpPrice = trade.Position == PositionType.Long
+                    ? trade.EntryPrice * (1m + tpPct / 100m)
+                    : trade.EntryPrice * (1m - tpPct / 100m);
+                decimal slPrice = trade.Position == PositionType.Long
+                    ? trade.EntryPrice * (1m - slPct / 100m)
+                    : trade.EntryPrice * (1m + slPct / 100m);
+
+                Log($"🟢 [{ctx.Symbol} 策略开仓信号] #{trade.Id} [{(trade.Position == PositionType.Long ? "买入做多" : "卖出做空")}] @ {trade.EntryPrice} ({trade.EntryTime:yyyy-MM-dd HH:mm:ss}) | 🎯 止盈位: {tpPrice} (+{tpPct}%) | 🛡 止损位: {slPrice} (-{slPct}%)");
 
                 OrderType oType = trade.Position == PositionType.Long ? OrderType.BuyLongOpen : OrderType.SellShortOpen;
                 OrderQueue.EnqueueOrder(new OrderRequest
@@ -220,6 +229,10 @@ namespace WinFormsApp2
                     Price = trade.EntryPrice,
                     QuantityUsdt = ctx.OrderQuantityUsdt,
                     Timestamp = trade.EntryTime,
+                    TakeProfitPrice = tpPrice,
+                    StopLossPrice = slPrice,
+                    TakeProfitPct = tpPct,
+                    StopLossPct = slPct,
                     Comment = $"{ctx.Symbol} 趋势线假突破开仓"
                 });
             };

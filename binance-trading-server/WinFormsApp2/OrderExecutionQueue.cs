@@ -26,6 +26,12 @@ namespace WinFormsApp2
         public decimal QuantityUsdt { get; set; } = 1m;
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string Comment { get; set; } = string.Empty;
+
+        // 止盈止损计算位置与百分比
+        public decimal TakeProfitPrice { get; set; }
+        public decimal StopLossPrice { get; set; }
+        public decimal TakeProfitPct { get; set; } = 1.5m;
+        public decimal StopLossPct { get; set; } = 0.8m;
     }
 
     public class OrderResult
@@ -38,6 +44,11 @@ namespace WinFormsApp2
         public decimal ExecutedQuantity { get; set; }
         public string Message { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; } = DateTime.Now;
+
+        // 止盈止损与耗时跟踪
+        public decimal TakeProfitPrice { get; set; }
+        public decimal StopLossPrice { get; set; }
+        public long ElapsedMs { get; set; }
     }
 
     public class SymbolRuleInfo
@@ -229,12 +240,14 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 币种名称合法化清洗 (剥离中文与非法字符)
+        /// 币种名称合法化清洗 (全面支持标准英文与币安中文 Meme 币种，如“龙虾USDT”、“1000000龙虾USDT”、“我踏马来USDT”，剥离空格与逗号)
         /// </summary>
         public static string SanitizeSymbol(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-            string clean = Regex.Replace(input.Trim().ToUpperInvariant(), @"[^A-Z0-9]", "");
+
+            // 保留中文字符 (\u4e00-\u9fa5)、英文字母 (A-Za-z)、数字 (0-9) 以及破折号/下划线 (_ -)
+            string clean = Regex.Replace(input.Trim(), @"[^\u4e00-\u9fa5A-Za-z0-9_\-]", "");
             return clean;
         }
 
@@ -319,18 +332,22 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 单笔订单执行逻辑 (自动校准精度与最小名义价值)
+        /// 单笔订单执行逻辑 (自动校准精度与最小名义价值，记录止盈止损位置与毫秒级耗时)
         /// </summary>
         private async Task<OrderResult> ExecuteSingleOrderAsync(OrderRequest req)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
             string cleanSymbol = SanitizeSymbol(req.Symbol);
             if (string.IsNullOrEmpty(cleanSymbol))
             {
+                sw.Stop();
                 return new OrderResult
                 {
                     Symbol = req.Symbol,
                     Success = false,
-                    Message = "非法交易对名称"
+                    Message = "非法交易对名称",
+                    ElapsedMs = sw.ElapsedMilliseconds
                 };
             }
 
@@ -338,7 +355,9 @@ namespace WinFormsApp2
             {
                 Symbol = cleanSymbol,
                 Type = req.Type,
-                ExecutedPrice = req.Price
+                ExecutedPrice = req.Price,
+                TakeProfitPrice = req.TakeProfitPrice,
+                StopLossPrice = req.StopLossPrice
             };
 
             int targetLeverage = Leverage;
@@ -347,15 +366,21 @@ namespace WinFormsApp2
             decimal quantityUsdt = req.QuantityUsdt > 0 ? req.QuantityUsdt : OrderQuantityUsdt;
             decimal qty = CalculateValidQuantity(cleanSymbol, req.Price, quantityUsdt, effectiveLeverage, out decimal effectiveNotional);
 
+            string tpSlLog = (req.TakeProfitPrice > 0 || req.StopLossPrice > 0)
+                ? $" | 🎯 止盈: {req.TakeProfitPrice} | 🛡 止损: {req.StopLossPrice}"
+                : "";
+
             if (!IsLiveTrading || _restClient == null)
             {
                 // A. 本地模拟下单逻辑
+                sw.Stop();
+                res.ElapsedMs = sw.ElapsedMilliseconds;
                 res.Success = true;
                 res.OrderId = $"SIM-{DateTime.Now.Ticks}";
                 res.ExecutedQuantity = qty;
                 res.Message = "本地模拟订单匹配成功";
 
-                Log($"🟢 [模拟下单完成] #{req.TradeId} [{cleanSymbol}] [{req.Type}] 成交价: {res.ExecutedPrice:F2} | 数量: {res.ExecutedQuantity} | 杠杆: {effectiveLeverage}x | 额度: {effectiveNotional:F1} USDT");
+                Log($"🟢 [模拟下单完成] #{req.TradeId} [{cleanSymbol}] [{req.Type}] 成交价: {res.ExecutedPrice} | 数量: {res.ExecutedQuantity} | 杠杆: {effectiveLeverage}x | 额度: {effectiveNotional:F1} USDT{tpSlLog} | ⚡ 耗时: {res.ElapsedMs}ms");
                 return res;
             }
 
@@ -367,13 +392,16 @@ namespace WinFormsApp2
 
                 OrderSide side = (req.Type == OrderType.BuyLongOpen || req.Type == OrderType.CloseShort) ? OrderSide.Buy : OrderSide.Sell;
 
-                Log($"▶ [币安实盘下单中] [{cleanSymbol}] [{req.Type}] Side: {side} | 数量: {qty} | 杠杆: {effectiveLeverage}x | 对应金额: {effectiveNotional:F1} USDT...");
+                Log($"▶ [币安实盘下单中] [{cleanSymbol}] [{req.Type}] Side: {side} | 数量: {qty} | 杠杆: {effectiveLeverage}x | 对应金额: {effectiveNotional:F1} USDT{tpSlLog}...");
 
                 var orderResult = await _restClient.UsdFuturesApi.Trading.PlaceOrderAsync(
                     symbol: cleanSymbol,
                     side: side,
                     type: FuturesOrderType.Market,
                     quantity: qty).ConfigureAwait(false);
+
+                sw.Stop();
+                res.ElapsedMs = sw.ElapsedMilliseconds;
 
                 if (orderResult.Success)
                 {
@@ -383,20 +411,22 @@ namespace WinFormsApp2
                     res.ExecutedQuantity = orderResult.Data.Quantity;
                     res.Message = "币安实盘订单成交成功";
 
-                    Log($"✅ [币安实盘成交成功!] 单号 #{res.OrderId} [{cleanSymbol}] [{req.Type}] 均价: {res.ExecutedPrice} | 数量: {res.ExecutedQuantity}");
+                    Log($"✅ [币安实盘成交成功!] 单号 #{res.OrderId} [{cleanSymbol}] [{req.Type}] 均价: {res.ExecutedPrice} | 数量: {res.ExecutedQuantity}{tpSlLog} | ⚡ 耗时: {res.ElapsedMs}ms");
                 }
                 else
                 {
                     res.Success = false;
                     res.Message = orderResult.Error?.Message ?? "未知下单错误";
-                    Log($"❌ [币安实盘下单拒绝] [{cleanSymbol}] [{req.Type}] 原因: {res.Message}");
+                    Log($"❌ [币安实盘下单拒绝] [{cleanSymbol}] [{req.Type}] 原因: {res.Message} | ⚡ 耗时: {res.ElapsedMs}ms");
                 }
             }
             catch (Exception ex)
             {
+                sw.Stop();
+                res.ElapsedMs = sw.ElapsedMilliseconds;
                 res.Success = false;
                 res.Message = ex.Message;
-                Log($"❌ [币安实盘下单失败] [{cleanSymbol}] 异常: {ex.Message}");
+                Log($"❌ [币安实盘下单失败] [{cleanSymbol}] 异常: {ex.Message} | ⚡ 耗时: {res.ElapsedMs}ms");
             }
 
             return res;
