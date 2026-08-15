@@ -51,5 +51,12 @@ namespace WinFormsApp2
             if (!Directory.Exists(path)) Directory.CreateDirectory(path);
             return path;
         }
+
+        public static string GetLogsPath()
+        {
+            string path = Path.Combine(GetRootPath(), "logs");
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            return path;
+        }
     }
 }

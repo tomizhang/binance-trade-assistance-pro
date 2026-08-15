@@ -25,6 +25,13 @@ namespace WinFormsApp2
         public DateTime EntryTime { get; set; }
         public int EntryKlineIndex { get; set; }
 
+        // 详细 Tick 与 K 线时间属性 (用于策略开仓详细日志输出与异步落盘)
+        public DateTime EntryTickTime { get; set; }
+        public decimal EntryTickPrice { get; set; }
+        public DateTime EntryKlineOpenTime { get; set; }
+        public DateTime EntryKlineCloseTime { get; set; }
+        public decimal EntryTrendLinePrice { get; set; }
+
         public decimal ExitPrice { get; set; }
         public DateTime ExitTime { get; set; }
         public int ExitKlineIndex { get; set; }
@@ -61,8 +68,8 @@ namespace WinFormsApp2
         private bool _isPenetrated = false;
         private int _ticksSincePenetration = 0;
 
-        public event Action<TradeRecord> OnTradeClosed;
-        public event Action<TradeRecord> OnTradeOpened;
+        public event Action<TradeRecord>? OnTradeClosed;
+        public event Action<TradeRecord>? OnTradeOpened;
 
         private int _winCount = 0;
         private decimal _totalProfitPct = 0m;
@@ -122,10 +129,10 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 策略核心 Tick 级实时处理引擎 (接收当前 K 线索引)
+        /// 策略核心 Tick 级实时处理引擎 (接收当前 Tick, K 线索引, 趋势线列表与当前 K 线时间信息)
         /// 规则: Tick 值穿过趋势线后，在后续 3 个 Tick 内回到趋势线之上/之下则开仓
         /// </summary>
-        public void ProcessTick(Tick tick, int currentIndex, List<TrendLine> activeTrendLines)
+        public void ProcessTick(Tick tick, int currentIndex, List<TrendLine> activeTrendLines, Kline currentKline)
         {
             if (!Params.Enabled || activeTrendLines == null || activeTrendLines.Count == 0)
                 return;
@@ -151,7 +158,7 @@ namespace WinFormsApp2
                 {
                     if (price > linePrice && _ticksSincePenetration <= 5)
                     {
-                        OpenPosition(PositionType.Long, price, tick.Time, currentIndex);
+                        OpenPosition(PositionType.Long, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice);
                         ResetPenetrationState();
                         return;
                     }
@@ -161,7 +168,7 @@ namespace WinFormsApp2
                 {
                     if (price < linePrice && _ticksSincePenetration <= 5)
                     {
-                        OpenPosition(PositionType.Short, price, tick.Time, currentIndex);
+                        OpenPosition(PositionType.Short, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice);
                         ResetPenetrationState();
                         return;
                     }
@@ -206,7 +213,14 @@ namespace WinFormsApp2
             }
         }
 
-        private void OpenPosition(PositionType pos, decimal price, DateTime time, int klineIndex)
+        private void OpenPosition(
+            PositionType pos,
+            decimal price,
+            DateTime time,
+            int klineIndex,
+            DateTime klineOpenTime,
+            DateTime klineCloseTime,
+            decimal trendLinePrice)
         {
             CurrentPosition = pos;
             CurrentEntryPrice = price;
@@ -219,7 +233,12 @@ namespace WinFormsApp2
                 Position = pos,
                 EntryPrice = price,
                 EntryTime = time,
-                EntryKlineIndex = klineIndex
+                EntryKlineIndex = klineIndex,
+                EntryTickTime = time,
+                EntryTickPrice = price,
+                EntryKlineOpenTime = klineOpenTime,
+                EntryKlineCloseTime = klineCloseTime,
+                EntryTrendLinePrice = trendLinePrice
             };
 
             OnTradeOpened?.Invoke(trade);
@@ -256,6 +275,5 @@ namespace WinFormsApp2
                 }
             }
         }
-
     }
 }

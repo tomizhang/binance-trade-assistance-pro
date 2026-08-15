@@ -201,16 +201,26 @@ namespace WinFormsApp2
         {
             _strategy.OnTradeOpened += trade =>
             {
-                string posStr = trade.Position == PositionType.Long ? "多单 (BUY LONG)" : "空单 (SELL SHORT)";
-                EnqueueLog($"⚡ [策略开仓 #{trade.Id}] {posStr} | 价格: {trade.EntryPrice} | 时间: {trade.EntryTime:HH:mm:ss.fff}");
+                string posStr = trade.Position == PositionType.Long ? "[买入做多 BUY LONG]" : "[卖出做空 SELL SHORT]";
+                string openLog = $"[策略开仓信号] #{trade.Id} {posStr}\r\n" +
+                                 $"  └─ Tick 成交价格: {trade.EntryTickPrice}\r\n" +
+                                 $"  └─ Tick 成交时间: {trade.EntryTickTime:yyyy-MM-dd HH:mm:ss.fff}\r\n" +
+                                 $"  └─ 归属 K线时间: {trade.EntryKlineOpenTime:yyyy-MM-dd HH:mm:ss} ~ {trade.EntryKlineCloseTime:yyyy-MM-dd HH:mm:ss} (帧索引: #{trade.EntryKlineIndex})\r\n" +
+                                 $"  └─ 趋势线关键价格: {trade.EntryTrendLinePrice:F2}";
+                EnqueueLog(openLog);
                 _needStrategyStatsUpdate = true;
                 _needChartRefresh = true;
             };
 
             _strategy.OnTradeClosed += trade =>
             {
-                string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit ? "🎯 止盈 (TP +1.5%)" : "🛑 止损 (SL -0.8%)";
-                EnqueueLog($"🏁 [策略平仓 #{trade.Id}] {trade.Position} | {reasonStr} | 价格: {trade.ExitPrice} | 盈亏: {trade.ProfitPct:+0.00;-0.00;0.00}%");
+                string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit ? "[止盈平仓 TAKE PROFIT (+1.5%)]" : "[止损平仓 STOP LOSS (-0.8%)]";
+                string closeLog = $"[策略平仓信号] #{trade.Id} {reasonStr}\r\n" +
+                                  $"  └─ 平仓离场价格: {trade.ExitPrice}\r\n" +
+                                  $"  └─ 平仓离场时间: {trade.ExitTime:yyyy-MM-dd HH:mm:ss.fff}\r\n" +
+                                  $"  └─ 最终结算收益: {trade.ProfitPct:+0.00;-0.00;0.00}%\r\n" +
+                                  $"  └─ 持仓开仓时间: {trade.EntryTime:yyyy-MM-dd HH:mm:ss.fff}";
+                EnqueueLog(closeLog);
                 _needStrategyStatsUpdate = true;
                 _needChartRefresh = true;
             };
@@ -284,6 +294,9 @@ namespace WinFormsApp2
         {
             string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
             _logBufferQueue.Enqueue($"[{timestamp}] {message}");
+
+            // 自动异步将所有运行与策略事件日志落盘存入本地文件 (Config.TickDataRoot/logs)
+            Logger.Log(message);
         }
 
         public void AppendLog(string message)
@@ -722,7 +735,15 @@ namespace WinFormsApp2
             // 0 锁，0 跨线程 UI 锁，0 内存分配，常数级 O(1) 极致流畅推演！
             if (_isStrategyEnabled && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
             {
-                _strategy.ProcessTick(tick, _currentKlineIndex, _currentActiveTrendLines);
+                Kline currentKline = default;
+                lock (_replayKlines)
+                {
+                    if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
+                    {
+                        currentKline = _replayKlines[_currentKlineIndex];
+                    }
+                }
+                _strategy.ProcessTick(tick, _currentKlineIndex, _currentActiveTrendLines, currentKline);
             }
         }
 

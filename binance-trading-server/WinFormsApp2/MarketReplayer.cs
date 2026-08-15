@@ -209,7 +209,7 @@ namespace WinFormsApp2
                 }
 
                 _lastPushedTickPrice = tick.LastPrice;
-                //OnTickPushed?.Invoke(tick);
+                OnTickPushed?.Invoke(tick);
                 scanIndex++;
             }
         }
