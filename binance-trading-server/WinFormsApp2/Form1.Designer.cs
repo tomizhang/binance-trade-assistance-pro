@@ -35,6 +35,7 @@ namespace WinFormsApp2
             rtbLog = new RichTextBox();
             panelRight = new Panel();
             grpActions = new GroupBox();
+            btnLiveMode = new Button();
             btnClearLog = new Button();
             btnStop = new Button();
             btnStepForward = new Button();
@@ -459,6 +460,7 @@ namespace WinFormsApp2
             // 
             // grpActions
             // 
+            grpActions.Controls.Add(btnLiveMode);
             grpActions.Controls.Add(btnClearLog);
             grpActions.Controls.Add(btnStop);
             grpActions.Controls.Add(btnStepForward);
@@ -468,10 +470,22 @@ namespace WinFormsApp2
             grpActions.Dock = DockStyle.Top;
             grpActions.Location = new Point(8, 643);
             grpActions.Name = "grpActions";
-            grpActions.Size = new Size(304, 215);
+            grpActions.Size = new Size(304, 245);
             grpActions.TabIndex = 2;
             grpActions.TabStop = false;
             grpActions.Text = "控制面板 (Controls)";
+            // 
+            // btnLiveMode
+            // 
+            btnLiveMode.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point);
+            btnLiveMode.ForeColor = Color.DarkGreen;
+            btnLiveMode.Location = new Point(16, 200);
+            btnLiveMode.Name = "btnLiveMode";
+            btnLiveMode.Size = new Size(268, 32);
+            btnLiveMode.TabIndex = 6;
+            btnLiveMode.Text = "📡 启动币安实盘行情 (Live Stream)";
+            btnLiveMode.UseVisualStyleBackColor = true;
+            btnLiveMode.Click += btnLiveMode_Click;
             // 
             // btnStart
             // 
@@ -607,5 +621,6 @@ namespace WinFormsApp2
         private Button btnStepForward;
         private Button btnStop;
         private Button btnClearLog;
+        private Button btnLiveMode;
     }
 }

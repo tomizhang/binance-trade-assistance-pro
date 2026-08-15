@@ -29,6 +29,7 @@ namespace WinFormsApp2
 
         private static readonly double[] _tradeXBuffer = new double[1];
         private static readonly double[] _tradeYBuffer = new double[1];
+        private readonly LiveFeedManager _liveFeedManager = new LiveFeedManager();
 
         public Form1()
         {
@@ -36,9 +37,22 @@ namespace WinFormsApp2
             InitControls();
             InitReplayer();
             InitStrategy();
+            InitLiveFeed();
             InitUiTimer();
             InitializePlot();
-            AppendLog("系统初始化完成。预设多币种列表与 API 预热配置加载成功。");
+            AppendLog("系统初始化完成。预设多币种列表、实盘接口与 API 预热配置加载成功。");
+        }
+
+        private void InitLiveFeed()
+        {
+            _liveFeedManager.OnLog += AppendLog;
+            _liveFeedManager.OnStatusChanged += status =>
+            {
+                _chartTitle = status;
+                _needChartRefresh = true;
+            };
+            _liveFeedManager.OnLiveKlinePushed += LiveFeed_OnKlinePushed;
+            _liveFeedManager.OnLiveTickPushed += LiveFeed_OnTickPushed;
         }
 
         private void InitControls()
@@ -801,6 +815,119 @@ namespace WinFormsApp2
         private void Replayer_OnPlaybackCompleted()
         {
             EnqueueLog("🎉 行情回放播放完毕！");
+        }
+
+        #endregion
+
+        #region 币安实盘 WebSocket + API 接口对接 (Binance Real-Time Live Feed)
+
+        private async void btnLiveMode_Click(object sender, EventArgs e)
+        {
+            if (_liveFeedManager.IsRunning)
+            {
+                await _liveFeedManager.StopLiveFeedAsync();
+                btnLiveMode.Text = "📡 启动币安实盘行情 (Live Stream)";
+                btnLiveMode.ForeColor = Color.DarkGreen;
+                AppendLog("⏹ 实盘行情模式已停止。");
+                return;
+            }
+
+            // 1. 停止当前历史回演
+            _replayer.StopPlayback();
+
+            string symbol = cmbSymbol.Text.Trim().ToUpper();
+            if (string.IsNullOrEmpty(symbol))
+            {
+                MessageBox.Show("请先选择或输入交易对名称！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            dynamic selectedIntervalObj = cmbKlineInterval.SelectedItem;
+            KlineInterval interval = (KlineInterval)selectedIntervalObj.Value;
+
+            _currentSymbol = symbol;
+            _strategy.Reset();
+            UpdateStrategyStatsUI();
+
+            btnLiveMode.Enabled = false;
+            try
+            {
+                // 2. 优先从币安 API 在线预加载 1000 根最新实盘 K 线建立历史高低点与趋势线基线
+                AppendLog($"[实盘预处理] 正在在线从币安 API 获取 [{symbol}] [{interval}] 最新 1000 根 K 线建立历史基线...");
+                var initialKlines = await DataHelper.FetchKlinesFromApiAsync(symbol, interval, limit: 1000);
+
+                lock (_replayKlines)
+                {
+                    _replayKlines.Clear();
+                    if (initialKlines != null && initialKlines.Length > 0)
+                    {
+                        _replayKlines.AddRange(initialKlines);
+                        _currentKlineIndex = _replayKlines.Count - 1;
+                    }
+                }
+
+                _warmupKlinesBuffer = Array.Empty<Kline>();
+                UpdateDisplayPivotsAndTrendLines();
+                _needChartRefresh = true;
+
+                // 3. 建立并启动 0 延迟币安 WebSocket 实盘流
+                await _liveFeedManager.StartLiveFeedAsync(symbol, interval);
+
+                btnLiveMode.Text = "🛑 停止币安实盘行情 (Stop Live)";
+                btnLiveMode.ForeColor = Color.Red;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ 启动实盘行情失败: {ex.Message}");
+                MessageBox.Show($"启动实盘行情失败: {ex.Message}", "实盘错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnLiveMode.Enabled = true;
+            }
+        }
+
+        private void LiveFeed_OnKlinePushed(Kline liveKline)
+        {
+            lock (_replayKlines)
+            {
+                if (_replayKlines.Count > 0 && _replayKlines.Last().OpenTime == liveKline.OpenTime)
+                {
+                    _replayKlines[_replayKlines.Count - 1] = liveKline; // 实时刷新当前最新未完结 K 线柱
+                }
+                else
+                {
+                    _replayKlines.Add(liveKline); // 新 K 线柱完结生成
+                    if (_replayKlines.Count > 500)
+                    {
+                        _replayKlines.RemoveAt(0);
+                    }
+                }
+                _currentKlineIndex = _replayKlines.Count - 1;
+            }
+
+            UpdateDisplayPivotsAndTrendLines();
+            _chartTitle = $"🟢 币安 [{_liveFeedManager.CurrentSymbol}] 实盘行情推送 - {liveKline.CloseTime:yyyy-MM-dd HH:mm:ss}";
+            _needChartRefresh = true;
+        }
+
+        private void LiveFeed_OnTickPushed(Tick tick)
+        {
+            // 0 延迟直投实盘 Tick 进策略引擎
+            if (_isStrategyEnabled && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
+            {
+                Kline currentKline = default;
+                int currentSampleIndex = 0;
+                lock (_replayKlines)
+                {
+                    if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
+                    {
+                        currentKline = _replayKlines[_currentKlineIndex];
+                    }
+                    currentSampleIndex = Math.Max(0, Math.Min(_combinedHistoryList.Count, 500) - 1);
+                }
+                _strategy.ProcessTick(tick, currentSampleIndex, _currentActiveTrendLines, currentKline);
+            }
         }
 
         #endregion
