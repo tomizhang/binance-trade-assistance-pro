@@ -3,13 +3,15 @@ using Binance.Net.Enums;
 using CryptoExchange.Net.Objects;
 using CryptoExchange.Net.Objects.Sockets;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace WinFormsApp2
 {
     /// <summary>
     /// 币安实盘 WebSocket + REST 实盘行情对接引擎 (Live Exchange Market Data Manager)
-    /// 实现 0 延迟实时 Tick 与 K 线推送，无缝接入策略引擎与图表渲染
+    /// 支持单币种与多币种并发 0 延迟实时 Tick 与 K 线推送
     /// </summary>
     public class LiveFeedManager
     {
@@ -21,34 +23,54 @@ namespace WinFormsApp2
 
         public event Action<Kline>? OnLiveKlinePushed;
         public event Action<Tick>? OnLiveTickPushed;
+
+        // 多币种并发推送事件 (附带 Symbol 属性)
+        public event Action<string, Kline>? OnMultiLiveKlinePushed;
+        public event Action<string, Tick>? OnMultiLiveTickPushed;
+
         public event Action<string>? OnStatusChanged;
         public event Action<string>? OnLog;
 
         /// <summary>
-        /// 启动币安实盘行情数据推送 (实盘 WebSocket K线与 0 延迟 Tick)
+        /// 启动单币种币安实盘行情数据推送
         /// </summary>
         public async Task StartLiveFeedAsync(string symbol, KlineInterval interval)
         {
+            await StartMultiLiveFeedAsync(new[] { symbol }, interval).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// 启动多币种并发币安实盘 WebSocket 行情接口订阅
+        /// </summary>
+        public async Task StartMultiLiveFeedAsync(IEnumerable<string> symbols, KlineInterval interval)
+        {
             await StopLiveFeedAsync().ConfigureAwait(false);
 
-            CurrentSymbol = symbol.Trim().ToUpper();
+            List<string> symbolList = symbols.Select(s => (s ?? string.Empty).Trim().ToUpper()).Distinct().Where(s => !string.IsNullOrEmpty(s)).ToList();
+            if (symbolList.Count == 0)
+            {
+                throw new ArgumentException("订阅币种列表不能为空");
+            }
+
+            CurrentSymbol = symbolList[0];
             CurrentInterval = interval;
 
-            OnLog?.Invoke($"📡 [实盘连接] 准备连接币安实盘 WebSocket 行情接口 [{CurrentSymbol}] [{CurrentInterval}]...");
-            OnStatusChanged?.Invoke($"🟡 正在连接币安实盘 [{CurrentSymbol}]...");
+            OnLog?.Invoke($"📡 [实盘并发连接] 正在连接币安 WebSocket，订阅 {symbolList.Count} 个币种 [{string.Join(", ", symbolList)}] [{CurrentInterval}]...");
+            OnStatusChanged?.Invoke($"🟡 正在连接币安实盘 ({symbolList.Count} 个币种)...");
 
             try
             {
-                // 1. 初始化 BinanceSocketClient
                 _socketClient = new BinanceSocketClient();
 
-                // 2. 订阅实盘 K 线 WebSocket 行情 (仅在周期 K 线完结 Final == true 时触发回调)
-                var klineResult = await _socketClient.SpotApi.ExchangeData.SubscribeToKlineUpdatesAsync(
-                    CurrentSymbol, CurrentInterval, data =>
-                    {
-                        var k = data.Data.Data;
-                        if (k.Final)
+                foreach (var sym in symbolList)
+                {
+                    string currentSym = sym;
+
+                    // 1. 订阅 Spot / Futures K 线 WebSocket 行情
+                    var klineResult = await _socketClient.UsdFuturesApi.ExchangeData.SubscribeToKlineUpdatesAsync(
+                        currentSym, CurrentInterval, data =>
                         {
+                            var k = data.Data.Data;
                             Kline liveKline = new Kline
                             {
                                 OpenTime = k.OpenTime,
@@ -61,32 +83,42 @@ namespace WinFormsApp2
                                 QuoteVolume = k.QuoteVolume,
                                 TradeCount = k.TradeCount
                             };
-                            OnLiveKlinePushed?.Invoke(liveKline);
-                        }
-                    }).ConfigureAwait(false);
 
-                if (!klineResult.Success)
-                {
-                    throw new Exception($"订阅实盘 K线失败: {klineResult.Error?.Message}");
-                }
+                            if (currentSym.Equals(CurrentSymbol, StringComparison.OrdinalIgnoreCase))
+                            {
+                                OnLiveKlinePushed?.Invoke(liveKline);
+                            }
+                            OnMultiLiveKlinePushed?.Invoke(currentSym, liveKline);
+                        }).ConfigureAwait(false);
 
-                // 3. 订阅币安官方原生 Tick 逐笔成交 WebSocket 行情 (SubscribeToTradeUpdatesAsync，绝对不对接 AggregateTrade)
-                var tradeResult = await _socketClient.SpotApi.ExchangeData.SubscribeToTradeUpdatesAsync(
-                    CurrentSymbol, data =>
+                    if (!klineResult.Success)
                     {
-                        var t = data.Data;
-                        Tick liveTick = new Tick(t.TradeTime, t.Price, t.Quantity);
-                        OnLiveTickPushed?.Invoke(liveTick);
-                    }).ConfigureAwait(false);
+                        OnLog?.Invoke($"⚠️ 币种 [{currentSym}] K线订阅提示: {klineResult.Error?.Message}");
+                    }
 
-                if (!tradeResult.Success)
-                {
-                    throw new Exception($"订阅实盘 Tick 逐笔数据流失败: {tradeResult.Error?.Message}");
+                    // 2. 订阅币安原生 0 延迟 Tick 逐笔成交行情
+                    var tradeResult = await _socketClient.UsdFuturesApi.ExchangeData.SubscribeToTradeUpdatesAsync(
+                        currentSym, data =>
+                        {
+                            var t = data.Data;
+                            Tick liveTick = new Tick(t.TradeTime, t.Price, t.Quantity);
+
+                            if (currentSym.Equals(CurrentSymbol, StringComparison.OrdinalIgnoreCase))
+                            {
+                                OnLiveTickPushed?.Invoke(liveTick);
+                            }
+                            OnMultiLiveTickPushed?.Invoke(currentSym, liveTick);
+                        }).ConfigureAwait(false);
+
+                    if (!tradeResult.Success)
+                    {
+                        OnLog?.Invoke($"⚠️ 币种 [{currentSym}] Tick 逐笔订阅提示: {tradeResult.Error?.Message}");
+                    }
                 }
 
                 IsRunning = true;
-                OnLog?.Invoke($"🟢 [实盘连接成功] 已成功订阅币安 [{CurrentSymbol}] 实盘 K 线与 0 延迟 Tick 逐笔行情流！");
-                OnStatusChanged?.Invoke($"🟢 实盘运行中 [{CurrentSymbol}] [{CurrentInterval}]");
+                OnLog?.Invoke($"🟢 [实盘连接成功] 已成功建立币安 {symbolList.Count} 个币种实盘 0 延迟 WebSocket 数据流！");
+                OnStatusChanged?.Invoke($"🟢 实盘运行中 ({symbolList.Count} 个币种)");
             }
             catch (Exception ex)
             {

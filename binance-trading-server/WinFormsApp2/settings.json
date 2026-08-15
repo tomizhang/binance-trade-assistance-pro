@@ -19,28 +19,28 @@
     {
       "Symbol": "BTCUSDT",
       "KlineInterval": "1m",
-      "Leverage": 20,
+      "Leverage": -1,
       "OrderQuantityUsdt": 1.0,
       "Enabled": true
     },
     {
       "Symbol": "ETHUSDT",
       "KlineInterval": "5m",
-      "Leverage": 15,
+      "Leverage": -1,
       "OrderQuantityUsdt": 1.0,
       "Enabled": true
     },
     {
       "Symbol": "SOLUSDT",
       "KlineInterval": "15m",
-      "Leverage": 10,
+      "Leverage": -1,
       "OrderQuantityUsdt": 1.0,
       "Enabled": true
     },
     {
       "Symbol": "BNBUSDT",
       "KlineInterval": "1h",
-      "Leverage": 10,
+      "Leverage": -1,
       "OrderQuantityUsdt": 1.0,
       "Enabled": true
     }
