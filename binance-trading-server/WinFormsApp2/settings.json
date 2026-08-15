@@ -1,0 +1,48 @@
+{
+  "IsLiveTrading": false,
+  "ApiKey": "YOUR_BINANCE_API_KEY",
+  "ApiSecret": "YOUR_BINANCE_API_SECRET",
+  "DefaultOrderQuantityUsdt": 1.0,
+  "StartDate": "2026-08-14",
+  "EndDate": "2026-08-15",
+  "PlaybackIntervalMs": 500,
+  "EnableTickPush": true,
+  "AutoFitPrice": true,
+  "HighlightHighVolume": true,
+  "EnableStrategy": true,
+  "EnableWarmup": true,
+  "MinLineX1X2": 40,
+  "MinLineAge": 80,
+  "TakeProfitPct": 1.5,
+  "StopLossPct": 0.8,
+  "SymbolConfigs": [
+    {
+      "Symbol": "BTCUSDT",
+      "KlineInterval": "1m",
+      "Leverage": 20,
+      "OrderQuantityUsdt": 1.0,
+      "Enabled": true
+    },
+    {
+      "Symbol": "ETHUSDT",
+      "KlineInterval": "5m",
+      "Leverage": 15,
+      "OrderQuantityUsdt": 1.0,
+      "Enabled": true
+    },
+    {
+      "Symbol": "SOLUSDT",
+      "KlineInterval": "15m",
+      "Leverage": 10,
+      "OrderQuantityUsdt": 1.0,
+      "Enabled": true
+    },
+    {
+      "Symbol": "BNBUSDT",
+      "KlineInterval": "1h",
+      "Leverage": 10,
+      "OrderQuantityUsdt": 1.0,
+      "Enabled": true
+    }
+  ]
+}
