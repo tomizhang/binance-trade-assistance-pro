@@ -302,13 +302,17 @@ namespace WinFormsApp2
                 if (fullArray.Length > 0)
                 {
                     const int maxDisplayKlines = 500;
-                    Kline[] klineArray = fullArray.Length > maxDisplayKlines 
-                        ? fullArray.Skip(fullArray.Length - maxDisplayKlines).ToArray() 
-                        : fullArray;
+                    int displayCount = Math.Min(fullArray.Length, maxDisplayKlines);
+                    Kline[] klineArray = new Kline[displayCount];
+                    Array.Copy(fullArray, fullArray.Length - displayCount, klineArray, 0, displayCount);
 
                     int startIndexInFull = fullArray.Length - klineArray.Length;
 
-                    double[] currentPrices = klineArray.Select(k => (double)k.ClosePrice).ToArray();
+                    double[] currentPrices = new double[klineArray.Length];
+                    for (int i = 0; i < klineArray.Length; i++)
+                    {
+                        currentPrices[i] = (double)klineArray[i].ClosePrice;
+                    }
 
                     formsPlot1.Plot.Clear();
                     formsPlot1.Plot.Grid.IsVisible = false;
@@ -322,24 +326,38 @@ namespace WinFormsApp2
                     {
                         var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 3, rightBars: 3);
 
-                        // 相对高点 (HighPrice, 红色)
-                        var highs = pivots.Where(p => p.Type == PivotType.High).ToList();
-                        if (highs.Count > 0)
+                        List<double> highXs = new List<double>();
+                        List<double> highYs = new List<double>();
+                        List<double> lowXs = new List<double>();
+                        List<double> lowYs = new List<double>();
+
+                        for (int i = 0; i < pivots.Count; i++)
                         {
-                            double[] highXs = highs.Select(p => (double)p.Index).ToArray();
-                            double[] highYs = highs.Select(p => (double)p.Price).ToArray();
-                            var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs, highYs);
+                            var p = pivots[i];
+                            if (p.Type == PivotType.High)
+                            {
+                                highXs.Add(p.Index);
+                                highYs.Add((double)p.Price);
+                            }
+                            else if (p.Type == PivotType.Low)
+                            {
+                                lowXs.Add(p.Index);
+                                lowYs.Add((double)p.Price);
+                            }
+                        }
+
+                        // 相对高点 (HighPrice, 红色)
+                        if (highXs.Count > 0)
+                        {
+                            var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs.ToArray(), highYs.ToArray());
                             spHigh.Color = ScottPlot.Colors.Red;
                             spHigh.MarkerSize = 3;
                         }
 
                         // 相对低点 (LowPrice, 绿色)
-                        var lows = pivots.Where(p => p.Type == PivotType.Low).ToList();
-                        if (lows.Count > 0)
+                        if (lowXs.Count > 0)
                         {
-                            double[] lowXs = lows.Select(p => (double)p.Index).ToArray();
-                            double[] lowYs = lows.Select(p => (double)p.Price).ToArray();
-                            var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs, lowYs);
+                            var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs.ToArray(), lowYs.ToArray());
                             spLow.Color = ScottPlot.Colors.LimeGreen;
                             spLow.MarkerSize = 3;
                         }
@@ -347,33 +365,37 @@ namespace WinFormsApp2
                         // C. 绘制延伸趋势线 (超淡半透明红/绿)
                         var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(klineArray, pivots, filterPenetrated: true);
                         
-                        var visibleTrendLines = trendLines.Where(tl => 
-                            tl.X1 >= 0 && tl.X1 < klineArray.Length &&
-                            tl.X2 >= 0 && tl.X2 < klineArray.Length
-                        );
-
-                        var displayLines = visibleTrendLines.OrderByDescending(tl => tl.LineX1X2);
-
                         ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
                         ScottPlot.Color extraLightGreen = ScottPlot.Color.FromHex("#4580FF80"); // 超淡柔和绿
 
-                        foreach (var tl in displayLines)
+                        for (int i = 0; i < trendLines.Count; i++)
                         {
-                            double x1 = tl.X1;
-                            double y1 = (double)tl.Y1;
-                            double x2 = klineArray.Length - 1;
-                            double y2 = (double)tl.GetPriceAt((int)x2);
+                            var tl = trendLines[i];
 
-                            var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
-                            linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
-                            linePlot.LineWidth = 0.8f;
+                            // 过滤规则: 若趋势线 X 锚点位不再当前图表中显示，则该趋势线也不再显示
+                            if (tl.X1 >= 0 && tl.X1 < klineArray.Length && tl.X2 >= 0 && tl.X2 < klineArray.Length)
+                            {
+                                double x1 = tl.X1;
+                                double y1 = (double)tl.Y1;
+                                double x2 = klineArray.Length - 1;
+                                double y2 = (double)tl.GetPriceAt((int)x2);
+
+                                var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
+                                linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
+                                linePlot.LineWidth = 0.8f;
+                            }
                         }
                     }
 
-                    // D. 高成交量 K 线标记标注 (金黄色)
+                    // D. 高成交量 K 线标记标注 (金黄色) - 原生 for 循环计算均值与门槛
                     if (chkHighlightHighVolume.Checked && klineArray.Length > 0)
                     {
-                        double avgVol = (double)klineArray.Average(k => k.Volume);
+                        double sumVol = 0;
+                        for (int i = 0; i < klineArray.Length; i++)
+                        {
+                            sumVol += (double)klineArray[i].Volume;
+                        }
+                        double avgVol = sumVol / klineArray.Length;
                         double thresholdVol = avgVol * 2.0;
 
                         List<double> volXs = new List<double>();

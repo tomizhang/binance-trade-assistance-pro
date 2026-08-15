@@ -79,7 +79,7 @@ namespace WinFormsApp2
         /// </summary>
         public void ProcessTick(Tick tick, Kline[] currentKlines, List<TrendLine> activeTrendLines)
         {
-            if (!Params.Enabled || currentKlines == null || currentKlines.Length == 0)
+            if (!Params.Enabled || currentKlines == null || currentKlines.Length <100)
                 return;
 
             decimal price = tick.LastPrice;
