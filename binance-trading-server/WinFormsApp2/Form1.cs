@@ -97,8 +97,9 @@ namespace WinFormsApp2
 
         private void InitControls()
         {
-            // 1. 初始化交易对与周期下拉选项 (内置热门主流币种)
+            // 1. 初始化交易对与周期下拉选项 (包含空币种/不显示图表选项)
             cmbSymbol.Items.Clear();
+            cmbSymbol.Items.Add("-- 不显示图表 (NONE) --");
             cmbSymbol.Items.Add("BTCUSDT");
             cmbSymbol.Items.Add("ETHUSDT");
             cmbSymbol.Items.Add("BNBUSDT");
@@ -240,11 +241,28 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 切换图表当前视口渲染币种 (实盘多币种盯盘时支持随时切换观察)
+        /// 切换图表当前视口渲染币种 (支持选择空币种暂停图表渲染，极速释放系统 GPU/CPU 资源)
         /// </summary>
         private void SwitchActiveChartSymbol(string newSymbol)
         {
-            if (string.IsNullOrWhiteSpace(newSymbol)) return;
+            // 空币种 / 不显示图表判断
+            if (string.IsNullOrWhiteSpace(newSymbol) || newSymbol.Contains("不显示") || newSymbol.Contains("NONE") || newSymbol.Contains("无"))
+            {
+                _currentSymbol = "";
+                lock (_replayKlines)
+                {
+                    _replayKlines.Clear();
+                }
+                _currentActivePivots.Clear();
+                _currentActiveTrendLines.Clear();
+                _chartTitle = "⏸ 图表渲染已暂停 (空币种模式 - 0 绘图极速盯盘中)";
+
+                formsPlot1.Plot.Clear();
+                formsPlot1.Refresh();
+                AppendLog("⏸ [图表视角切换] 已切换至空币种 (不显示图表)，UI 重绘与图表渲染已暂停，释放系统资源。");
+                return;
+            }
+
             string cleanSymbol = OrderExecutionQueue.SanitizeSymbol(newSymbol);
             if (string.IsNullOrEmpty(cleanSymbol)) return;
 
@@ -953,13 +971,18 @@ namespace WinFormsApp2
                 symbolConfigs = UserSettings.GetDefaultSymbolConfigs();
             }
 
-            // 更新下拉框选项，列出当前实盘运行的全部币种方便用户点击切换渲染
+            // 更新下拉框选项，列出空币种选项以及当前实盘运行的全部币种方便用户点击切换渲染
             cmbSymbol.Items.Clear();
+            cmbSymbol.Items.Add("-- 不显示图表 (NONE) --");
             foreach (var cfg in symbolConfigs)
             {
                 cmbSymbol.Items.Add(cfg.Symbol);
             }
-            if (cmbSymbol.Items.Count > 0)
+            if (cmbSymbol.Items.Count > 1)
+            {
+                cmbSymbol.SelectedIndex = 1;
+            }
+            else
             {
                 cmbSymbol.SelectedIndex = 0;
             }
