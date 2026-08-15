@@ -79,6 +79,7 @@ namespace WinFormsApp2
         private static readonly ConcurrentDictionary<string, bool> _setLeverageDoneSymbols = new ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
         private BinanceRestClient? _restClient;
+        private BinanceTradeWsService? _wsTradeService;
 
         public bool IsLiveTrading { get; set; } = false;
         public string ApiKey { get; set; } = string.Empty;
@@ -109,7 +110,14 @@ namespace WinFormsApp2
                 {
                     options.ApiCredentials = new Binance.Net.BinanceCredentials(ApiKey, ApiSecret);
                 });
-                Log($"🟢 [实盘 API 初始化成功] 当前模式: 币安真实合约下单 | 杠杆配置: {(Leverage <= 0 ? "-1 (自动使用币安该币种最大杠杆)" : Leverage + "x")} | 单笔默认资金: {OrderQuantityUsdt} USDT");
+
+                // 初始化并启动 0 延迟 WebSocket 私有交易服务 (wss://ws-fapi.binance.com/ws-fapi/v1)
+                _wsTradeService?.Dispose();
+                _wsTradeService = new BinanceTradeWsService(ApiKey, ApiSecret);
+                _wsTradeService.OnLog += Log;
+                _ = _wsTradeService.StartAsync();
+
+                Log($"🟢 [实盘 API & WS 初始化成功] 当前模式: 币安 0 延迟 WebSocket 专线下单 | 杠杆配置: {(Leverage <= 0 ? "-1 (自动使用币安该币种最大杠杆)" : Leverage + "x")} | 单笔默认资金: {OrderQuantityUsdt} USDT");
 
                 // 后台异步同步 ExchangeInfo 精度库、/fapi/v1/leverageBracket 最大杠杆表 与 /fapi/v2/account 账号杠杆信息
                 _ = FetchExchangeInfoRulesAsync();
@@ -118,6 +126,8 @@ namespace WinFormsApp2
             }
             else
             {
+                _wsTradeService?.Dispose();
+                _wsTradeService = null;
                 _restClient?.Dispose();
                 _restClient = null;
                 Log($"🟡 [模拟下单初始化成功] 当前模式: 本地挂单匹配 (Simulated) | 杠杆配置: {(Leverage <= 0 ? "-1 (默认使用最大杠杆)" : Leverage + "x")} | 单笔资金: {OrderQuantityUsdt} USDT");
@@ -384,16 +394,68 @@ namespace WinFormsApp2
                 return res;
             }
 
-            // B. 币安真实 API 下单逻辑 ( USDT-M 合约市价单)
+            // B. 币安真实 API/WS 下单逻辑 (优先 0 延迟 WebSocket 下单专线: wss://ws-fapi.binance.com/ws-fapi/v1)
             try
             {
                 // 1. 一次性校准杠杆 (若已校准或一致自动 0 延迟跳过)
                 await SetLeverageAsync(cleanSymbol, Leverage).ConfigureAwait(false);
 
-                OrderSide side = (req.Type == OrderType.BuyLongOpen || req.Type == OrderType.CloseShort) ? OrderSide.Buy : OrderSide.Sell;
+                string sideStr = (req.Type == OrderType.BuyLongOpen || req.Type == OrderType.CloseShort) ? "BUY" : "SELL";
+                OrderSide side = (sideStr == "BUY") ? OrderSide.Buy : OrderSide.Sell;
 
-                Log($"▶ [币安实盘下单中] [{cleanSymbol}] [{req.Type}] Side: {side} | 数量: {qty} | 杠杆: {effectiveLeverage}x | 对应金额: {effectiveNotional:F1} USDT{tpSlLog}...");
+                Log($"▶ [币安实盘下单中] [{cleanSymbol}] [{req.Type}] Side: {sideStr} | 数量: {qty} | 杠杆: {effectiveLeverage}x | 对应金额: {effectiveNotional:F1} USDT{tpSlLog}...");
 
+                // 2. 优先通过 0 延迟 WebSocket 交易专线发单 (order.place 与 algoOrder.place)
+                if (_wsTradeService != null && _wsTradeService.IsConnected)
+                {
+                    string orderTypeStr = "MARKET";
+                    string wsResponse = await _wsTradeService.PlaceOrderWsAsync(cleanSymbol, sideStr, orderTypeStr, qty).ConfigureAwait(false);
+
+                    sw.Stop();
+                    res.ElapsedMs = sw.ElapsedMilliseconds;
+                    res.Success = true;
+                    res.ExecutedPrice = req.Price;
+                    res.ExecutedQuantity = qty;
+                    res.Message = "币安 WebSocket 实盘订单成交成功";
+
+                    Log($"✅ [币安 WS 实盘成交成功!] [{cleanSymbol}] [{req.Type}] 均价: {res.ExecutedPrice} | 数量: {res.ExecutedQuantity}{tpSlLog} | ⚡ 耗时: {res.ElapsedMs}ms");
+
+                    // 3. 全自动向 WebSocket 专线投递止盈与止损条件单 (algoOrder.place)
+                    if (req.Type == OrderType.BuyLongOpen || req.Type == OrderType.SellShortOpen)
+                    {
+                        if (req.TakeProfitPrice > 0)
+                        {
+                            decimal roundedTp = RoundPriceToPrecision(cleanSymbol, req.TakeProfitPrice);
+                            try
+                            {
+                                await _wsTradeService.SetTakeProfitMarketWsAsync(cleanSymbol, sideStr, qty, roundedTp).ConfigureAwait(false);
+                                Log($"🎯 [币安 WS 止盈挂单成功] [{cleanSymbol}] 止盈价: {roundedTp} | 数量: {qty}");
+                            }
+                            catch (Exception tpEx)
+                            {
+                                Log($"⚠️ [币安 WS 止盈挂单提示] [{cleanSymbol}] {tpEx.Message}");
+                            }
+                        }
+
+                        if (req.StopLossPrice > 0)
+                        {
+                            decimal roundedSl = RoundPriceToPrecision(cleanSymbol, req.StopLossPrice);
+                            try
+                            {
+                                await _wsTradeService.SetStopLossMarketWsAsync(cleanSymbol, sideStr, qty, roundedSl).ConfigureAwait(false);
+                                Log($"🛡 [币安 WS 止损挂单成功] [{cleanSymbol}] 止损价: {roundedSl} | 数量: {qty}");
+                            }
+                            catch (Exception slEx)
+                            {
+                                Log($"⚠️ [币安 WS 止损挂单提示] [{cleanSymbol}] {slEx.Message}");
+                            }
+                        }
+                    }
+
+                    return res;
+                }
+
+                // REST API 降级后备方案
                 var orderResult = await _restClient.UsdFuturesApi.Trading.PlaceOrderAsync(
                     symbol: cleanSymbol,
                     side: side,
@@ -594,6 +656,7 @@ namespace WinFormsApp2
         {
             _cts.Cancel();
             _signal.Dispose();
+            _wsTradeService?.Dispose();
             _restClient?.Dispose();
             _cts.Dispose();
         }
