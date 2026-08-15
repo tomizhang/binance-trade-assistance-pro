@@ -12,47 +12,43 @@ namespace WinFormsApp2
 {
     public partial class Form1 : Form
     {
-        private readonly MarketReplayer _replayer = new MarketReplayer();
-        private readonly List<Kline> _replayKlines = new List<Kline>();
+        private readonly TradingServerEngine _engine = new TradingServerEngine();
         private readonly ConcurrentQueue<string> _logBufferQueue = new ConcurrentQueue<string>();
         private readonly System.Windows.Forms.Timer _uiRenderTimer = new System.Windows.Forms.Timer();
-        private readonly TrendLineStrategy _strategy = new TrendLineStrategy();
         private UserSettings _userSettings = new UserSettings();
 
-        private string _currentSymbol = "BTCUSDT";
         private bool _needChartRefresh = false;
+        private volatile bool _needStrategyStatsUpdate = false;
         private string _chartTitle = "实时行情 / 数据回放 (ScottPlot 5)";
-
-        private int _currentKlineIndex = 0;
-        private List<PivotPoint> _currentActivePivots = new List<PivotPoint>();
-        private List<TrendLine> _currentActiveTrendLines = new List<TrendLine>();
 
         private static readonly double[] _tradeXBuffer = new double[1];
         private static readonly double[] _tradeYBuffer = new double[1];
-        private readonly LiveFeedManager _liveFeedManager = new LiveFeedManager();
+        private readonly double[] _pricesBuffer = new double[500];
 
         public Form1()
         {
             InitializeComponent();
             InitControls();
-            InitReplayer();
-            InitStrategy();
-            InitLiveFeed();
+            InitEngineEvents();
             InitUiTimer();
             InitializePlot();
-            AppendLog("系统初始化完成。预设多币种列表、实盘接口与 API 预热配置加载成功。");
+            AppendLog("系统初始化完成。核心交易引擎与 WinForms GUI 视口解耦完毕，完美支持 Linux 无界面部署。");
         }
 
-        private void InitLiveFeed()
+        private void InitEngineEvents()
         {
-            _liveFeedManager.OnLog += AppendLog;
-            _liveFeedManager.OnStatusChanged += status =>
+            _engine.OnLog += AppendLog;
+            _engine.OnChartRefreshRequired += () => _needChartRefresh = true;
+            _engine.OnTradeOpened += trade =>
             {
-                _chartTitle = status;
                 _needChartRefresh = true;
+                _needStrategyStatsUpdate = true;
             };
-            _liveFeedManager.OnLiveKlinePushed += LiveFeed_OnKlinePushed;
-            _liveFeedManager.OnLiveTickPushed += LiveFeed_OnTickPushed;
+            _engine.OnTradeClosed += trade =>
+            {
+                _needChartRefresh = true;
+                _needStrategyStatsUpdate = true;
+            };
         }
 
         private void InitControls()
@@ -163,17 +159,14 @@ namespace WinFormsApp2
             SyncStrategyParams();
         }
 
-        private volatile bool _isStrategyEnabled = true;
-        private volatile bool _needStrategyStatsUpdate = false;
-
         private void SyncStrategyParams()
         {
-            _isStrategyEnabled = chkEnableStrategy.Checked;
-            _strategy.Params.Enabled = _isStrategyEnabled;
-            _strategy.Params.MinLineX1X2 = (int)numMinLineX1X2.Value;
-            _strategy.Params.MinLineAge = (int)numMinLineAge.Value;
-            _strategy.Params.TakeProfitPct = numTakeProfit.Value;
-            _strategy.Params.StopLossPct = numStopLoss.Value;
+            var strategy = _engine.Strategy;
+            strategy.Params.Enabled = chkEnableStrategy.Checked;
+            strategy.Params.MinLineX1X2 = (int)numMinLineX1X2.Value;
+            strategy.Params.MinLineAge = (int)numMinLineAge.Value;
+            strategy.Params.TakeProfitPct = numTakeProfit.Value;
+            strategy.Params.StopLossPct = numStopLoss.Value;
 
             _needStrategyStatsUpdate = true;
             SaveCurrentSettings();
@@ -211,78 +204,27 @@ namespace WinFormsApp2
             }
         }
 
-        private void InitStrategy()
-        {
-            _strategy.OnTradeOpened += trade =>
-            {
-                string posStr = trade.Position == PositionType.Long ? "[买入做多 BUY LONG]" : "[卖出做空 SELL SHORT]";
-                string openLog = $"[策略开仓信号] #{trade.Id} {posStr}\r\n" +
-                                 $"  └─ Tick 成交价格: {trade.EntryTickPrice}\r\n" +
-                                 $"  └─ Tick 成交时间: {trade.EntryTickTime:yyyy-MM-dd HH:mm:ss.fff}\r\n" +
-                                 $"  └─ 归属 K线时间: {trade.EntryKlineOpenTime:yyyy-MM-dd HH:mm:ss} ~ {trade.EntryKlineCloseTime:yyyy-MM-dd HH:mm:ss} (帧索引: #{trade.EntryKlineIndex})\r\n" +
-                                 $"  └─ 趋势线关键价格: {trade.EntryTrendLinePrice:F2}";
-                EnqueueLog(openLog);
-                _needStrategyStatsUpdate = true;
-                _needChartRefresh = true;
-            };
-
-            _strategy.OnTradeClosed += trade =>
-            {
-                string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit ? "[止盈平仓 TAKE PROFIT (+1.5%)]" : "[止损平仓 STOP LOSS (-0.8%)]";
-                string closeLog = $"[策略平仓信号] #{trade.Id} {reasonStr}\r\n" +
-                                  $"  └─ 平仓离场价格: {trade.ExitPrice}\r\n" +
-                                  $"  └─ 平仓离场时间: {trade.ExitTime:yyyy-MM-dd HH:mm:ss.fff}\r\n" +
-                                  $"  └─ 最终结算收益: {trade.ProfitPct:+0.00;-0.00;0.00}%\r\n" +
-                                  $"  └─ 持仓开仓时间: {trade.EntryTime:yyyy-MM-dd HH:mm:ss.fff}";
-                EnqueueLog(closeLog);
-                _needStrategyStatsUpdate = true;
-                _needChartRefresh = true;
-            };
-        }
-
         private void UpdateStrategyStatsUI()
         {
-            int count = _strategy.Trades.Count;
-            decimal winRate = _strategy.GetWinRate();
-            decimal totalProfit = _strategy.GetTotalProfitPct();
+            var strategy = _engine.Strategy;
+            int count = strategy.Trades.Count;
+            decimal winRate = strategy.GetWinRate();
+            decimal totalProfit = strategy.GetTotalProfitPct();
 
             lblStrategyStats.Text = $"交易次数: {count} 笔 | 胜率: {winRate:F1}%\r\n累计收益: {totalProfit:+0.00;-0.00;0.00}%";
-            lblStrategyStats.ForeColor = totalProfit >= 0 ? System.Drawing.Color.DarkGreen : System.Drawing.Color.DarkRed;
+            lblStrategyStats.ForeColor = totalProfit >= 0 ? Color.DarkGreen : Color.DarkRed;
         }
 
         private void StepButton_MouseWheel(object sender, MouseEventArgs e)
         {
-            if (_replayer == null) return;
-
             if (e.Delta > 0)
             {
-                _replayer.StepForward();
+                _engine.Replayer.StepForward();
             }
             else if (e.Delta < 0)
             {
-                _replayer.StepBackward();
+                _engine.Replayer.StepBackward();
             }
-        }
-
-        private BatchQueueManager? _batchQueueManager = null;
-
-        private void InitReplayer()
-        {
-            _replayer.OnKlinePushed += Replayer_OnKlinePushed;
-            _replayer.OnStepBackward += Replayer_OnStepBackward;
-            _replayer.OnTickPushed += Replayer_OnTickPushed;
-            _replayer.OnPlaybackCompleted += Replayer_OnPlaybackCompleted;
-            _replayer.OnLog += msg => EnqueueLog($"[回放引擎] {msg}");
-
-            // FIFO 队列管道无缝出队接力：当前 3 天切片播放完毕时，自动从容量上限为 5 的队列中出队下一批次数据
-            _replayer.OnNeedNextBatchChunk += async () =>
-            {
-                if (_batchQueueManager != null)
-                {
-                    return await _batchQueueManager.DequeueNextBatchAsync();
-                }
-                return null;
-            };
         }
 
         private void InitUiTimer()
@@ -296,7 +238,7 @@ namespace WinFormsApp2
         {
             double[] ys = ScottPlot.Generate.Sin(50);
             formsPlot1.Plot.Clear();
-            formsPlot1.Plot.Grid.IsVisible = false; // 隐藏网格线
+            formsPlot1.Plot.Grid.IsVisible = false;
             formsPlot1.Plot.Add.Signal(ys);
             formsPlot1.Plot.Title("实时行情 / 数据回放 (ScottPlot 5)");
             formsPlot1.Plot.XLabel("序列 (Frame)");
@@ -308,51 +250,12 @@ namespace WinFormsApp2
         {
             string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
             _logBufferQueue.Enqueue($"[{timestamp}] {message}");
-
-            // 自动异步将所有运行与策略事件日志落盘存入本地文件 (Config.TickDataRoot/logs)
             Logger.Log(message);
         }
 
         public void AppendLog(string message)
         {
             EnqueueLog(message);
-        }
-
-        private Kline[] _warmupKlinesBuffer = Array.Empty<Kline>();
-        private readonly List<Kline> _combinedHistoryList = new List<Kline>(1500);
-        private readonly Kline[] _displayKlinesBuffer = new Kline[500];
-        private readonly double[] _pricesBuffer = new double[500];
-
-        private void UpdateDisplayPivotsAndTrendLines()
-        {
-            int sampleSize = 0;
-            lock (_replayKlines)
-            {
-                _combinedHistoryList.Clear();
-                if (_warmupKlinesBuffer != null && _warmupKlinesBuffer.Length > 0)
-                {
-                    _combinedHistoryList.AddRange(_warmupKlinesBuffer);
-                }
-                _combinedHistoryList.AddRange(_replayKlines);
-
-                int totalCombined = _combinedHistoryList.Count;
-                if (totalCombined < 7)
-                {
-                    _currentActivePivots.Clear();
-                    _currentActiveTrendLines.Clear();
-                    return;
-                }
-
-                sampleSize = Math.Min(totalCombined, 500);
-                _combinedHistoryList.CopyTo(totalCombined - sampleSize, _displayKlinesBuffer, 0, sampleSize);
-            }
-
-            // 零 LOH 分配 slice (已融合历史预热 K 线上下文)
-            Kline[] sampleSlice = new Kline[sampleSize];
-            Array.Copy(_displayKlinesBuffer, 0, sampleSlice, 0, sampleSize);
-
-            _currentActivePivots = PivotHelper.CalculatePeaksCombinedFast(sampleSlice, leftBars: 3, rightBars: 3);
-            _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(sampleSlice, _currentActivePivots, filterPenetrated: true);
         }
 
         private void UiRenderTimer_Tick(object sender, EventArgs e)
@@ -394,26 +297,13 @@ namespace WinFormsApp2
             {
                 _needChartRefresh = false;
 
-                int displayCount = 0;
-                lock (_replayKlines)
-                {
-                    _combinedHistoryList.Clear();
-                    if (_warmupKlinesBuffer != null && _warmupKlinesBuffer.Length > 0)
-                    {
-                        _combinedHistoryList.AddRange(_warmupKlinesBuffer);
-                    }
-                    _combinedHistoryList.AddRange(_replayKlines);
-
-                    int totalCombined = _combinedHistoryList.Count;
-                    if (totalCombined == 0) return;
-
-                    displayCount = Math.Min(totalCombined, 500);
-                    _combinedHistoryList.CopyTo(totalCombined - displayCount, _displayKlinesBuffer, 0, displayCount);
-                }
+                var displayKlines = _engine.DisplayKlinesBuffer;
+                int displayCount = displayKlines.Count;
+                if (displayCount == 0) return;
 
                 for (int i = 0; i < displayCount; i++)
                 {
-                    _pricesBuffer[i] = (double)_displayKlinesBuffer[i].ClosePrice;
+                    _pricesBuffer[i] = (double)displayKlines[i].ClosePrice;
                 }
 
                 double[] pricesSlice = new double[displayCount];
@@ -427,19 +317,20 @@ namespace WinFormsApp2
                 formsPlot1.Plot.Title(_chartTitle);
 
                 // B. 标注相对高低点 (基于 OpenTime 严格对齐视口 K 线，100% 绝对精准)
-                if (_currentActivePivots != null && _currentActivePivots.Count > 0)
+                var activePivots = _engine.ActivePivots;
+                if (activePivots != null && activePivots.Count > 0)
                 {
                     List<double> highXs = new List<double>();
                     List<double> highYs = new List<double>();
                     List<double> lowXs = new List<double>();
                     List<double> lowYs = new List<double>();
 
-                    for (int i = 0; i < _currentActivePivots.Count; i++)
+                    for (int i = 0; i < activePivots.Count; i++)
                     {
-                        var p = _currentActivePivots[i];
+                        var p = activePivots[i];
                         for (int k = 0; k < displayCount; k++)
                         {
-                            if (_displayKlinesBuffer[k].OpenTime == p.Time)
+                            if (displayKlines[k].OpenTime == p.Time)
                             {
                                 if (p.Type == PivotType.High)
                                 {
@@ -456,7 +347,6 @@ namespace WinFormsApp2
                         }
                     }
 
-                    // 相对高点 (HighPrice, 红色)
                     if (highXs.Count > 0)
                     {
                         var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs.ToArray(), highYs.ToArray());
@@ -464,7 +354,6 @@ namespace WinFormsApp2
                         spHigh.MarkerSize = 4;
                     }
 
-                    // 相对低点 (LowPrice, 绿色)
                     if (lowXs.Count > 0)
                     {
                         var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs.ToArray(), lowYs.ToArray());
@@ -474,20 +363,21 @@ namespace WinFormsApp2
                 }
 
                 // C. 绘制延伸趋势线 (基于 Time1/Time2 严格匹配视口 K 线，100% 坐标精准)
-                if (_currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
+                var activeTrendLines = _engine.ActiveTrendLines;
+                if (activeTrendLines != null && activeTrendLines.Count > 0)
                 {
                     ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
                     ScottPlot.Color extraLightGreen = ScottPlot.Color.FromHex("#4580FF80"); // 超淡柔和绿
 
-                    for (int i = 0; i < _currentActiveTrendLines.Count; i++)
+                    for (int i = 0; i < activeTrendLines.Count; i++)
                     {
-                        var tl = _currentActiveTrendLines[i];
+                        var tl = activeTrendLines[i];
                         int localX1 = -1;
                         int localX2 = -1;
 
                         for (int k = 0; k < displayCount; k++)
                         {
-                            DateTime kTime = _displayKlinesBuffer[k].OpenTime;
+                            DateTime kTime = displayKlines[k].OpenTime;
                             if (kTime == tl.Time1) localX1 = k;
                             if (kTime == tl.Time2) localX2 = k;
                         }
@@ -512,7 +402,7 @@ namespace WinFormsApp2
                     double sumVol = 0;
                     for (int i = 0; i < displayCount; i++)
                     {
-                        sumVol += (double)_displayKlinesBuffer[i].Volume;
+                        sumVol += (double)displayKlines[i].Volume;
                     }
                     double avgVol = sumVol / displayCount;
                     double thresholdVol = avgVol * 2.0;
@@ -522,10 +412,10 @@ namespace WinFormsApp2
 
                     for (int i = 0; i < displayCount; i++)
                     {
-                        if ((double)_displayKlinesBuffer[i].Volume >= thresholdVol)
+                        if ((double)displayKlines[i].Volume >= thresholdVol)
                         {
                             volXs.Add(i);
-                            volYs.Add((double)_displayKlinesBuffer[i].LowPrice * 0.9985);
+                            volYs.Add((double)displayKlines[i].LowPrice * 0.9985);
                         }
                     }
 
@@ -538,17 +428,18 @@ namespace WinFormsApp2
                 }
 
                 // E. 策略开仓与平仓图表标注 (按 K线 OpenTime 精准匹配视口 x 坐标，0 下标偏移)
-                if (_isStrategyEnabled && _strategy.Trades.Count > 0)
+                var strategy = _engine.Strategy;
+                if (chkEnableStrategy.Checked && strategy.Trades.Count > 0)
                 {
-                    for (int i = _strategy.Trades.Count - 1; i >= 0; i--)
+                    for (int i = strategy.Trades.Count - 1; i >= 0; i--)
                     {
-                        var trade = _strategy.Trades[i];
+                        var trade = strategy.Trades[i];
                         int localEntryX = -1;
                         int localExitX = -1;
 
                         for (int k = 0; k < displayCount; k++)
                         {
-                            DateTime kTime = _displayKlinesBuffer[k].OpenTime;
+                            DateTime kTime = displayKlines[k].OpenTime;
                             if (kTime == trade.EntryKlineOpenTime) localEntryX = k;
                             if (kTime == trade.ExitKlineOpenTime) localExitX = k;
                         }
@@ -572,12 +463,12 @@ namespace WinFormsApp2
                         }
                     }
 
-                    if (_strategy.CurrentPosition != PositionType.None)
+                    if (strategy.CurrentPosition != PositionType.None && strategy.CurrentTrade != null)
                     {
                         int localEntryX = -1;
                         for (int k = 0; k < displayCount; k++)
                         {
-                            if (_displayKlinesBuffer[k].OpenTime == _strategy.CurrentTrade.EntryKlineOpenTime)
+                            if (displayKlines[k].OpenTime == strategy.CurrentTrade.EntryKlineOpenTime)
                             {
                                 localEntryX = k;
                                 break;
@@ -587,9 +478,9 @@ namespace WinFormsApp2
                         if (localEntryX >= 0 && localEntryX < displayCount)
                         {
                             _tradeXBuffer[0] = localEntryX;
-                            _tradeYBuffer[0] = (double)_strategy.CurrentEntryPrice;
+                            _tradeYBuffer[0] = (double)strategy.CurrentEntryPrice;
                             var spCurrent = formsPlot1.Plot.Add.ScatterPoints(_tradeXBuffer, _tradeYBuffer);
-                            spCurrent.Color = _strategy.CurrentPosition == PositionType.Long ? ScottPlot.Colors.DeepSkyBlue : ScottPlot.Colors.HotPink;
+                            spCurrent.Color = strategy.CurrentPosition == PositionType.Long ? ScottPlot.Colors.DeepSkyBlue : ScottPlot.Colors.HotPink;
                             spCurrent.MarkerSize = 9;
                         }
                     }
@@ -600,13 +491,13 @@ namespace WinFormsApp2
                 {
                     int sampleSize = Math.Min(displayCount, 80);
                     int startIdx = displayCount - sampleSize;
-                    double minPrice = (double)_displayKlinesBuffer[startIdx].LowPrice;
-                    double maxPrice = (double)_displayKlinesBuffer[startIdx].HighPrice;
+                    double minPrice = (double)displayKlines[startIdx].LowPrice;
+                    double maxPrice = (double)displayKlines[startIdx].HighPrice;
 
                     for (int i = startIdx + 1; i < displayCount; i++)
                     {
-                        double low = (double)_displayKlinesBuffer[i].LowPrice;
-                        double high = (double)_displayKlinesBuffer[i].HighPrice;
+                        double low = (double)displayKlines[i].LowPrice;
+                        double high = (double)displayKlines[i].HighPrice;
                         if (low < minPrice) minPrice = low;
                         if (high > maxPrice) maxPrice = high;
                     }
@@ -626,8 +517,8 @@ namespace WinFormsApp2
         {
             SaveCurrentSettings(); // 点击开始回放时主动同步持久化设置
 
-            _currentSymbol = cmbSymbol.Text.Trim();
-            if (string.IsNullOrEmpty(_currentSymbol))
+            string symbol = cmbSymbol.Text.Trim();
+            if (string.IsNullOrEmpty(symbol))
             {
                 MessageBox.Show("请输入或选择交易对名称 (如 BTCUSDT)", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -641,199 +532,38 @@ namespace WinFormsApp2
             int intervalMs = (int)numInterval.Value;
             bool enableTickPush = chkEnableTickPush.Checked;
 
-            _strategy.Reset(); // 策略复位
-            UpdateStrategyStatsUI();
-
-            AppendLog($"准备分批加载 [{_currentSymbol}] [{interval}] 日期范围 [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}] 数据启动回放...");
-
+            btnStart.Enabled = false;
             try
             {
-                // 1. 初始化 FIFO 流式数据队列管道 (容量最大限制为 5 批次，每批次 3 天，后台自动做生产者补齐)
-                _batchQueueManager?.Stop();
-                _batchQueueManager = new BatchQueueManager(
-                    _currentSymbol,
+                await _engine.StartReplayAsync(
+                    symbol,
                     interval,
                     startDate,
                     endDate,
+                    chkEnableWarmup.Checked,
                     enableTickPush,
-                    maxQueueCapacity: 3,
-                    batchDays: 1,
-                    logger: AppendLog);
-
-                // 2. 启动队列流水线并出队首批 3 天切片数据
-                BatchDataChunk? firstChunk = await _batchQueueManager.StartQueuePipelineAsync();
-
-                if (firstChunk == null || firstChunk.Klines.Length == 0)
-                {
-                    AppendLog("未装载到任何 K线数据，无法开始回放。");
-                    return;
-                }
-
-                Kline[] klines = firstChunk.Klines;
-                Tick[] ticks = firstChunk.Ticks;
-
-                // 3. 策略启动前 API 预热控制 (只计算高低点与趋势线，不推演不跳帧)
-                _warmupKlinesBuffer = Array.Empty<Kline>();
-                if (chkEnableWarmup.Checked)
-                {
-                    try
-                    {
-                        DateTime warmupEndDate = startDate.AddTicks(-1);
-                        AppendLog($"[API 预热开启] 准备获取 [{_currentSymbol}] [{interval}] 回放起点前 1000 根历史预热 K 线 (截止 {warmupEndDate:yyyy-MM-dd HH:mm:ss})...");
-                        var fetchedWarmup = await DataHelper.FetchKlinesFromApiAsync(_currentSymbol, interval, endTime: warmupEndDate, limit: 1000);
-                        if (fetchedWarmup != null && fetchedWarmup.Length > 0)
-                        {
-                            _warmupKlinesBuffer = fetchedWarmup;
-                            AppendLog($"[API 预热成功] 成功装载 {fetchedWarmup.Length} 根历史预热 K 线 ({fetchedWarmup[0].OpenTime:yyyy-MM-dd HH:mm} ~ {fetchedWarmup.Last().OpenTime:yyyy-MM-dd HH:mm})，用于高低点与趋势线提前预热。");
-                        }
-                    }
-                    catch (Exception apiEx)
-                    {
-                        AppendLog($"[API 预热提示] 获取历史预热 K 线未成功 ({apiEx.Message})，自动使用回放 K 线独立计算。");
-                    }
-                }
-                else
-                {
-                    AppendLog("[API 预热关闭] 用户未勾选 API 预热，直接使用装载的回放 K 线计算趋势线。");
-                }
-
-                // 4. 复位图表并启动回放引擎
-                lock (_replayKlines)
-                {
-                    _replayKlines.Clear();
-                }
-
-                UpdateDisplayPivotsAndTrendLines();
-
-                formsPlot1.Plot.Clear();
-                formsPlot1.Plot.Grid.IsVisible = false;
-                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (首批 3 天共 {klines.Length} 帧，FIFO 5 队列管道极速运行)");
-                formsPlot1.Refresh();
-
-                AppendLog($"▶ 启动行情回放与策略引擎 | 首批: 3 天 ({klines.Length} 帧) | 总批次: {_batchQueueManager.TotalBatches} 批 (FIFO 5 队列管道) | 交易对: {_currentSymbol} | 策略: {(chkEnableStrategy.Checked ? "开启" : "关闭")}");
-                _replayer.StartPlayback(klines, ticks, enableTickPush, intervalMs);
+                    intervalMs);
             }
             catch (Exception ex)
             {
-                AppendLog($"加载回放数据异常: {ex.Message}");
+                AppendLog($"▶ 启动回播异常: {ex.Message}");
             }
-        }
-
-        private void btnPause_Click(object sender, EventArgs e)
-        {
-            if (_replayer.State == ReplayState.Playing)
+            finally
             {
-                _replayer.PausePlayback();
-            }
-            else if (_replayer.State == ReplayState.Paused)
-            {
-                _replayer.ResumePlayback();
-            }
-            else
-            {
-                AppendLog("当前未处于播放状态。");
+                btnStart.Enabled = true;
             }
         }
-
-        private void btnStepForward_Click(object sender, EventArgs e)
-        {
-            _replayer.StepForward();
-        }
-
-        private void btnStepBackward_Click(object sender, EventArgs e)
-        {
-            _replayer.StepBackward();
-        }
-
-        private void btnStop_Click(object sender, EventArgs e)
-        {
-            _replayer.StopPlayback();
-        }
-
-        private void btnClearLog_Click(object sender, EventArgs e)
-        {
-            rtbLog.Clear();
-            AppendLog("日志已清空。");
-        }
-
-        #region 回放事件响应 (无锁入队，无卡顿渲染)
-
-        private void Replayer_OnKlinePushed(Kline kline, int current, int total)
-        {
-            lock (_replayKlines)
-            {
-                _replayKlines.Add(kline);
-                if (_replayKlines.Count > 500)
-                {
-                    _replayKlines.RemoveAt(0); // 严格锁死 500 帧容量，彻底切断 LOH 大对象堆与 10MB+ 数组翻倍扩容引起的 Gen 2 Full GC
-                }
-                _currentKlineIndex = _replayKlines.Count - 1;
-            }
-
-            // 新 K 线到达时增量更新当前视图的高低点与趋势线 (常数级 0.05ms)
-            UpdateDisplayPivotsAndTrendLines();
-
-            _chartTitle = $"[{_currentSymbol}] 动态回放中 ({current}/{total}) - {kline.OpenTime:yyyy-MM-dd HH:mm:ss}";
-            _needChartRefresh = true;
-        }
-
-        private void Replayer_OnStepBackward(Kline[] subKlines, int current, int total)
-        {
-            lock (_replayKlines)
-            {
-                _replayKlines.Clear();
-                _replayKlines.AddRange(subKlines);
-                _currentKlineIndex = Math.Max(0, _replayKlines.Count - 1);
-            }
-
-            UpdateDisplayPivotsAndTrendLines();
-
-            var lastTime = subKlines.Length > 0 ? subKlines[subKlines.Length - 1].OpenTime.ToString("yyyy-MM-dd HH:mm:ss") : "";
-            _chartTitle = $"[{_currentSymbol}] 单步向后 ({current}/{total}) - {lastTime}";
-            _needChartRefresh = true;
-        }
-
-        private void Replayer_OnTickPushed(Tick tick)
-        {
-            // 0 锁，0 跨线程 UI 锁，0 内存分配，常数级 O(1) 极致流畅推演！
-            if (_isStrategyEnabled && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
-            {
-                Kline currentKline = default;
-                int currentSampleIndex = 0;
-                lock (_replayKlines)
-                {
-                    if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
-                    {
-                        currentKline = _replayKlines[_currentKlineIndex];
-                    }
-                    currentSampleIndex = Math.Max(0, Math.Min(_combinedHistoryList.Count, 500) - 1);
-                }
-                _strategy.ProcessTick(tick, currentSampleIndex, _currentActiveTrendLines, currentKline);
-            }
-        }
-
-        private void Replayer_OnPlaybackCompleted()
-        {
-            EnqueueLog("🎉 行情回放播放完毕！");
-        }
-
-        #endregion
-
-        #region 币安实盘 WebSocket + API 接口对接 (Binance Real-Time Live Feed)
 
         private async void btnLiveMode_Click(object sender, EventArgs e)
         {
-            if (_liveFeedManager.IsRunning)
+            if (_engine.Mode == ExecutionMode.LiveStream)
             {
-                await _liveFeedManager.StopLiveFeedAsync();
+                _engine.Stop();
                 btnLiveMode.Text = "📡 启动币安实盘行情 (Live Stream)";
                 btnLiveMode.ForeColor = Color.DarkGreen;
                 AppendLog("⏹ 实盘行情模式已停止。");
                 return;
             }
-
-            // 1. 停止当前历史回演
-            _replayer.StopPlayback();
 
             string symbol = cmbSymbol.Text.Trim().ToUpper();
             if (string.IsNullOrEmpty(symbol))
@@ -845,41 +575,16 @@ namespace WinFormsApp2
             dynamic selectedIntervalObj = cmbKlineInterval.SelectedItem;
             KlineInterval interval = (KlineInterval)selectedIntervalObj.Value;
 
-            _currentSymbol = symbol;
-            _strategy.Reset();
-            UpdateStrategyStatsUI();
-
             btnLiveMode.Enabled = false;
             try
             {
-                // 2. 优先从币安 API 在线预加载 1000 根最新实盘 K 线建立历史高低点与趋势线基线
-                AppendLog($"[实盘预处理] 正在在线从币安 API 获取 [{symbol}] [{interval}] 最新 1000 根 K 线建立历史基线...");
-                var initialKlines = await DataHelper.FetchKlinesFromApiAsync(symbol, interval, limit: 1000);
-
-                lock (_replayKlines)
-                {
-                    _replayKlines.Clear();
-                    if (initialKlines != null && initialKlines.Length > 0)
-                    {
-                        _replayKlines.AddRange(initialKlines);
-                        _currentKlineIndex = _replayKlines.Count - 1;
-                    }
-                }
-
-                _warmupKlinesBuffer = Array.Empty<Kline>();
-                UpdateDisplayPivotsAndTrendLines();
-                _needChartRefresh = true;
-
-                // 3. 建立并启动 0 延迟币安 WebSocket 实盘流
-                await _liveFeedManager.StartLiveFeedAsync(symbol, interval);
-
+                await _engine.StartLiveStreamAsync(symbol, interval);
                 btnLiveMode.Text = "🛑 停止币安实盘行情 (Stop Live)";
                 btnLiveMode.ForeColor = Color.Red;
             }
             catch (Exception ex)
             {
                 AppendLog($"❌ 启动实盘行情失败: {ex.Message}");
-                MessageBox.Show($"启动实盘行情失败: {ex.Message}", "实盘错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -887,49 +592,91 @@ namespace WinFormsApp2
             }
         }
 
-        private void LiveFeed_OnKlinePushed(Kline liveKline)
+        private void btnPause_Click(object sender, EventArgs e)
         {
-            lock (_replayKlines)
-            {
-                if (_replayKlines.Count > 0 && _replayKlines.Last().OpenTime == liveKline.OpenTime)
-                {
-                    _replayKlines[_replayKlines.Count - 1] = liveKline; // 实时刷新当前最新未完结 K 线柱
-                }
-                else
-                {
-                    _replayKlines.Add(liveKline); // 新 K 线柱完结生成
-                    if (_replayKlines.Count > 500)
-                    {
-                        _replayKlines.RemoveAt(0);
-                    }
-                }
-                _currentKlineIndex = _replayKlines.Count - 1;
-            }
-
-            UpdateDisplayPivotsAndTrendLines();
-            _chartTitle = $"🟢 币安 [{_liveFeedManager.CurrentSymbol}] 实盘行情推送 - {liveKline.CloseTime:yyyy-MM-dd HH:mm:ss}";
-            _needChartRefresh = true;
+            _engine.Replayer.PausePlayback();
         }
 
-        private void LiveFeed_OnTickPushed(Tick tick)
+        private void btnStepForward_Click(object sender, EventArgs e)
         {
-            // 0 延迟直投实盘 Tick 进策略引擎
-            if (_isStrategyEnabled && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
+            _engine.Replayer.StepForward();
+        }
+
+        private void btnStepBackward_Click(object sender, EventArgs e)
+        {
+            _engine.Replayer.StepBackward();
+        }
+
+        private void btnStop_Click(object sender, EventArgs e)
+        {
+            _engine.Stop();
+            AppendLog("⏹ 用户点击停止，交易引擎已安全复位。");
+        }
+
+        private void btnClearLog_Click(object sender, EventArgs e)
+        {
+            rtbLog.Clear();
+            AppendLog("日志已清空。");
+        }
+
+        private async void btnDownloadKlines_Click(object sender, EventArgs e)
+        {
+            string symbol = cmbSymbol.Text.Trim().ToUpper();
+            if (string.IsNullOrEmpty(symbol))
             {
-                Kline currentKline = default;
-                int currentSampleIndex = 0;
-                lock (_replayKlines)
-                {
-                    if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
-                    {
-                        currentKline = _replayKlines[_currentKlineIndex];
-                    }
-                    currentSampleIndex = Math.Max(0, Math.Min(_combinedHistoryList.Count, 500) - 1);
-                }
-                _strategy.ProcessTick(tick, currentSampleIndex, _currentActiveTrendLines, currentKline);
+                MessageBox.Show("请先选择或输入交易对名称！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            dynamic selectedIntervalObj = cmbKlineInterval.SelectedItem;
+            KlineInterval interval = (KlineInterval)selectedIntervalObj.Value;
+            DateTime startDate = dtpStartDate.Value.Date;
+            DateTime endDate = dtpEndDate.Value.Date;
+
+            btnDownloadKlines.Enabled = false;
+            try
+            {
+                AppendLog($"[数据下载] 开始并行下载 [{symbol}] [{interval}] K线周期数据 ({startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd})...");
+                await MultiThreadDownloader.DownloadAndSaveKlinesParallelAsync(symbol, interval, startDate, endDate, logger: AppendLog);
+                AppendLog($"[数据下载完成] 成功下载并保存 [{symbol}] K线数据至 Parquet 存储！");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"[数据下载失败] K线数据下载异常: {ex.Message}");
+            }
+            finally
+            {
+                btnDownloadKlines.Enabled = true;
             }
         }
 
-        #endregion
+        private async void btnDownloadTicks_Click(object sender, EventArgs e)
+        {
+            string symbol = cmbSymbol.Text.Trim().ToUpper();
+            if (string.IsNullOrEmpty(symbol))
+            {
+                MessageBox.Show("请先选择或输入交易对名称！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            DateTime startDate = dtpStartDate.Value.Date;
+            DateTime endDate = dtpEndDate.Value.Date;
+
+            btnDownloadTicks.Enabled = false;
+            try
+            {
+                AppendLog($"[数据下载] 开始并行下载 [{symbol}] Tick 逐笔数据 ({startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd})...");
+                await MultiThreadDownloader.DownloadAndSaveTicksInSlicesParallelAsync(symbol, startDate, endDate, logger: AppendLog);
+                AppendLog($"[数据下载完成] 成功下载并分片落盘 [{symbol}] Tick 逐笔数据！");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"[数据下载失败] Tick 逐笔数据下载异常: {ex.Message}");
+            }
+            finally
+            {
+                btnDownloadTicks.Enabled = true;
+            }
+        }
     }
 }

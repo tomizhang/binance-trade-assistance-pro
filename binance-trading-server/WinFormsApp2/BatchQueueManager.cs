@@ -14,7 +14,7 @@ namespace WinFormsApp2
     /// 1. 后台抓取数据完全独立，无需等待当前 K 线/帧是否回放完成，仅关注队列是否达到上限 (5 批次)；
     /// 2. 多线程并发抓取后，强行按 OpenTime/Time 进行升序精准重排，绝对保证时间先后顺序正确。
     /// </summary>
-    public class BatchQueueManager
+    public class BatchQueueManager : IDisposable
     {
         private readonly List<(DateTime Start, DateTime End)> _batchTimeWindows = new List<(DateTime, DateTime)>();
         private readonly ConcurrentQueue<BatchDataChunk> _preloadedQueue = new ConcurrentQueue<BatchDataChunk>();
@@ -28,24 +28,27 @@ namespace WinFormsApp2
         private int _nextBatchToLoadIndex = 0;
 
         public int MaxQueueCapacity { get; set; } = 5; // 默认队列最大容量为 5 批次
-        public int BatchDays { get; set; } = 3;        // 默认每批次 3 天
+        public int BatchDays { get; set; } = 1;        // 默认每批次 1 天
         public int TotalBatches => _batchTimeWindows.Count;
         public int QueueCount => _preloadedQueue.Count;
+
+        public event Action<string>? OnLog;
 
         public BatchQueueManager(
             string symbol,
             Binance.Net.Enums.KlineInterval interval,
             DateTime startDate,
             DateTime endDate,
-            bool enableTickPush,
-            int maxQueueCapacity =2,
-            int batchDays = 3,
-            Action<string>? logger = null)
+            bool enableTickPush = true,
+            int maxQueueCapacity = 5,
+            int batchDays = 1,
+            Action<string>? logger = null,
+            int prefetchQueueCapacity = 5)
         {
             _symbol = symbol;
             _interval = interval;
             _enableTickPush = enableTickPush;
-            MaxQueueCapacity = maxQueueCapacity;
+            MaxQueueCapacity = maxQueueCapacity > 0 ? maxQueueCapacity : prefetchQueueCapacity;
             BatchDays = batchDays;
             _logger = logger;
 
@@ -70,6 +73,22 @@ namespace WinFormsApp2
             }
         }
 
+        private void Log(string msg)
+        {
+            _logger?.Invoke(msg);
+            OnLog?.Invoke(msg);
+        }
+
+        public void Start()
+        {
+            _ = StartQueuePipelineAsync();
+        }
+
+        public Task<BatchDataChunk?> GetNextChunkAsync()
+        {
+            return DequeueNextBatchAsync();
+        }
+
         /// <summary>
         /// 启动 FIFO 队列管道后台生产者，完全独立常驻运行，不依赖回放进度
         /// </summary>
@@ -78,7 +97,7 @@ namespace WinFormsApp2
             if (_batchTimeWindows.Count == 0) return null;
 
             _nextBatchToLoadIndex = 0;
-            _logger?.Invoke($"[FIFO 队列管道] 划分为 {TotalBatches} 个批次，队列上限限制为 {MaxQueueCapacity} 批 (独立后台抓取，无需等待 K线回放完成)...");
+            Log($"[FIFO 队列管道] 划分为 {TotalBatches} 个批次，队列上限限制为 {MaxQueueCapacity} 批 (独立后台抓取，无需等待 K线回放完成)...");
 
             // 启动生产者独立常驻循环
             _ = Task.Run(() => ProducerLoopAsync(_cts.Token));
@@ -91,7 +110,7 @@ namespace WinFormsApp2
 
             if (_preloadedQueue.TryDequeue(out var firstChunk))
             {
-                _logger?.Invoke($"[首批出队成功] 弹出 [批次 1/{TotalBatches}] 启动回放 (队列剩余: {_preloadedQueue.Count}/{MaxQueueCapacity})");
+                Log($"[首批出队成功] 弹出 [批次 1/{TotalBatches}] 启动回放 (队列剩余: {_preloadedQueue.Count}/{MaxQueueCapacity})");
                 return firstChunk;
             }
 
@@ -107,13 +126,13 @@ namespace WinFormsApp2
             {
                 // 内存回收：出队切换时触发 GC 快速回收已被消费的旧 Batch 数组内存，锁定内存平稳运行
                 GC.Collect(2, GCCollectionMode.Optimized, false, false);
-                _logger?.Invoke($"[队列出队成功] 弹出 [批次 {chunk.BatchIndex + 1}/{TotalBatches}] (队列剩余: {_preloadedQueue.Count}/{MaxQueueCapacity})");
+                Log($"[队列出队成功] 弹出 [批次 {chunk.BatchIndex + 1}/{TotalBatches}] (队列剩余: {_preloadedQueue.Count}/{MaxQueueCapacity})");
                 return chunk;
             }
 
             if (_nextBatchToLoadIndex >= _batchTimeWindows.Count && _preloadedQueue.IsEmpty)
             {
-                _logger?.Invoke($"[FIFO 队列管道完成] 所有 {TotalBatches} 个批次数据已全部播放完毕。");
+                Log($"[FIFO 队列管道完成] 所有 {TotalBatches} 个批次数据已全部播放完毕。");
                 return null;
             }
 
@@ -125,7 +144,7 @@ namespace WinFormsApp2
 
             if (_preloadedQueue.TryDequeue(out chunk))
             {
-                _logger?.Invoke($"[队列出队成功] 弹出 [批次 {chunk.BatchIndex + 1}/{TotalBatches}] (队列剩余: {_preloadedQueue.Count}/{MaxQueueCapacity})");
+                Log($"[队列出队成功] 弹出 [批次 {chunk.BatchIndex + 1}/{TotalBatches}] (队列剩余: {_preloadedQueue.Count}/{MaxQueueCapacity})");
                 return chunk;
             }
 
@@ -155,12 +174,12 @@ namespace WinFormsApp2
                     int loadingIndex = _nextBatchToLoadIndex;
                     _nextBatchToLoadIndex++;
 
-                    _logger?.Invoke($"[FIFO 后台生产者] 极速抓取 [批次 {loadingIndex + 1}/{TotalBatches}] 数据中 (无需等待 K线回放完成，当前队列: {_preloadedQueue.Count}/{MaxQueueCapacity})...");
+                    Log($"[FIFO 后台生产者] 极速抓取 [批次 {loadingIndex + 1}/{TotalBatches}] 数据中 (无需等待 K线回放完成，当前队列: {_preloadedQueue.Count}/{MaxQueueCapacity})...");
 
                     var chunk = await LoadChunkForBatchIndexAsync(loadingIndex).ConfigureAwait(false);
 
                     _preloadedQueue.Enqueue(chunk);
-                    _logger?.Invoke($"[FIFO 队列已填充] [批次 {loadingIndex + 1}/{TotalBatches}] 成功入列 (当前队列: {_preloadedQueue.Count}/{MaxQueueCapacity})");
+                    Log($"[FIFO 队列已填充] [批次 {loadingIndex + 1}/{TotalBatches}] 成功入列 (当前队列: {_preloadedQueue.Count}/{MaxQueueCapacity})");
                 }
                 catch (OperationCanceledException)
                 {
@@ -168,12 +187,12 @@ namespace WinFormsApp2
                 }
                 catch (Exception ex)
                 {
-                    _logger?.Invoke($"[FIFO 生产者异常] 加载批次失败: {ex.Message}");
+                    Log($"[FIFO 生产者异常] 加载批次失败: {ex.Message}");
                     await Task.Delay(1000, token).ConfigureAwait(false);
                 }
             }
 
-            _logger?.Invoke($"[FIFO 生产者完成] 所有批次数据已成功预读入列。");
+            Log($"[FIFO 生产者完成] 所有批次数据已成功预读入列。");
         }
 
         /// <summary>
@@ -219,6 +238,12 @@ namespace WinFormsApp2
         public void Stop()
         {
             _cts.Cancel();
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _cts.Dispose();
         }
     }
 }

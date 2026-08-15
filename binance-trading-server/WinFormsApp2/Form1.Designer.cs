@@ -34,6 +34,9 @@ namespace WinFormsApp2
             grpLog = new GroupBox();
             rtbLog = new RichTextBox();
             panelRight = new Panel();
+            grpDownload = new GroupBox();
+            btnDownloadKlines = new Button();
+            btnDownloadTicks = new Button();
             grpActions = new GroupBox();
             btnLiveMode = new Button();
             btnClearLog = new Button();
@@ -162,6 +165,7 @@ namespace WinFormsApp2
             // panelRight
             // 
             panelRight.AutoScroll = true;
+            panelRight.Controls.Add(grpDownload);
             panelRight.Controls.Add(grpActions);
             panelRight.Controls.Add(grpStrategy);
             panelRight.Controls.Add(grpParams);
@@ -537,6 +541,38 @@ namespace WinFormsApp2
             btnStop.UseVisualStyleBackColor = true;
             btnStop.Click += btnStop_Click;
             // 
+            // grpDownload
+            // 
+            grpDownload.Controls.Add(btnDownloadTicks);
+            grpDownload.Controls.Add(btnDownloadKlines);
+            grpDownload.Dock = DockStyle.Top;
+            grpDownload.Location = new Point(8, 888);
+            grpDownload.Name = "grpDownload";
+            grpDownload.Size = new Size(304, 100);
+            grpDownload.TabIndex = 3;
+            grpDownload.TabStop = false;
+            grpDownload.Text = "数据离线下载 (Download)";
+            // 
+            // btnDownloadKlines
+            // 
+            btnDownloadKlines.Location = new Point(16, 22);
+            btnDownloadKlines.Name = "btnDownloadKlines";
+            btnDownloadKlines.Size = new Size(268, 30);
+            btnDownloadKlines.TabIndex = 0;
+            btnDownloadKlines.Text = "📥 下载 K线周期数据 (DuckDB Parquet)";
+            btnDownloadKlines.UseVisualStyleBackColor = true;
+            btnDownloadKlines.Click += btnDownloadKlines_Click;
+            // 
+            // btnDownloadTicks
+            // 
+            btnDownloadTicks.Location = new Point(16, 58);
+            btnDownloadTicks.Name = "btnDownloadTicks";
+            btnDownloadTicks.Size = new Size(268, 30);
+            btnDownloadTicks.TabIndex = 1;
+            btnDownloadTicks.Text = "⚡ 下载 Tick 逐笔数据 (DuckDB Parquet)";
+            btnDownloadTicks.UseVisualStyleBackColor = true;
+            btnDownloadTicks.Click += btnDownloadTicks_Click;
+            // 
             // btnClearLog
             // 
             btnClearLog.Location = new Point(16, 165);
@@ -622,5 +658,8 @@ namespace WinFormsApp2
         private Button btnStop;
         private Button btnClearLog;
         private Button btnLiveMode;
+        private GroupBox grpDownload;
+        private Button btnDownloadKlines;
+        private Button btnDownloadTicks;
     }
 }

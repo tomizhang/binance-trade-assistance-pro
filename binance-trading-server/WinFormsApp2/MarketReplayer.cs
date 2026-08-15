@@ -87,6 +87,21 @@ namespace WinFormsApp2
         }
 
         /// <summary>
+        /// 切换暂停与恢复播放状态
+        /// </summary>
+        public void TogglePause()
+        {
+            if (State == ReplayState.Playing)
+            {
+                PausePlayback();
+            }
+            else if (State == ReplayState.Paused)
+            {
+                ResumePlayback();
+            }
+        }
+
+        /// <summary>
         /// 停止回放
         /// </summary>
         public void StopPlayback()

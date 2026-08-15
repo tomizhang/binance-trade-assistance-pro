@@ -14,6 +14,27 @@ namespace WinFormsApp2
     /// </summary>
     public static class MultiThreadDownloader
     {
+        public static async Task DownloadAndSaveKlinesParallelAsync(
+            string symbol,
+            KlineInterval interval,
+            DateTime startDate,
+            DateTime endDate,
+            int maxDegreeOfParallelism = 4,
+            Action<string>? logger = null)
+        {
+            await DownloadKlinesParallelAsync(symbol, interval, startDate, endDate, maxDegreeOfParallelism, logger);
+        }
+
+        public static async Task DownloadAndSaveTicksInSlicesParallelAsync(
+            string symbol,
+            DateTime startDate,
+            DateTime endDate,
+            int maxDegreeOfParallelism = 4,
+            Action<string>? logger = null)
+        {
+            await DownloadTicksInSlicesParallelAsync(symbol, startDate, endDate, maxDegreeOfParallelism, logger);
+        }
+
         /// <summary>
         /// 多线程并发下载/读取指定日期范围内的 K 线数据 (以天为粒度分配工作线程，优先使用 DuckDB Parquet 时间分区)
         /// </summary>
