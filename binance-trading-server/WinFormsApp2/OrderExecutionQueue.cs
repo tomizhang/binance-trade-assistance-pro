@@ -50,10 +50,10 @@ namespace WinFormsApp2
 
     /// <summary>
     /// 高性能 Producer-Consumer 非阻塞实盘/模拟下单队列引擎 (Order Execution Queue Service)
-    /// 特性：
-    /// 1. 自动对接币安接口 /fapi/v1/leverageBracket：自动获取并缓存各币种支持的最大杠杆；
-    /// 2. 杠杆设置为 -1 时自动使用币安该币种支持的最大杠杆；超出限制时自动平滑下调至最大允许杠杆；
-    /// 3. 动态对齐币安官方 ExchangeInfo 规则：自动获取各币种的官方 StepSize / QuantityPrecision / MinNotional；
+    /// 核心优化：
+    /// 1. 对接币安 /fapi/v2/account 接口同步账户真实杠杆，设置成功后无需在每次下单时重复设置；
+    /// 2. 对接币安 /fapi/v1/leverageBracket 接口：杠杆设置为 -1 时自动使用支持的最大杠杆；
+    /// 3. 动态对齐 ExchangeInfo 规则：自动获取各币种的官方 StepSize / QuantityPrecision / MinNotional；
     /// 4. 币种名称合法化清洗：自动剥离非标准字符，防止非法的 API 参数请求。
     /// </summary>
     public class OrderExecutionQueue : IDisposable
@@ -64,6 +64,8 @@ namespace WinFormsApp2
 
         private static readonly ConcurrentDictionary<string, SymbolRuleInfo> _symbolRulesCache = new ConcurrentDictionary<string, SymbolRuleInfo>(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, int> _maxLeverageCache = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, int> _exchangeCurrentLeverageCache = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, bool> _setLeverageDoneSymbols = new ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
         private BinanceRestClient? _restClient;
 
@@ -98,15 +100,46 @@ namespace WinFormsApp2
                 });
                 Log($"🟢 [实盘 API 初始化成功] 当前模式: 币安真实合约下单 | 杠杆配置: {(Leverage <= 0 ? "-1 (自动使用币安该币种最大杠杆)" : Leverage + "x")} | 单笔默认资金: {OrderQuantityUsdt} USDT");
 
-                // 后台异步同步 ExchangeInfo 精度库与 /fapi/v1/leverageBracket 最大杠杆表
+                // 后台异步同步 ExchangeInfo 精度库、/fapi/v1/leverageBracket 最大杠杆表 与 /fapi/v2/account 账号杠杆信息
                 _ = FetchExchangeInfoRulesAsync();
                 _ = FetchLeverageBracketsAsync();
+                _ = FetchAccountLeveragesAsync();
             }
             else
             {
                 _restClient?.Dispose();
                 _restClient = null;
                 Log($"🟡 [模拟下单初始化成功] 当前模式: 本地挂单匹配 (Simulated) | 杠杆配置: {(Leverage <= 0 ? "-1 (默认使用最大杠杆)" : Leverage + "x")} | 单笔资金: {OrderQuantityUsdt} USDT");
+            }
+        }
+
+        /// <summary>
+        /// 异步从币安接口 /fapi/v2/account 获取用户账户仓位与杠杆数据，初始化本地杠杆缓存
+        /// </summary>
+        private async Task FetchAccountLeveragesAsync()
+        {
+            if (_restClient == null) return;
+
+            try
+            {
+                var accountResult = await _restClient.UsdFuturesApi.Account.GetAccountInfoV2Async().ConfigureAwait(false);
+                if (accountResult.Success && accountResult.Data != null && accountResult.Data.Positions != null)
+                {
+                    int count = 0;
+                    foreach (var pos in accountResult.Data.Positions)
+                    {
+                        if (!string.IsNullOrEmpty(pos.Symbol))
+                        {
+                            _exchangeCurrentLeverageCache[pos.Symbol] = pos.Leverage;
+                            count++;
+                        }
+                    }
+                    Log($"⚙ [账户杠杆同步成功] 成功从 /fapi/v2/account 拉取 {count} 个合约的当前真实杠杆状态！");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"⚠️ [账户杠杆同步提示] {ex.Message}");
             }
         }
 
@@ -206,7 +239,7 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 调整指定币种的合约杠杆倍数 (自动处理 -1 默认最大杠杆与上限对齐)
+        /// 调整指定币种的合约杠杆倍数 (已设置过或与交易所侧一致时自动跳过，无需每次下单重复设置)
         /// </summary>
         public async Task<bool> SetLeverageAsync(string symbol, int configuredLeverage)
         {
@@ -214,18 +247,17 @@ namespace WinFormsApp2
             if (string.IsNullOrEmpty(symbol) || !IsLiveTrading || _restClient == null) return true;
 
             int maxSupported = GetMaxSupportedLeverage(symbol);
-            int targetLeverage = configuredLeverage;
+            int targetLeverage = configuredLeverage <= 0 ? maxSupported : Math.Min(configuredLeverage, maxSupported);
 
-            // 规则：如果配置中杠杆设置为 -1 (或 <= 0)，默认使用币安支持的最大杠杆
-            if (configuredLeverage <= 0)
+            // 关键性能优化：若本地已设置完成且交易所侧杠杆符合目标杠杆，直接跳过重复 API 设置！
+            if (_exchangeCurrentLeverageCache.TryGetValue(symbol, out int currentLev) && currentLev == targetLeverage)
             {
-                targetLeverage = maxSupported;
-                Log($"⚙ [杠杆 -1 模式] 币种 [{symbol}] 自动匹配币安 /fapi/v1/leverageBracket 支持的最大杠杆: {targetLeverage}x");
+                return true;
             }
-            else if (targetLeverage > maxSupported)
+
+            if (_setLeverageDoneSymbols.TryGetValue(symbol, out bool isDone) && isDone)
             {
-                targetLeverage = maxSupported;
-                Log($"⚙ [杠杆安全防护] 币种 [{symbol}] 配置杠杆 {configuredLeverage}x 超过上限，自动下调为最大允许杠杆: {targetLeverage}x");
+                return true;
             }
 
             try
@@ -233,7 +265,9 @@ namespace WinFormsApp2
                 var result = await _restClient.UsdFuturesApi.Account.ChangeInitialLeverageAsync(symbol, targetLeverage).ConfigureAwait(false);
                 if (result.Success)
                 {
-                    Log($"⚙ [杠杆校准成功] 币种 [{symbol}] 杠杆调整为: {result.Data.Leverage}x (官方最大支持: {maxSupported}x)");
+                    _exchangeCurrentLeverageCache[symbol] = result.Data.Leverage;
+                    _setLeverageDoneSymbols[symbol] = true;
+                    Log($"⚙ [杠杆一次性校准成功] 币种 [{symbol}] 杠杆调整为: {result.Data.Leverage}x (官方最大支持: {maxSupported}x，后续下单免重复调用)");
                     return true;
                 }
                 else
@@ -328,7 +362,7 @@ namespace WinFormsApp2
             // B. 币安真实 API 下单逻辑 ( USDT-M 合约市价单)
             try
             {
-                // 1. 自动校准/确保杠杆已经成功设置 (-1 时使用最大支持杠杆)
+                // 1. 一次性校准杠杆 (若已校准或一致自动 0 延迟跳过)
                 await SetLeverageAsync(cleanSymbol, Leverage).ConfigureAwait(false);
 
                 OrderSide side = (req.Type == OrderType.BuyLongOpen || req.Type == OrderType.CloseShort) ? OrderSide.Buy : OrderSide.Sell;
