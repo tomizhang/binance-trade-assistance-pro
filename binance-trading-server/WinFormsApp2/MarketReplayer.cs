@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -174,6 +175,45 @@ namespace WinFormsApp2
         /// 弃用 LINQ Where().ToArray() 全扫，直接通过数组游标指针与 index 循环线性扫描
         /// 具备价格无变动去重过滤逻辑，达到均摊 O(1) 时间复杂度与 0 GC 分配
         /// </summary>
+
+        Stopwatch sw = new Stopwatch();
+        private int FindTickIndexForTime(DateTime targetTime, int startIndex = 0)
+        {
+            if (_ticks.Length == 0) return 0;
+            if (startIndex < 0 || startIndex >= _ticks.Length) startIndex = 0;
+
+            // 绝大多数顺序播放场景：从上次记住的游标 _lastTickIndex 直接顺序向前，0~2 步即刻命中 (O(1) 均摊)
+            if (_ticks[startIndex].Time <= targetTime)
+            {
+                while (startIndex < _ticks.Length && _ticks[startIndex].Time < targetTime)
+                {
+                    startIndex++;
+                }
+                return startIndex;
+            }
+
+            // 发生回退或跳帧场景：使用二分查找在 O(log N) 0.0001ms 内极速定位起始 Tick 索引，绝不盲目从 0 全扫描！
+            int low = 0;
+            int high = _ticks.Length - 1;
+            int result = _ticks.Length;
+
+            while (low <= high)
+            {
+                int mid = low + ((high - low) >> 1);
+                if (_ticks[mid].Time >= targetTime)
+                {
+                    result = mid;
+                    high = mid - 1;
+                }
+                else
+                {
+                    low = mid + 1;
+                }
+            }
+
+            return result < _ticks.Length ? result : _ticks.Length;
+        }
+
         private void PushMatchingTicksForKline(Kline kline, CancellationToken token)
         {
             if (!EnableTickPush || _ticks.Length == 0) return;
@@ -181,14 +221,12 @@ namespace WinFormsApp2
             DateTime klineStart = kline.OpenTime;
             DateTime klineEnd = kline.CloseTime > klineStart ? kline.CloseTime : klineStart.AddMinutes(1);
 
-            // 1. 快速向前游走游标，定位至第一个时间 >= klineStart 的 Tick 索引
-            while (_lastTickIndex < _ticks.Length && _ticks[_lastTickIndex].Time < klineStart)
-            {
-                _lastTickIndex++;
-            }
+            // 1. 记住上次下标：从上次记忆的 _lastTickIndex 索引开始游走定位起始点，绝不每次从 0 检索全天数据！
+            _lastTickIndex = FindTickIndexForTime(klineStart, _lastTickIndex);
 
-            // 2. 从游标位置直接使用数组下标遍历推送属于该 K 线窗口内的 Tick 数据
+            // 2. 从定位到的游标位置直投当前 K 线时间窗口内的 Tick 数据
             int scanIndex = _lastTickIndex;
+            sw.Start();
             while (scanIndex < _ticks.Length)
             {
                 if (token.IsCancellationRequested || State == ReplayState.Stopped) break;
@@ -212,6 +250,13 @@ namespace WinFormsApp2
                 OnTickPushed?.Invoke(tick);
                 scanIndex++;
             }
+
+            // 3. 实时记忆并锁死本次扫描结束的下标索引，供下一根 K 线直接继承使用
+            _lastTickIndex = scanIndex;
+
+            sw.Stop();
+            if (sw.ElapsedMilliseconds > 200)
+                Logger.Log($"tick 花费时间毫秒:{sw.ElapsedMilliseconds}ms; tick长度: {_ticks.Length}");
         }
 
         /// <summary>
