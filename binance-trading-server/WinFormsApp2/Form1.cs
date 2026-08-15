@@ -23,6 +23,10 @@ namespace WinFormsApp2
         private bool _needChartRefresh = false;
         private string _chartTitle = "实时行情 / 数据回放 (ScottPlot 5)";
 
+        private int _currentKlineIndex = 0;
+        private List<PivotPoint> _currentActivePivots = new List<PivotPoint>();
+        private List<TrendLine> _currentActiveTrendLines = new List<TrendLine>();
+
         public Form1()
         {
             InitializeComponent();
@@ -262,6 +266,28 @@ namespace WinFormsApp2
             EnqueueLog(message);
         }
 
+        private void UpdateDisplayPivotsAndTrendLines()
+        {
+            Kline[] displaySample;
+            lock (_replayKlines)
+            {
+                int count = _replayKlines.Count;
+                if (count < 7)
+                {
+                    _currentActivePivots.Clear();
+                    _currentActiveTrendLines.Clear();
+                    return;
+                }
+
+                int sampleSize = Math.Min(count, 500);
+                displaySample = new Kline[sampleSize];
+                _replayKlines.CopyTo(count - sampleSize, displaySample, 0, sampleSize);
+            }
+
+            _currentActivePivots = PivotHelper.CalculatePeaksCombinedFast(displaySample, leftBars: 3, rightBars: 3);
+            _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(displaySample, _currentActivePivots, filterPenetrated: true);
+        }
+
         private void UiRenderTimer_Tick(object sender, EventArgs e)
         {
             // 1. 批量渲染日志文本
@@ -315,182 +341,176 @@ namespace WinFormsApp2
                     currentPrices[i] = (double)klineArray[i].ClosePrice;
                 }
 
-                    formsPlot1.Plot.Clear();
-                    formsPlot1.Plot.Grid.IsVisible = false;
+                formsPlot1.Plot.Clear();
+                formsPlot1.Plot.Grid.IsVisible = false;
 
-                    // A. 绘制价格主信号曲线
-                    formsPlot1.Plot.Add.Signal(currentPrices);
-                    formsPlot1.Plot.Title(_chartTitle);
+                // A. 绘制价格主信号曲线
+                formsPlot1.Plot.Add.Signal(currentPrices);
+                formsPlot1.Plot.Title(_chartTitle);
 
-                    // B. 标注相对高低点 (直接渲染已知枢轴，0 冗余重复计算)
-                    if (_currentActivePivots != null && _currentActivePivots.Count > 0)
+                // B. 标注相对高低点 (完全精准比对，0 冗余重复计算)
+                if (_currentActivePivots != null && _currentActivePivots.Count > 0)
+                {
+                    List<double> highXs = new List<double>();
+                    List<double> highYs = new List<double>();
+                    List<double> lowXs = new List<double>();
+                    List<double> lowYs = new List<double>();
+
+                    for (int i = 0; i < _currentActivePivots.Count; i++)
                     {
-                        List<double> highXs = new List<double>();
-                        List<double> highYs = new List<double>();
-                        List<double> lowXs = new List<double>();
-                        List<double> lowYs = new List<double>();
-
-                        for (int i = 0; i < _currentActivePivots.Count; i++)
+                        var p = _currentActivePivots[i];
+                        if (p.Index >= 0 && p.Index < klineArray.Length)
                         {
-                            var p = _currentActivePivots[i];
-                            int localIndex = p.Index - startIndexInFull;
-                            if (localIndex >= 0 && localIndex < klineArray.Length)
+                            if (p.Type == PivotType.High)
                             {
-                                if (p.Type == PivotType.High)
-                                {
-                                    highXs.Add(localIndex);
-                                    highYs.Add((double)p.Price);
-                                }
-                                else if (p.Type == PivotType.Low)
-                                {
-                                    lowXs.Add(localIndex);
-                                    lowYs.Add((double)p.Price);
-                                }
+                                highXs.Add(p.Index);
+                                highYs.Add((double)p.Price);
                             }
-                        }
-
-                        // 相对高点 (HighPrice, 红色)
-                        if (highXs.Count > 0)
-                        {
-                            var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs.ToArray(), highYs.ToArray());
-                            spHigh.Color = ScottPlot.Colors.Red;
-                            spHigh.MarkerSize = 3;
-                        }
-
-                        // 相对低点 (LowPrice, 绿色)
-                        if (lowXs.Count > 0)
-                        {
-                            var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs.ToArray(), lowYs.ToArray());
-                            spLow.Color = ScottPlot.Colors.LimeGreen;
-                            spLow.MarkerSize = 3;
-                        }
-                    }
-
-                    // C. 绘制延伸趋势线 (直接渲染已知趋势线，0 冗余重复计算)
-                    if (_currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
-                    {
-                        ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
-                        ScottPlot.Color extraLightGreen = ScottPlot.Color.FromHex("#4580FF80"); // 超淡柔和绿
-
-                        int totalKlines = startIndexInFull + klineArray.Length;
-
-                        for (int i = 0; i < _currentActiveTrendLines.Count; i++)
-                        {
-                            var tl = _currentActiveTrendLines[i];
-                            int localX1 = tl.X1 - startIndexInFull;
-                            int localX2 = tl.X2 - startIndexInFull;
-
-                            // 过滤规则: 若趋势线 X 锚点位不再当前图表中显示，则该趋势线也不再显示
-                            if (localX1 >= 0 && localX1 < klineArray.Length && localX2 >= 0 && localX2 < klineArray.Length)
+                            else if (p.Type == PivotType.Low)
                             {
-                                double x1 = localX1;
-                                double y1 = (double)tl.Y1;
-                                double x2 = klineArray.Length - 1;
-                                double y2 = (double)tl.GetPriceAt(totalKlines - 1);
-
-                                var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
-                                linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
-                                linePlot.LineWidth = 0.8f;
+                                lowXs.Add(p.Index);
+                                lowYs.Add((double)p.Price);
                             }
                         }
                     }
 
-                    // D. 高成交量 K 线标记标注 (金黄色) - 原生 for 循环计算均值与门槛
-                    if (chkHighlightHighVolume.Checked && klineArray.Length > 0)
+                    // 相对高点 (HighPrice, 红色)
+                    if (highXs.Count > 0)
                     {
-                        double sumVol = 0;
-                        for (int i = 0; i < klineArray.Length; i++)
-                        {
-                            sumVol += (double)klineArray[i].Volume;
-                        }
-                        double avgVol = sumVol / klineArray.Length;
-                        double thresholdVol = avgVol * 2.0;
-
-                        List<double> volXs = new List<double>();
-                        List<double> volYs = new List<double>();
-
-                        for (int i = 0; i < klineArray.Length; i++)
-                        {
-                            if ((double)klineArray[i].Volume >= thresholdVol)
-                            {
-                                volXs.Add(i);
-                                volYs.Add((double)klineArray[i].LowPrice * 0.9985);
-                            }
-                        }
-
-                        if (volXs.Count > 0)
-                        {
-                            var spVol = formsPlot1.Plot.Add.ScatterPoints(volXs.ToArray(), volYs.ToArray());
-                            spVol.Color = ScottPlot.Colors.Gold;
-                            spVol.MarkerSize = 5;
-                        }
+                        var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs.ToArray(), highYs.ToArray());
+                        spHigh.Color = ScottPlot.Colors.Red;
+                        spHigh.MarkerSize = 3;
                     }
 
-                    // E. 策略开仓与平仓图表标注
-                    if (chkEnableStrategy.Checked)
+                    // 相对低点 (LowPrice, 绿色)
+                    if (lowXs.Count > 0)
                     {
-                        // 1. 标注历史完成交易
-                        foreach (var trade in _strategy.Trades)
-                        {
-                            int localEntryX = trade.EntryKlineIndex - startIndexInFull;
-                            int localExitX = trade.ExitKlineIndex - startIndexInFull;
-
-                            // 开仓标记 (青色/品红)
-                            if (localEntryX >= 0 && localEntryX < klineArray.Length)
-                            {
-                                var spEntry = formsPlot1.Plot.Add.ScatterPoints(new double[] { localEntryX }, new double[] { (double)trade.EntryPrice });
-                                spEntry.Color = trade.Position == PositionType.Long ? ScottPlot.Colors.Cyan : ScottPlot.Colors.Magenta;
-                                spEntry.MarkerSize = 7;
-                            }
-
-                            // 平仓标记 (绿色止盈 / 红色止损)
-                            if (localExitX >= 0 && localExitX < klineArray.Length)
-                            {
-                                var spExit = formsPlot1.Plot.Add.ScatterPoints(new double[] { localExitX }, new double[] { (double)trade.ExitPrice });
-                                spExit.Color = trade.IsWin ? ScottPlot.Colors.LimeGreen : ScottPlot.Colors.Red;
-                                spExit.MarkerSize = 8;
-                            }
-                        }
-
-                        // 2. 标注当前持仓点位
-                        if (_strategy.CurrentPosition != PositionType.None)
-                        {
-                            int localEntryX = _strategy.CurrentEntryKlineIndex - startIndexInFull;
-                            if (localEntryX >= 0 && localEntryX < klineArray.Length)
-                            {
-                                var spCurrent = formsPlot1.Plot.Add.ScatterPoints(new double[] { localEntryX }, new double[] { (double)_strategy.CurrentEntryPrice });
-                                spCurrent.Color = _strategy.CurrentPosition == PositionType.Long ? ScottPlot.Colors.DeepSkyBlue : ScottPlot.Colors.HotPink;
-                                spCurrent.MarkerSize = 9;
-                            }
-                        }
+                        var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs.ToArray(), lowYs.ToArray());
+                        spLow.Color = ScottPlot.Colors.LimeGreen;
+                        spLow.MarkerSize = 3;
                     }
-
-                    // F. 视口自动缩放/聚焦最新价格附近 (当勾选 chkAutoFitPrice 时)
-                    if (chkAutoFitPrice.Checked && klineArray.Length > 0)
-                    {
-                        int sampleSize = Math.Min(klineArray.Length, 80);
-                        int startIdx = klineArray.Length - sampleSize;
-                        double minPrice = (double)klineArray[startIdx].LowPrice;
-                        double maxPrice = (double)klineArray[startIdx].HighPrice;
-
-                        for (int i = startIdx + 1; i < klineArray.Length; i++)
-                        {
-                            double low = (double)klineArray[i].LowPrice;
-                            double high = (double)klineArray[i].HighPrice;
-                            if (low < minPrice) minPrice = low;
-                            if (high > maxPrice) maxPrice = high;
-                        }
-
-                        double margin = (maxPrice - minPrice) * 0.12;
-                        if (margin == 0) margin = maxPrice * 0.01;
-                        if (margin == 0) margin = 1.0;
-
-                        formsPlot1.Plot.Axes.SetLimitsY(minPrice - margin, maxPrice + margin);
-                    }
-
-                    formsPlot1.Refresh();
                 }
+
+                // C. 绘制延伸趋势线 (完全精准比对，0 冗余重复计算)
+                if (_currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
+                {
+                    ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
+                    ScottPlot.Color extraLightGreen = ScottPlot.Color.FromHex("#4580FF80"); // 超淡柔和绿
+
+                    for (int i = 0; i < _currentActiveTrendLines.Count; i++)
+                    {
+                        var tl = _currentActiveTrendLines[i];
+
+                        if (tl.X1 >= 0 && tl.X1 < klineArray.Length && tl.X2 >= 0 && tl.X2 < klineArray.Length)
+                        {
+                            double x1 = tl.X1;
+                            double y1 = (double)tl.Y1;
+                            double x2 = klineArray.Length - 1;
+                            double y2 = (double)tl.GetPriceAt(klineArray.Length - 1);
+
+                            var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
+                            linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
+                            linePlot.LineWidth = 0.8f;
+                        }
+                    }
+                }
+
+                // D. 高成交量 K 线标记标注 (金黄色) - 原生 for 循环计算均值与门槛
+                if (chkHighlightHighVolume.Checked && klineArray.Length > 0)
+                {
+                    double sumVol = 0;
+                    for (int i = 0; i < klineArray.Length; i++)
+                    {
+                        sumVol += (double)klineArray[i].Volume;
+                    }
+                    double avgVol = sumVol / klineArray.Length;
+                    double thresholdVol = avgVol * 2.0;
+
+                    List<double> volXs = new List<double>();
+                    List<double> volYs = new List<double>();
+
+                    for (int i = 0; i < klineArray.Length; i++)
+                    {
+                        if ((double)klineArray[i].Volume >= thresholdVol)
+                        {
+                            volXs.Add(i);
+                            volYs.Add((double)klineArray[i].LowPrice * 0.9985);
+                        }
+                    }
+
+                    if (volXs.Count > 0)
+                    {
+                        var spVol = formsPlot1.Plot.Add.ScatterPoints(volXs.ToArray(), volYs.ToArray());
+                        spVol.Color = ScottPlot.Colors.Gold;
+                        spVol.MarkerSize = 5;
+                    }
+                }
+
+                // E. 策略开仓与平仓图表标注
+                if (chkEnableStrategy.Checked)
+                {
+                    // 1. 标注历史完成交易
+                    foreach (var trade in _strategy.Trades)
+                    {
+                        int localEntryX = trade.EntryKlineIndex - startIndexInFull;
+                        int localExitX = trade.ExitKlineIndex - startIndexInFull;
+
+                        // 开仓标记 (青色/品红)
+                        if (localEntryX >= 0 && localEntryX < klineArray.Length)
+                        {
+                            var spEntry = formsPlot1.Plot.Add.ScatterPoints(new double[] { localEntryX }, new double[] { (double)trade.EntryPrice });
+                            spEntry.Color = trade.Position == PositionType.Long ? ScottPlot.Colors.Cyan : ScottPlot.Colors.Magenta;
+                            spEntry.MarkerSize = 7;
+                        }
+
+                        // 平仓标记 (绿色止盈 / 红色止损)
+                        if (localExitX >= 0 && localExitX < klineArray.Length)
+                        {
+                            var spExit = formsPlot1.Plot.Add.ScatterPoints(new double[] { localExitX }, new double[] { (double)trade.ExitPrice });
+                            spExit.Color = trade.IsWin ? ScottPlot.Colors.LimeGreen : ScottPlot.Colors.Red;
+                            spExit.MarkerSize = 8;
+                        }
+                    }
+
+                    // 2. 标注当前持仓点位
+                    if (_strategy.CurrentPosition != PositionType.None)
+                    {
+                        int localEntryX = _strategy.CurrentEntryKlineIndex - startIndexInFull;
+                        if (localEntryX >= 0 && localEntryX < klineArray.Length)
+                        {
+                            var spCurrent = formsPlot1.Plot.Add.ScatterPoints(new double[] { localEntryX }, new double[] { (double)_strategy.CurrentEntryPrice });
+                            spCurrent.Color = _strategy.CurrentPosition == PositionType.Long ? ScottPlot.Colors.DeepSkyBlue : ScottPlot.Colors.HotPink;
+                            spCurrent.MarkerSize = 9;
+                        }
+                    }
+                }
+
+                // F. 视口自动缩放/聚焦最新价格附近 (当勾选 chkAutoFitPrice 时)
+                if (chkAutoFitPrice.Checked && klineArray.Length > 0)
+                {
+                    int sampleSize = Math.Min(klineArray.Length, 80);
+                    int startIdx = klineArray.Length - sampleSize;
+                    double minPrice = (double)klineArray[startIdx].LowPrice;
+                    double maxPrice = (double)klineArray[startIdx].HighPrice;
+
+                    for (int i = startIdx + 1; i < klineArray.Length; i++)
+                    {
+                        double low = (double)klineArray[i].LowPrice;
+                        double high = (double)klineArray[i].HighPrice;
+                        if (low < minPrice) minPrice = low;
+                        if (high > maxPrice) maxPrice = high;
+                    }
+
+                    double margin = (maxPrice - minPrice) * 0.12;
+                    if (margin == 0) margin = maxPrice * 0.01;
+                    if (margin == 0) margin = 1.0;
+
+                    formsPlot1.Plot.Axes.SetLimitsY(minPrice - margin, maxPrice + margin);
+                }
+
+                formsPlot1.Refresh();
             }
+        }
 
         private async void btnStart_Click(object sender, EventArgs e)
         {
@@ -566,22 +586,13 @@ namespace WinFormsApp2
                     AppendLog("[API 预热关闭] 用户未勾选 API 预热，直接使用下载装载的 K 线数据计算趋势线。");
                 }
 
-                // 优先使用在线拉取的 1000 根 K 线计算基准枢轴高低点与趋势线；若关闭或失败则回退使用装载的 K 线数据
-                Kline[] baselineKlines = (api1000Klines != null && api1000Klines.Length >= 40) 
-                    ? api1000Klines 
-                    : (klines.Length > 1000 ? klines.Skip(klines.Length - 1000).ToArray() : klines);
-
-                UpdateActivePivotsAndTrendLines(baselineKlines);
-                int highCount = _currentActivePivots.Count(p => p.Type == PivotType.High);
-                int lowCount = _currentActivePivots.Count(p => p.Type == PivotType.Low);
-                AppendLog($"[Pivot 枢轴计算] 基于 1000 根 K 线 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
-                AppendLog($"[TrendLine 趋势线交互] 基于 1000 根 K 线已计算生成未破位有效基准趋势线 {_currentActiveTrendLines.Count} 条 (单源驱动，0 冗余重复计算)。");
-
                 // 4. 复位图表并启动回放引擎
                 lock (_replayKlines)
                 {
                     _replayKlines.Clear();
                 }
+
+                UpdateDisplayPivotsAndTrendLines();
 
                 formsPlot1.Plot.Clear();
                 formsPlot1.Plot.Grid.IsVisible = false;
@@ -634,41 +645,18 @@ namespace WinFormsApp2
             AppendLog("日志已清空。");
         }
 
-        private int _currentKlineIndex = 0;
-        private List<PivotPoint> _currentActivePivots = new List<PivotPoint>();
-        private List<TrendLine> _currentActiveTrendLines = new List<TrendLine>();
-
-        /// <summary>
-        /// 单源数据驱动：仅在新 K 线压入或回放初始化时计算更新枢轴高低点与趋势线，0 界面重绘重复计算
-        /// </summary>
-        private void UpdateActivePivotsAndTrendLines(Kline[] currentKlines)
-        {
-            if (currentKlines != null && currentKlines.Length >= 7)
-            {
-                _currentActivePivots = PivotHelper.CalculatePeaksCombinedFast(currentKlines, leftBars: 3, rightBars: 3);
-                _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(currentKlines, _currentActivePivots, filterPenetrated: true);
-            }
-            else
-            {
-                _currentActivePivots.Clear();
-                _currentActiveTrendLines.Clear();
-            }
-        }
-
         #region 回放事件响应 (无锁入队，无卡顿渲染)
 
         private void Replayer_OnKlinePushed(Kline kline, int current, int total)
         {
-            Kline[] currentKlines;
             lock (_replayKlines)
             {
                 _replayKlines.Add(kline);
                 _currentKlineIndex = _replayKlines.Count - 1;
-                currentKlines = _replayKlines.ToArray();
             }
 
-            // 新 K 线到达时才统一触发一次枢轴与趋势线增量更新
-            UpdateActivePivotsAndTrendLines(currentKlines);
+            // 新 K 线到达时增量更新当前视图的高低点与趋势线 (常数级 0.05ms)
+            UpdateDisplayPivotsAndTrendLines();
 
             _chartTitle = $"[{_currentSymbol}] 动态回放中 ({current}/{total}) - {kline.OpenTime:yyyy-MM-dd HH:mm:ss}";
             _needChartRefresh = true;
@@ -683,11 +671,7 @@ namespace WinFormsApp2
                 _currentKlineIndex = Math.Max(0, _replayKlines.Count - 1);
             }
 
-            if (chkEnableStrategy.Checked && subKlines.Length >= 7)
-            {
-                var pivots = PivotHelper.CalculatePeaksCombinedFast(subKlines, leftBars: 3, rightBars: 3);
-                _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(subKlines, pivots, filterPenetrated: true);
-            }
+            UpdateDisplayPivotsAndTrendLines();
 
             var lastTime = subKlines.Length > 0 ? subKlines[subKlines.Length - 1].OpenTime.ToString("yyyy-MM-dd HH:mm:ss") : "";
             _chartTitle = $"[{_currentSymbol}] 单步向后 ({current}/{total}) - {lastTime}";
