@@ -105,6 +105,8 @@ namespace WinFormsApp2
         {
             if (_preloadedQueue.TryDequeue(out var chunk))
             {
+                // 内存回收：出队切换时触发 GC 快速回收已被消费的旧 Batch 数组内存，锁定内存平稳运行
+                GC.Collect(2, GCCollectionMode.Optimized, false, false);
                 _logger?.Invoke($"[队列出队成功] 弹出 [批次 {chunk.BatchIndex + 1}/{TotalBatches}] (队列剩余: {_preloadedQueue.Count}/{MaxQueueCapacity})");
                 return chunk;
             }

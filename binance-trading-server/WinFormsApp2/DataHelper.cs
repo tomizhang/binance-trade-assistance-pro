@@ -44,18 +44,7 @@ namespace WinFormsApp2
         /// </summary>
         public static Tick ToTick(IBinance24HPrice price, SymbolType? symbolType = null)
         {
-            return new Tick
-            {
-                Symbol = price.Symbol,
-                Time = DateTime.Now,
-                LastPrice = price.LastPrice,
-                OpenPrice = price.OpenPrice,
-                HighPrice = price.HighPrice,
-                LowPrice = price.LowPrice,
-                Volume = price.Volume,
-                QuoteVolume = price.QuoteVolume,
-                SymbolType = symbolType
-            };
+            return new Tick(DateTime.Now, price.LastPrice, price.Volume);
         }
 
         /// <summary>
@@ -63,18 +52,7 @@ namespace WinFormsApp2
         /// </summary>
         public static Tick ToTick(IBinanceRecentTrade trade, string symbol, SymbolType? symbolType = null)
         {
-            return new Tick
-            {
-                Symbol = symbol,
-                Time = trade.TradeTime,
-                LastPrice = trade.Price,
-                OpenPrice = trade.Price,
-                HighPrice = trade.Price,
-                LowPrice = trade.Price,
-                Volume = trade.BaseQuantity,
-                QuoteVolume = trade.QuoteQuantity,
-                SymbolType = symbolType
-            };
+            return new Tick(trade.TradeTime, trade.Price, trade.BaseQuantity);
         }
 
         /// <summary>
@@ -155,31 +133,17 @@ namespace WinFormsApp2
                 if (DateTime.TryParse(parts[1], CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedTime) ||
                     long.TryParse(parts[1], out _))
                 {
-                    tick = new Tick
-                    {
-                        Symbol = parts[0].Trim(),
-                        Time = ParseTime(parts[1]),
-                        LastPrice = decimal.Parse(parts[2], CultureInfo.InvariantCulture),
-                        OpenPrice = parts.Length > 3 ? decimal.Parse(parts[3], CultureInfo.InvariantCulture) : decimal.Parse(parts[2], CultureInfo.InvariantCulture),
-                        HighPrice = parts.Length > 4 ? decimal.Parse(parts[4], CultureInfo.InvariantCulture) : decimal.Parse(parts[2], CultureInfo.InvariantCulture),
-                        LowPrice = parts.Length > 5 ? decimal.Parse(parts[5], CultureInfo.InvariantCulture) : decimal.Parse(parts[2], CultureInfo.InvariantCulture),
-                        Volume = parts.Length > 6 ? decimal.Parse(parts[6], CultureInfo.InvariantCulture) : 0m,
-                        QuoteVolume = parts.Length > 7 ? decimal.Parse(parts[7], CultureInfo.InvariantCulture) : 0m
-                    };
+                    DateTime time = ParseTime(parts[1]);
+                    decimal price = decimal.Parse(parts[2], CultureInfo.InvariantCulture);
+                    decimal vol = parts.Length > 6 ? decimal.Parse(parts[6], CultureInfo.InvariantCulture) : 0m;
+                    tick = new Tick(time, price, vol);
                 }
                 else
                 {
-                    tick = new Tick
-                    {
-                        Symbol = parts[0].Trim(),
-                        Time = DateTime.Now,
-                        LastPrice = decimal.Parse(parts[1], CultureInfo.InvariantCulture),
-                        OpenPrice = parts.Length > 2 ? decimal.Parse(parts[2], CultureInfo.InvariantCulture) : 0m,
-                        HighPrice = parts.Length > 3 ? decimal.Parse(parts[3], CultureInfo.InvariantCulture) : 0m,
-                        LowPrice = parts.Length > 4 ? decimal.Parse(parts[4], CultureInfo.InvariantCulture) : 0m,
-                        Volume = parts.Length > 5 ? decimal.Parse(parts[5], CultureInfo.InvariantCulture) : 0m,
-                        QuoteVolume = parts.Length > 6 ? decimal.Parse(parts[6], CultureInfo.InvariantCulture) : 0m
-                    };
+                    DateTime time = DateTime.Now;
+                    decimal price = decimal.Parse(parts[1], CultureInfo.InvariantCulture);
+                    decimal vol = parts.Length > 5 ? decimal.Parse(parts[5], CultureInfo.InvariantCulture) : 0m;
+                    tick = new Tick(time, price, vol);
                 }
                 return true;
             }
@@ -226,8 +190,8 @@ namespace WinFormsApp2
             foreach (var t in ticks)
             {
                 string line = string.Format(CultureInfo.InvariantCulture,
-                    "{0},{1:yyyy-MM-dd HH:mm:ss.fff},{2},{3},{4},{5},{6},{7}",
-                    t.Symbol, t.Time, t.LastPrice, t.OpenPrice, t.HighPrice, t.LowPrice, t.Volume, t.QuoteVolume);
+                    "{0:yyyy-MM-dd HH:mm:ss.fff},{1},{2}",
+                    t.Time, t.LastPrice, t.Volume);
                 writer.WriteLine(line);
             }
         }
@@ -582,18 +546,7 @@ namespace WinFormsApp2
                             if (long.TryParse(parts[timeIdx], CultureInfo.InvariantCulture, out long timeMs))
                             {
                                 DateTime time = DateTimeOffset.FromUnixTimeMilliseconds(timeMs).LocalDateTime;
-
-                                tickList.Add(new Tick
-                                {
-                                    Symbol = symbol,
-                                    Time = time,
-                                    LastPrice = price,
-                                    OpenPrice = price,
-                                    HighPrice = price,
-                                    LowPrice = price,
-                                    Volume = volume,
-                                    QuoteVolume = price * volume
-                                });
+                                tickList.Add(new Tick(time, price, volume));
                             }
                         }
                         catch

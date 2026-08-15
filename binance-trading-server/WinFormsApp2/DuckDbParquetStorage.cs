@@ -51,7 +51,7 @@ namespace WinFormsApp2
         #region DuckDB 写入与转存 Parquet
 
         /// <summary>
-        /// 将内存中的 Tick 数组存入时间分区 Parquet 文件中
+        /// 将内存中的 40 字节紧凑型 Tick 数组极速存入时间分区 Parquet 文件中
         /// </summary>
         public static async Task SaveTicksToParquetAsync(string symbol, DateTime date, Tick[] ticks)
         {
@@ -67,32 +67,22 @@ namespace WinFormsApp2
                 using var cmd = connection.CreateCommand();
                 cmd.CommandText = @"
                     CREATE TABLE temp_ticks (
-                        symbol VARCHAR,
                         trade_time TIMESTAMP,
                         last_price DOUBLE,
-                        open_price DOUBLE,
-                        high_price DOUBLE,
-                        low_price DOUBLE,
-                        volume DOUBLE,
-                        quote_volume DOUBLE
+                        volume DOUBLE
                     );";
                 cmd.ExecuteNonQuery();
 
-                // 使用 DuckDB Appender 批量极速写入内存临时表
+                // 使用 DuckDB Appender 批量极速写入
                 using (var appender = connection.CreateAppender("temp_ticks"))
                 {
                     for (int i = 0; i < ticks.Length; i++)
                     {
                         ref readonly var t = ref ticks[i];
                         var row = appender.CreateRow();
-                        row.AppendValue(t.Symbol ?? symbol);
                         row.AppendValue(t.Time);
                         row.AppendValue((double)t.LastPrice);
-                        row.AppendValue((double)t.OpenPrice);
-                        row.AppendValue((double)t.HighPrice);
-                        row.AppendValue((double)t.LowPrice);
                         row.AppendValue((double)t.Volume);
-                        row.AppendValue((double)t.QuoteVolume);
                         row.EndRow();
                     }
                 }
@@ -102,6 +92,8 @@ namespace WinFormsApp2
                 using var copyCmd = connection.CreateCommand();
                 copyCmd.CommandText = $"COPY temp_ticks TO '{escapedParquetPath}' (FORMAT PARQUET, COMPRESSION SNAPPY);";
                 copyCmd.ExecuteNonQuery();
+
+                connection.Close();
             });
         }
 
@@ -153,6 +145,8 @@ namespace WinFormsApp2
                 using var copyCmd = connection.CreateCommand();
                 copyCmd.CommandText = $"COPY temp_klines TO '{escapedParquetPath}' (FORMAT PARQUET, COMPRESSION SNAPPY);";
                 copyCmd.ExecuteNonQuery();
+
+                connection.Close();
             });
         }
 
@@ -161,7 +155,7 @@ namespace WinFormsApp2
         #region DuckDB 极速 SQL 查询 Parquet
 
         /// <summary>
-        /// 从时间分区 Parquet 文件中使用 DuckDB SQL 极速读取指定日期的 Tick 数据
+        /// 从时间分区 Parquet 文件中使用 DuckDB SQL 极速读取指定日期的 40 字节紧凑型 Tick 数据
         /// </summary>
         public static async Task<Tick[]?> ReadTicksFromParquetAsync(string symbol, DateTime date)
         {
@@ -176,33 +170,19 @@ namespace WinFormsApp2
 
                 string escapedParquetPath = parquetPath.Replace("\\", "/");
                 using var cmd = connection.CreateCommand();
-                cmd.CommandText = $"SELECT symbol, trade_time, last_price, open_price, high_price, low_price, volume, quote_volume FROM read_parquet('{escapedParquetPath}') ORDER BY trade_time ASC;";
+                cmd.CommandText = $"SELECT trade_time, last_price, volume FROM read_parquet('{escapedParquetPath}') ORDER BY trade_time ASC;";
 
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
-                    string sym = reader.GetString(0);
-                    DateTime time = reader.GetDateTime(1);
-                    double lastPrice = reader.GetDouble(2);
-                    double openPrice = reader.GetDouble(3);
-                    double highPrice = reader.GetDouble(4);
-                    double lowPrice = reader.GetDouble(5);
-                    double vol = reader.GetDouble(6);
-                    double quoteVol = reader.GetDouble(7);
+                    DateTime time = reader.GetDateTime(0);
+                    double lastPrice = reader.GetDouble(1);
+                    double vol = reader.GetDouble(2);
 
-                    list.Add(new Tick
-                    {
-                        Symbol = sym,
-                        Time = time,
-                        LastPrice = (decimal)lastPrice,
-                        OpenPrice = (decimal)openPrice,
-                        HighPrice = (decimal)highPrice,
-                        LowPrice = (decimal)lowPrice,
-                        Volume = (decimal)vol,
-                        QuoteVolume = (decimal)quoteVol
-                    });
+                    list.Add(new Tick(time, (decimal)lastPrice, (decimal)vol));
                 }
 
+                connection.Close();
                 return list.ToArray();
             });
         }
@@ -248,6 +228,7 @@ namespace WinFormsApp2
                     });
                 }
 
+                connection.Close();
                 return list.ToArray();
             });
         }
