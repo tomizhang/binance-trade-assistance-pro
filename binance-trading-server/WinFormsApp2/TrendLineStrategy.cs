@@ -75,15 +75,14 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 策略核心 Tick 级实时处理引擎
+        /// 策略核心 Tick 级实时处理引擎 (接收当前 K 线索引，0 全量数组分配，0 LINQ 开销)
         /// </summary>
-        public void ProcessTick(Tick tick, Kline[] currentKlines, List<TrendLine> activeTrendLines)
+        public void ProcessTick(Tick tick, int currentIndex, List<TrendLine> activeTrendLines)
         {
-            if (!Params.Enabled || currentKlines == null || currentKlines.Length <100)
+            if (!Params.Enabled || activeTrendLines == null || activeTrendLines.Count == 0)
                 return;
 
             decimal price = tick.LastPrice;
-            int currentIndex = currentKlines.Length - 1;
 
             // 1. 如果已有持仓，检查止盈(1.5%)与止损(0.8%)风控条件
             if (CurrentPosition != PositionType.None)
@@ -92,10 +91,16 @@ namespace WinFormsApp2
                 return;
             }
 
-            // 2. 无持仓时：过滤符合条件的趋势线 (line_x1_x2 >= 40 且 open_age / line_age >= 80)
-            var eligibleLines = activeTrendLines.Where(tl => 
-                tl.LineX1X2 >= Params.MinLineX1X2 && 
-                tl.LineAge >= Params.MinLineAge).ToList();
+            // 2. 无持仓时：原生 for 循环过滤符合条件的趋势线 (line_x1_x2 >= 40 且 open_age / line_age >= 80)
+            List<TrendLine> eligibleLines = new List<TrendLine>();
+            for (int i = 0; i < activeTrendLines.Count; i++)
+            {
+                var tl = activeTrendLines[i];
+                if (tl.LineX1X2 >= Params.MinLineX1X2 && tl.LineAge >= Params.MinLineAge)
+                {
+                    eligibleLines.Add(tl);
+                }
+            }
 
             if (eligibleLines.Count == 0)
             {
@@ -103,8 +108,9 @@ namespace WinFormsApp2
             }
 
             // 3. 检查 Tick 价格是否靠近某条符合条件的趋势线 (触及监测)
-            foreach (var tl in eligibleLines)
+            for (int i = 0; i < eligibleLines.Count; i++)
             {
+                var tl = eligibleLines[i];
                 decimal linePrice = tl.GetPriceAt(currentIndex);
                 if (linePrice <= 0m) continue;
 
@@ -135,8 +141,6 @@ namespace WinFormsApp2
                             _touchedExtremumPrice = price; // 阻力线寻找最高点
                         }
                     }
-
-                    // 移除提前 return，允许同一 Tick 继续向下评估回调确认开仓
                 }
             }
 

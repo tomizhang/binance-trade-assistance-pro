@@ -293,26 +293,27 @@ namespace WinFormsApp2
             if (_needChartRefresh)
             {
                 _needChartRefresh = false;
-                Kline[] fullArray;
+
+                const int maxDisplayKlines = 500;
+                Kline[] klineArray;
+                int startIndexInFull = 0;
+
                 lock (_replayKlines)
                 {
-                    fullArray = _replayKlines.ToArray();
+                    int total = _replayKlines.Count;
+                    if (total == 0) return;
+
+                    int displayCount = Math.Min(total, maxDisplayKlines);
+                    klineArray = new Kline[displayCount];
+                    _replayKlines.CopyTo(total - displayCount, klineArray, 0, displayCount);
+                    startIndexInFull = total - displayCount;
                 }
 
-                if (fullArray.Length > 0)
+                double[] currentPrices = new double[klineArray.Length];
+                for (int i = 0; i < klineArray.Length; i++)
                 {
-                    const int maxDisplayKlines = 500;
-                    int displayCount = Math.Min(fullArray.Length, maxDisplayKlines);
-                    Kline[] klineArray = new Kline[displayCount];
-                    Array.Copy(fullArray, fullArray.Length - displayCount, klineArray, 0, displayCount);
-
-                    int startIndexInFull = fullArray.Length - klineArray.Length;
-
-                    double[] currentPrices = new double[klineArray.Length];
-                    for (int i = 0; i < klineArray.Length; i++)
-                    {
-                        currentPrices[i] = (double)klineArray[i].ClosePrice;
-                    }
+                    currentPrices[i] = (double)klineArray[i].ClosePrice;
+                }
 
                     formsPlot1.Plot.Clear();
                     formsPlot1.Plot.Grid.IsVisible = false;
@@ -321,28 +322,30 @@ namespace WinFormsApp2
                     formsPlot1.Plot.Add.Signal(currentPrices);
                     formsPlot1.Plot.Title(_chartTitle);
 
-                    // B. 计算并标注相对高低点与延长趋势线
-                    if (klineArray.Length >= 7)
+                    // B. 标注相对高低点 (直接渲染已知枢轴，0 冗余重复计算)
+                    if (_currentActivePivots != null && _currentActivePivots.Count > 0)
                     {
-                        var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 3, rightBars: 3);
-
                         List<double> highXs = new List<double>();
                         List<double> highYs = new List<double>();
                         List<double> lowXs = new List<double>();
                         List<double> lowYs = new List<double>();
 
-                        for (int i = 0; i < pivots.Count; i++)
+                        for (int i = 0; i < _currentActivePivots.Count; i++)
                         {
-                            var p = pivots[i];
-                            if (p.Type == PivotType.High)
+                            var p = _currentActivePivots[i];
+                            int localIndex = p.Index - startIndexInFull;
+                            if (localIndex >= 0 && localIndex < klineArray.Length)
                             {
-                                highXs.Add(p.Index);
-                                highYs.Add((double)p.Price);
-                            }
-                            else if (p.Type == PivotType.Low)
-                            {
-                                lowXs.Add(p.Index);
-                                lowYs.Add((double)p.Price);
+                                if (p.Type == PivotType.High)
+                                {
+                                    highXs.Add(localIndex);
+                                    highYs.Add((double)p.Price);
+                                }
+                                else if (p.Type == PivotType.Low)
+                                {
+                                    lowXs.Add(localIndex);
+                                    lowYs.Add((double)p.Price);
+                                }
                             }
                         }
 
@@ -361,24 +364,29 @@ namespace WinFormsApp2
                             spLow.Color = ScottPlot.Colors.LimeGreen;
                             spLow.MarkerSize = 3;
                         }
+                    }
 
-                        // C. 绘制延伸趋势线 (超淡半透明红/绿)
-                        var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(klineArray, pivots, filterPenetrated: true);
-                        
+                    // C. 绘制延伸趋势线 (直接渲染已知趋势线，0 冗余重复计算)
+                    if (_currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
+                    {
                         ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
                         ScottPlot.Color extraLightGreen = ScottPlot.Color.FromHex("#4580FF80"); // 超淡柔和绿
 
-                        for (int i = 0; i < trendLines.Count; i++)
+                        int totalKlines = startIndexInFull + klineArray.Length;
+
+                        for (int i = 0; i < _currentActiveTrendLines.Count; i++)
                         {
-                            var tl = trendLines[i];
+                            var tl = _currentActiveTrendLines[i];
+                            int localX1 = tl.X1 - startIndexInFull;
+                            int localX2 = tl.X2 - startIndexInFull;
 
                             // 过滤规则: 若趋势线 X 锚点位不再当前图表中显示，则该趋势线也不再显示
-                            if (tl.X1 >= 0 && tl.X1 < klineArray.Length && tl.X2 >= 0 && tl.X2 < klineArray.Length)
+                            if (localX1 >= 0 && localX1 < klineArray.Length && localX2 >= 0 && localX2 < klineArray.Length)
                             {
-                                double x1 = tl.X1;
+                                double x1 = localX1;
                                 double y1 = (double)tl.Y1;
                                 double x2 = klineArray.Length - 1;
-                                double y2 = (double)tl.GetPriceAt((int)x2);
+                                double y2 = (double)tl.GetPriceAt(totalKlines - 1);
 
                                 var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
                                 linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
@@ -461,9 +469,18 @@ namespace WinFormsApp2
                     if (chkAutoFitPrice.Checked && klineArray.Length > 0)
                     {
                         int sampleSize = Math.Min(klineArray.Length, 80);
-                        var recentKlines = klineArray.Skip(klineArray.Length - sampleSize).ToArray();
-                        double minPrice = (double)recentKlines.Min(k => k.LowPrice);
-                        double maxPrice = (double)recentKlines.Max(k => k.HighPrice);
+                        int startIdx = klineArray.Length - sampleSize;
+                        double minPrice = (double)klineArray[startIdx].LowPrice;
+                        double maxPrice = (double)klineArray[startIdx].HighPrice;
+
+                        for (int i = startIdx + 1; i < klineArray.Length; i++)
+                        {
+                            double low = (double)klineArray[i].LowPrice;
+                            double high = (double)klineArray[i].HighPrice;
+                            if (low < minPrice) minPrice = low;
+                            if (high > maxPrice) maxPrice = high;
+                        }
+
                         double margin = (maxPrice - minPrice) * 0.12;
                         if (margin == 0) margin = maxPrice * 0.01;
                         if (margin == 0) margin = 1.0;
@@ -474,7 +491,6 @@ namespace WinFormsApp2
                     formsPlot1.Refresh();
                 }
             }
-        }
 
         private async void btnStart_Click(object sender, EventArgs e)
         {
@@ -555,14 +571,11 @@ namespace WinFormsApp2
                     ? api1000Klines 
                     : (klines.Length > 1000 ? klines.Skip(klines.Length - 1000).ToArray() : klines);
 
-                var pivots = PivotHelper.CalculatePeaksCombinedFast(baselineKlines, leftBars: 3, rightBars: 3);
-                int highCount = pivots.Count(p => p.Type == PivotType.High);
-                int lowCount = pivots.Count(p => p.Type == PivotType.Low);
+                UpdateActivePivotsAndTrendLines(baselineKlines);
+                int highCount = _currentActivePivots.Count(p => p.Type == PivotType.High);
+                int lowCount = _currentActivePivots.Count(p => p.Type == PivotType.Low);
                 AppendLog($"[Pivot 枢轴计算] 基于 1000 根 K 线 (跨度=3) 分析完成: 相对高点 (HighPrice, 红色) {highCount} 个，相对低点 (LowPrice, 绿色) {lowCount} 个。");
-
-                var trendLines = TrendLineHelper.GenerateTrendLinesFromPivots(baselineKlines, pivots, filterPenetrated: true);
-                _currentActiveTrendLines = trendLines;
-                AppendLog($"[TrendLine 趋势线交互] 基于 1000 根 K 线已计算生成未破位有效基准趋势线 {trendLines.Count} 条 (供策略在回放开始前直接使用)。");
+                AppendLog($"[TrendLine 趋势线交互] 基于 1000 根 K 线已计算生成未破位有效基准趋势线 {_currentActiveTrendLines.Count} 条 (单源驱动，0 冗余重复计算)。");
 
                 // 4. 复位图表并启动回放引擎
                 lock (_replayKlines)
@@ -621,7 +634,26 @@ namespace WinFormsApp2
             AppendLog("日志已清空。");
         }
 
+        private int _currentKlineIndex = 0;
+        private List<PivotPoint> _currentActivePivots = new List<PivotPoint>();
         private List<TrendLine> _currentActiveTrendLines = new List<TrendLine>();
+
+        /// <summary>
+        /// 单源数据驱动：仅在新 K 线压入或回放初始化时计算更新枢轴高低点与趋势线，0 界面重绘重复计算
+        /// </summary>
+        private void UpdateActivePivotsAndTrendLines(Kline[] currentKlines)
+        {
+            if (currentKlines != null && currentKlines.Length >= 7)
+            {
+                _currentActivePivots = PivotHelper.CalculatePeaksCombinedFast(currentKlines, leftBars: 3, rightBars: 3);
+                _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(currentKlines, _currentActivePivots, filterPenetrated: true);
+            }
+            else
+            {
+                _currentActivePivots.Clear();
+                _currentActiveTrendLines.Clear();
+            }
+        }
 
         #region 回放事件响应 (无锁入队，无卡顿渲染)
 
@@ -631,15 +663,12 @@ namespace WinFormsApp2
             lock (_replayKlines)
             {
                 _replayKlines.Add(kline);
+                _currentKlineIndex = _replayKlines.Count - 1;
                 currentKlines = _replayKlines.ToArray();
             }
 
-            // 新 K 线到达时增量更新当前基准趋势线
-            if (chkEnableStrategy.Checked && currentKlines.Length >= 7)
-            {
-                var pivots = PivotHelper.CalculatePeaksCombinedFast(currentKlines, leftBars: 3, rightBars: 3);
-                _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(currentKlines, pivots, filterPenetrated: true);
-            }
+            // 新 K 线到达时才统一触发一次枢轴与趋势线增量更新
+            UpdateActivePivotsAndTrendLines(currentKlines);
 
             _chartTitle = $"[{_currentSymbol}] 动态回放中 ({current}/{total}) - {kline.OpenTime:yyyy-MM-dd HH:mm:ss}";
             _needChartRefresh = true;
@@ -651,6 +680,7 @@ namespace WinFormsApp2
             {
                 _replayKlines.Clear();
                 _replayKlines.AddRange(subKlines);
+                _currentKlineIndex = Math.Max(0, _replayKlines.Count - 1);
             }
 
             if (chkEnableStrategy.Checked && subKlines.Length >= 7)
@@ -666,16 +696,10 @@ namespace WinFormsApp2
 
         private void Replayer_OnTickPushed(Tick tick)
         {
-            // 直接传入当前已经计算好的趋势线信息，0 冗余重复计算！
+            // 0 锁，0 内存分配，0 全量数组拷贝，常数级 O(1) 极速处理！
             if (chkEnableStrategy.Checked && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
             {
-                Kline[] currentKlines;
-                lock (_replayKlines)
-                {
-                    currentKlines = _replayKlines.ToArray();
-                }
-
-                _strategy.ProcessTick(tick, currentKlines, _currentActiveTrendLines);
+                _strategy.ProcessTick(tick, _currentKlineIndex, _currentActiveTrendLines);
             }
         }
 

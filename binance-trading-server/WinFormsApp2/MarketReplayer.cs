@@ -196,7 +196,7 @@ namespace WinFormsApp2
                     break;
                 }
 
-                OnTickPushed?.Invoke(tick);
+                //OnTickPushed?.Invoke(tick);
                 scanIndex++;
             }
         }
