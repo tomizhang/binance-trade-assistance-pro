@@ -121,14 +121,8 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 多线程并发下载/读取片段化 (按 1 小时切片存盘) 的全量 Tick 逐笔/归集成交数据 (解决文件太大与1000条不完整问题)
+        /// 多线程并发下载/读取全量 Tick 逐笔成交数据 (优先使用币安官方全量 ZIP 压缩包开源数据源 data.binance.vision，打破 1000 条 API 限制)
         /// </summary>
-        /// <param name="symbol">交易对名称</param>
-        /// <param name="startDate">开始日期</param>
-        /// <param name="endDate">结束日期</param>
-        /// <param name="chunkHours">每个片段的小时数 (默认 1 小时一个文件片段)</param>
-        /// <param name="maxDegreeOfParallelism">并发线程数量 (默认 4 线程)</param>
-        /// <param name="logger">日志输出委托</param>
         public static async Task<Tick[]> DownloadTicksInSlicesParallelAsync(
             string symbol,
             DateTime startDate,
@@ -144,7 +138,7 @@ namespace WinFormsApp2
             }
 
             startDate = startDate.Date;
-            endDate = endDate.Date.AddDays(1).AddTicks(-1);
+            endDate = endDate.Date;
 
             if (endDate < startDate)
             {
@@ -153,25 +147,18 @@ namespace WinFormsApp2
                 endDate = temp;
             }
 
-            // 按 1 小时切片分割任务
-            List<(DateTime SliceStart, DateTime SliceEnd, string FilePath, string SliceName)> slicesList = 
-                new List<(DateTime, DateTime, string, string)>();
+            // 按“天 (Daily)”进行全量任务切割
+            List<(DateTime Day, string FilePath, string SliceName)> daysList = 
+                new List<(DateTime, string, string)>();
 
-            DateTime current = startDate;
-            while (current < endDate)
+            for (DateTime d = startDate; d <= endDate; d = d.AddDays(1))
             {
-                DateTime sliceStart = current;
-                DateTime sliceEnd = current.AddHours(chunkHours).AddTicks(-1);
-                if (sliceEnd > endDate) sliceEnd = endDate;
-
-                string sliceName = $"{symbol}_Trade_{sliceStart:yyyy-MM-dd_HH}.csv";
+                string sliceName = $"{symbol}_Tick_{d:yyyy-MM-dd}.csv";
                 string slicePath = Path.Combine(targetDir, sliceName);
-
-                slicesList.Add((sliceStart, sliceEnd, slicePath, sliceName));
-                current = current.AddHours(chunkHours);
+                daysList.Add((d, slicePath, sliceName));
             }
 
-            logger?.Invoke($"[片段化多线程 Tick 任务] 切割为 {slicesList.Count} 个 [{chunkHours}小时] 片段，启动 {maxDegreeOfParallelism} 线程并发调度处理...");
+            logger?.Invoke($"[币安官方全量 Tick 任务] 共切割 {daysList.Count} 天任务，启动 {maxDegreeOfParallelism} 线程并发调度处理 (优先使用 data.binance.vision 官方 ZIP 压缩包)...");
 
             ConcurrentBag<Tick> allTicksBag = new ConcurrentBag<Tick>();
             int cachedSlices = 0;
@@ -181,7 +168,7 @@ namespace WinFormsApp2
             {
                 List<Task> tasks = new List<Task>();
 
-                foreach (var slice in slicesList)
+                foreach (var dayItem in daysList)
                 {
                     await semaphore.WaitAsync();
 
@@ -189,38 +176,47 @@ namespace WinFormsApp2
                     {
                         try
                         {
-                            // 1. 检查本地 1-小时切片 CSV 缓存文件
-                            if (File.Exists(slice.FilePath))
+                            // 1. 检查本地 CSV 缓存文件
+                            if (File.Exists(dayItem.FilePath))
                             {
-                                Tick[] cachedData = DataHelper.ReadTicksFromCsvFile(slice.FilePath);
+                                Tick[] cachedData = DataHelper.ReadTicksFromCsvFile(dayItem.FilePath);
                                 if (cachedData.Length > 0)
                                 {
                                     foreach (var item in cachedData) allTicksBag.Add(item);
                                     Interlocked.Increment(ref cachedSlices);
-                                    logger?.Invoke($"[线程-{Task.CurrentId}] 本地切片命中 [{slice.SliceName}] (包含 {cachedData.Length} 条 Tick)");
+                                    logger?.Invoke($"[线程-{Task.CurrentId}] 本地缓存命中 [{dayItem.SliceName}] (包含 {cachedData.Length} 条 Tick 数据)");
                                     return;
                                 }
                             }
 
-                            // 2. 本地无切片文件，启动无冲突翻页状态机精准抓取该 1-小时切片内的 100% 完整 Tick 数据
-                            logger?.Invoke($"[线程-{Task.CurrentId}] 开始精准抓取切片 [{slice.SliceName}] 全量数据 (时间窗口: {slice.SliceStart:HH:mm} ~ {slice.SliceEnd:HH:mm})...");
-                            Tick[] fetchedData = await DataHelper.FetchTradeTicksForTimeWindowAsync(symbol, slice.SliceStart, slice.SliceEnd);
+                            // 2. 本地无缓存，优先从币安官方 data.binance.vision 下载全量 ZIP 压缩包 (0 条限制，100% 完整)
+                            logger?.Invoke($"[线程-{Task.CurrentId}] 准备在线从币安官方 Server 下载 [{dayItem.SliceName}] 全量 ZIP 压缩包...");
+                            Tick[] fetchedData = await DataHelper.FetchBinanceVisionDailyTicksAsync(symbol, dayItem.Day, logger);
+
+                            // 3. 若当天 ZIP 压缩包暂未开放 (如今日实时交易日)，自动回退使用 REST API 分页精准抓取
+                            if (fetchedData.Length == 0)
+                            {
+                                logger?.Invoke($"[线程-{Task.CurrentId}] 官方 ZIP 暂未准备完毕，自动回退使用 REST API 翻页抓取当天 [{dayItem.SliceName}] Tick 数据...");
+                                DateTime dayStart = dayItem.Day.Date;
+                                DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
+                                fetchedData = await DataHelper.FetchTradeTicksForTimeWindowAsync(symbol, dayStart, dayEnd);
+                            }
 
                             if (fetchedData.Length > 0)
                             {
-                                DataHelper.SaveTicksToCsvFile(slice.FilePath, fetchedData);
+                                DataHelper.SaveTicksToCsvFile(dayItem.FilePath, fetchedData);
                                 foreach (var item in fetchedData) allTicksBag.Add(item);
                                 Interlocked.Increment(ref downloadedSlices);
-                                logger?.Invoke($"[线程-{Task.CurrentId}] 成功抓取全量切片并独立存盘 [{slice.SliceName}] (共 {fetchedData.Length} 条 Tick)");
+                                logger?.Invoke($"[线程-{Task.CurrentId}] 成功获取全量 Tick 数据并独立存盘 [{dayItem.SliceName}] (共 {fetchedData.Length} 条 Tick 数据)");
                             }
                             else
                             {
-                                logger?.Invoke($"[线程-{Task.CurrentId}] 切片 [{slice.SliceName}] 无 Tick 成交数据。");
+                                logger?.Invoke($"[线程-{Task.CurrentId}] 切片 [{dayItem.SliceName}] 无 Tick 成交数据。");
                             }
                         }
                         catch (Exception ex)
                         {
-                            logger?.Invoke($"[线程-{Task.CurrentId}] 切片 [{slice.SliceName}] 下载失败: {ex.Message}");
+                            logger?.Invoke($"[线程-{Task.CurrentId}] 切片 [{dayItem.SliceName}] 下载失败: {ex.Message}");
                         }
                         finally
                         {
@@ -233,7 +229,7 @@ namespace WinFormsApp2
             }
 
             Tick[] resultArray = allTicksBag.OrderBy(t => t.Time).ToArray();
-            logger?.Invoke($"[片段化多线程 Tick 完成] 汇总: 命中本地切片 {cachedSlices} 个，并发抓取落盘切片 {downloadedSlices} 个，累计读取 {resultArray.Length} 条 100% 完整 Tick 数据。");
+            logger?.Invoke($"[币安官方全量 Tick 完成] 汇总: 命中本地缓存 {cachedSlices} 天，成功下载落盘 {downloadedSlices} 天，累计载入 {resultArray.Length} 条 100% 完整 Tick 数据 (无 1000 条限制)！");
 
             return resultArray;
         }

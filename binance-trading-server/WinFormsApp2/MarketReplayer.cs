@@ -32,6 +32,8 @@ namespace WinFormsApp2
         public event Action<Tick>? OnTickPushed;
         public event Action? OnPlaybackCompleted;
         public event Action<string>? OnLog;
+        public event Func<Task<BatchDataChunk?>>? OnNeedNextBatchChunk;
+        public event Action? OnPreloadThresholdReached;
 
         /// <summary>
         /// 启动/开始回放
@@ -196,7 +198,7 @@ namespace WinFormsApp2
                     break;
                 }
 
-                //OnTickPushed?.Invoke(tick);
+                OnTickPushed?.Invoke(tick);
                 scanIndex++;
             }
         }
@@ -244,8 +246,28 @@ namespace WinFormsApp2
 
                     _currentIndex++;
 
+                    // 当推进至当前 3 天切片批次的 50% 进度时，提前触发下一批次数据的后台提取与预读
+                    if (_klines.Length > 10 && _currentIndex == (int)(_klines.Length * 0.5))
+                    {
+                        OnPreloadThresholdReached?.Invoke();
+                    }
+
                     if (_currentIndex >= _klines.Length)
                     {
+                        if (OnNeedNextBatchChunk != null)
+                        {
+                            OnLog?.Invoke("当前 3 天切片批次数据播放完成，无缝衔接已提前预读就绪的下一批次数据...");
+                            var nextChunk = await OnNeedNextBatchChunk.Invoke().ConfigureAwait(false);
+                            if (nextChunk != null && nextChunk.Klines != null && nextChunk.Klines.Length > 0)
+                            {
+                                _klines = nextChunk.Klines;
+                                _ticks = nextChunk.Ticks ?? Array.Empty<Tick>();
+                                _currentIndex = 0;
+                                _lastTickIndex = 0;
+                                continue; // 0 延迟无缝继续播放！
+                            }
+                        }
+
                         State = ReplayState.Stopped;
                         OnPlaybackCompleted?.Invoke();
                         break;
