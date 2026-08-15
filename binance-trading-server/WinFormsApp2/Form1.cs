@@ -304,6 +304,8 @@ namespace WinFormsApp2
             EnqueueLog(message);
         }
 
+        private Kline[] _warmupKlinesBuffer = Array.Empty<Kline>();
+        private readonly List<Kline> _combinedHistoryList = new List<Kline>(1500);
         private readonly Kline[] _displayKlinesBuffer = new Kline[500];
         private readonly double[] _pricesBuffer = new double[500];
 
@@ -312,19 +314,26 @@ namespace WinFormsApp2
             int sampleSize = 0;
             lock (_replayKlines)
             {
-                int count = _replayKlines.Count;
-                if (count < 7)
+                _combinedHistoryList.Clear();
+                if (_warmupKlinesBuffer != null && _warmupKlinesBuffer.Length > 0)
+                {
+                    _combinedHistoryList.AddRange(_warmupKlinesBuffer);
+                }
+                _combinedHistoryList.AddRange(_replayKlines);
+
+                int totalCombined = _combinedHistoryList.Count;
+                if (totalCombined < 7)
                 {
                     _currentActivePivots.Clear();
                     _currentActiveTrendLines.Clear();
                     return;
                 }
 
-                sampleSize = Math.Min(count, 500);
-                _replayKlines.CopyTo(count - sampleSize, _displayKlinesBuffer, 0, sampleSize);
+                sampleSize = Math.Min(totalCombined, 500);
+                _combinedHistoryList.CopyTo(totalCombined - sampleSize, _displayKlinesBuffer, 0, sampleSize);
             }
 
-            // 零 LOH 分配 slice
+            // 零 LOH 分配 slice (已融合历史预热 K 线上下文)
             Kline[] sampleSlice = new Kline[sampleSize];
             Array.Copy(_displayKlinesBuffer, 0, sampleSlice, 0, sampleSize);
 
@@ -374,11 +383,18 @@ namespace WinFormsApp2
                 int displayCount = 0;
                 lock (_replayKlines)
                 {
-                    int total = _replayKlines.Count;
-                    if (total == 0) return;
+                    _combinedHistoryList.Clear();
+                    if (_warmupKlinesBuffer != null && _warmupKlinesBuffer.Length > 0)
+                    {
+                        _combinedHistoryList.AddRange(_warmupKlinesBuffer);
+                    }
+                    _combinedHistoryList.AddRange(_replayKlines);
 
-                    displayCount = Math.Min(total, 500);
-                    _replayKlines.CopyTo(total - displayCount, _displayKlinesBuffer, 0, displayCount);
+                    int totalCombined = _combinedHistoryList.Count;
+                    if (totalCombined == 0) return;
+
+                    displayCount = Math.Min(totalCombined, 500);
+                    _combinedHistoryList.CopyTo(totalCombined - displayCount, _displayKlinesBuffer, 0, displayCount);
                 }
 
                 for (int i = 0; i < displayCount; i++)
@@ -396,7 +412,7 @@ namespace WinFormsApp2
                 formsPlot1.Plot.Add.Signal(pricesSlice);
                 formsPlot1.Plot.Title(_chartTitle);
 
-                // B. 标注相对高低点 (完全精准比对，0 冗余重复计算)
+                // B. 标注相对高低点 (基于 OpenTime 严格对齐视口 K 线，100% 绝对精准)
                 if (_currentActivePivots != null && _currentActivePivots.Count > 0)
                 {
                     List<double> highXs = new List<double>();
@@ -407,17 +423,21 @@ namespace WinFormsApp2
                     for (int i = 0; i < _currentActivePivots.Count; i++)
                     {
                         var p = _currentActivePivots[i];
-                        if (p.Index >= 0 && p.Index < displayCount)
+                        for (int k = 0; k < displayCount; k++)
                         {
-                            if (p.Type == PivotType.High)
+                            if (_displayKlinesBuffer[k].OpenTime == p.Time)
                             {
-                                highXs.Add(p.Index);
-                                highYs.Add((double)p.Price);
-                            }
-                            else if (p.Type == PivotType.Low)
-                            {
-                                lowXs.Add(p.Index);
-                                lowYs.Add((double)p.Price);
+                                if (p.Type == PivotType.High)
+                                {
+                                    highXs.Add(k);
+                                    highYs.Add((double)p.Price);
+                                }
+                                else if (p.Type == PivotType.Low)
+                                {
+                                    lowXs.Add(k);
+                                    lowYs.Add((double)p.Price);
+                                }
+                                break;
                             }
                         }
                     }
@@ -427,7 +447,7 @@ namespace WinFormsApp2
                     {
                         var spHigh = formsPlot1.Plot.Add.ScatterPoints(highXs.ToArray(), highYs.ToArray());
                         spHigh.Color = ScottPlot.Colors.Red;
-                        spHigh.MarkerSize = 3;
+                        spHigh.MarkerSize = 4;
                     }
 
                     // 相对低点 (LowPrice, 绿色)
@@ -435,11 +455,11 @@ namespace WinFormsApp2
                     {
                         var spLow = formsPlot1.Plot.Add.ScatterPoints(lowXs.ToArray(), lowYs.ToArray());
                         spLow.Color = ScottPlot.Colors.LimeGreen;
-                        spLow.MarkerSize = 3;
+                        spLow.MarkerSize = 4;
                     }
                 }
 
-                // C. 绘制延伸趋势线 (完全精准比对，0 冗余重复计算)
+                // C. 绘制延伸趋势线 (基于 Time1/Time2 严格匹配视口 K 线，100% 坐标精准)
                 if (_currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
                 {
                     ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
@@ -448,10 +468,19 @@ namespace WinFormsApp2
                     for (int i = 0; i < _currentActiveTrendLines.Count; i++)
                     {
                         var tl = _currentActiveTrendLines[i];
+                        int localX1 = -1;
+                        int localX2 = -1;
 
-                        if (tl.X1 >= 0 && tl.X1 < displayCount && tl.X2 >= 0 && tl.X2 < displayCount)
+                        for (int k = 0; k < displayCount; k++)
                         {
-                            double x1 = tl.X1;
+                            DateTime kTime = _displayKlinesBuffer[k].OpenTime;
+                            if (kTime == tl.Time1) localX1 = k;
+                            if (kTime == tl.Time2) localX2 = k;
+                        }
+
+                        if (localX1 >= 0 && localX2 >= 0)
+                        {
+                            double x1 = localX1;
                             double y1 = (double)tl.Y1;
                             double x2 = displayCount - 1;
                             double y2 = (double)tl.GetPriceAt(displayCount - 1);
@@ -494,16 +523,21 @@ namespace WinFormsApp2
                     }
                 }
 
-                // E. 策略开仓与平仓图表标注 (倒序视口精准扫描，0 临时数组分配)
+                // E. 策略开仓与平仓图表标注 (按 K线 OpenTime 精准匹配视口 x 坐标，0 下标偏移)
                 if (_isStrategyEnabled && _strategy.Trades.Count > 0)
                 {
                     for (int i = _strategy.Trades.Count - 1; i >= 0; i--)
                     {
                         var trade = _strategy.Trades[i];
-                        int localEntryX = trade.EntryKlineIndex;
-                        int localExitX = trade.ExitKlineIndex;
+                        int localEntryX = -1;
+                        int localExitX = -1;
 
-                        if (localEntryX < 0 && localExitX < 0) break;
+                        for (int k = 0; k < displayCount; k++)
+                        {
+                            DateTime kTime = _displayKlinesBuffer[k].OpenTime;
+                            if (kTime == trade.EntryKlineOpenTime) localEntryX = k;
+                            if (kTime == trade.ExitKlineOpenTime) localExitX = k;
+                        }
 
                         if (localEntryX >= 0 && localEntryX < displayCount)
                         {
@@ -526,7 +560,16 @@ namespace WinFormsApp2
 
                     if (_strategy.CurrentPosition != PositionType.None)
                     {
-                        int localEntryX = _strategy.CurrentEntryKlineIndex;
+                        int localEntryX = -1;
+                        for (int k = 0; k < displayCount; k++)
+                        {
+                            if (_displayKlinesBuffer[k].OpenTime == _strategy.CurrentTrade.EntryKlineOpenTime)
+                            {
+                                localEntryX = k;
+                                break;
+                            }
+                        }
+
                         if (localEntryX >= 0 && localEntryX < displayCount)
                         {
                             _tradeXBuffer[0] = localEntryX;
@@ -615,23 +658,29 @@ namespace WinFormsApp2
                 Kline[] klines = firstChunk.Klines;
                 Tick[] ticks = firstChunk.Ticks;
 
-                // 3. 策略启动前 API 预热控制
+                // 3. 策略启动前 API 预热控制 (只计算高低点与趋势线，不推演不跳帧)
+                _warmupKlinesBuffer = Array.Empty<Kline>();
                 if (chkEnableWarmup.Checked)
                 {
                     try
                     {
-                        AppendLog($"[API 预热开启] 准备在线从币安 API 获取 1000 根 [{_currentSymbol}] [{interval}] 最新 K 线进行趋势线预热...");
-                        var api1000Klines = await DataHelper.FetchKlinesFromApiAsync(_currentSymbol, interval, limit: 1000);
-                        AppendLog($"[API 预热成功] 成功获取 1000 根在线 K 线数据 ({api1000Klines[0].OpenTime:yyyy-MM-dd HH:mm} ~ {api1000Klines.Last().OpenTime:yyyy-MM-dd HH:mm})。");
+                        DateTime warmupEndDate = startDate.AddTicks(-1);
+                        AppendLog($"[API 预热开启] 准备获取 [{_currentSymbol}] [{interval}] 回放起点前 1000 根历史预热 K 线 (截止 {warmupEndDate:yyyy-MM-dd HH:mm:ss})...");
+                        var fetchedWarmup = await DataHelper.FetchKlinesFromApiAsync(_currentSymbol, interval, endTime: warmupEndDate, limit: 1000);
+                        if (fetchedWarmup != null && fetchedWarmup.Length > 0)
+                        {
+                            _warmupKlinesBuffer = fetchedWarmup;
+                            AppendLog($"[API 预热成功] 成功装载 {fetchedWarmup.Length} 根历史预热 K 线 ({fetchedWarmup[0].OpenTime:yyyy-MM-dd HH:mm} ~ {fetchedWarmup.Last().OpenTime:yyyy-MM-dd HH:mm})，用于高低点与趋势线提前预热。");
+                        }
                     }
                     catch (Exception apiEx)
                     {
-                        AppendLog($"[API 预热提示] 在线获取 1000 根 K 线未成功 ({apiEx.Message})，自动回退使用装载的 K 线数据。");
+                        AppendLog($"[API 预热提示] 获取历史预热 K 线未成功 ({apiEx.Message})，自动使用回放 K 线独立计算。");
                     }
                 }
                 else
                 {
-                    AppendLog("[API 预热关闭] 用户未勾选 API 预热，直接使用装载的 K 线数据计算趋势线。");
+                    AppendLog("[API 预热关闭] 用户未勾选 API 预热，直接使用装载的回放 K 线计算趋势线。");
                 }
 
                 // 4. 复位图表并启动回放引擎
@@ -736,14 +785,16 @@ namespace WinFormsApp2
             if (_isStrategyEnabled && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
             {
                 Kline currentKline = default;
+                int currentSampleIndex = 0;
                 lock (_replayKlines)
                 {
                     if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
                     {
                         currentKline = _replayKlines[_currentKlineIndex];
                     }
+                    currentSampleIndex = Math.Max(0, Math.Min(_combinedHistoryList.Count, 500) - 1);
                 }
-                _strategy.ProcessTick(tick, _currentKlineIndex, _currentActiveTrendLines, currentKline);
+                _strategy.ProcessTick(tick, currentSampleIndex, _currentActiveTrendLines, currentKline);
             }
         }
 

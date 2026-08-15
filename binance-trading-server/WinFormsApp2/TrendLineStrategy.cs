@@ -35,6 +35,7 @@ namespace WinFormsApp2
         public decimal ExitPrice { get; set; }
         public DateTime ExitTime { get; set; }
         public int ExitKlineIndex { get; set; }
+        public DateTime ExitKlineOpenTime { get; set; }
         public TradeExitReason ExitReason { get; set; }
 
         public decimal ProfitPct { get; set; } // 收益率 (%)
@@ -62,6 +63,7 @@ namespace WinFormsApp2
         public decimal CurrentEntryPrice { get; private set; }
         public DateTime CurrentEntryTime { get; private set; }
         public int CurrentEntryKlineIndex { get; private set; }
+        public TradeRecord? CurrentTrade { get; private set; }
 
         // 假突破/假跌破 3-Tick 状态跟踪
         private TrendLine? _pendingTargetLine = null;
@@ -79,12 +81,13 @@ namespace WinFormsApp2
             Trades.Clear();
             CurrentPosition = PositionType.None;
             CurrentEntryPrice = 0m;
+            CurrentTrade = null;
             _winCount = 0;
             _totalProfitPct = 0m;
             ResetPenetrationState();
         }
 
-        private void ClosePosition(decimal exitPrice, DateTime exitTime, int klineIndex, TradeExitReason reason, decimal profitPct)
+        private void ClosePosition(decimal exitPrice, DateTime exitTime, int klineIndex, DateTime klineOpenTime, TradeExitReason reason, decimal profitPct)
         {
             var trade = new TradeRecord
             {
@@ -93,9 +96,15 @@ namespace WinFormsApp2
                 EntryPrice = CurrentEntryPrice,
                 EntryTime = CurrentEntryTime,
                 EntryKlineIndex = CurrentEntryKlineIndex,
+                EntryKlineOpenTime = CurrentTrade?.EntryKlineOpenTime ?? DateTime.MinValue,
+                EntryKlineCloseTime = CurrentTrade?.EntryKlineCloseTime ?? DateTime.MinValue,
+                EntryTickTime = CurrentTrade?.EntryTickTime ?? CurrentEntryTime,
+                EntryTickPrice = CurrentEntryPrice,
+                EntryTrendLinePrice = CurrentTrade?.EntryTrendLinePrice ?? 0m,
                 ExitPrice = exitPrice,
                 ExitTime = exitTime,
                 ExitKlineIndex = klineIndex,
+                ExitKlineOpenTime = klineOpenTime,
                 ExitReason = reason,
                 ProfitPct = profitPct
             };
@@ -106,6 +115,7 @@ namespace WinFormsApp2
 
             CurrentPosition = PositionType.None;
             CurrentEntryPrice = 0m;
+            CurrentTrade = null;
 
             OnTradeClosed?.Invoke(trade);
         }
@@ -142,7 +152,7 @@ namespace WinFormsApp2
             // 1. 如果已有持仓，检查止盈(1.5%)与止损(0.8%)风控条件
             if (CurrentPosition != PositionType.None)
             {
-                CheckPositionRisk(price, tick.Time, currentIndex);
+                CheckPositionRisk(price, tick.Time, currentIndex, currentKline.OpenTime);
                 return;
             }
 
@@ -241,10 +251,11 @@ namespace WinFormsApp2
                 EntryTrendLinePrice = trendLinePrice
             };
 
+            CurrentTrade = trade;
             OnTradeOpened?.Invoke(trade);
         }
 
-        private void CheckPositionRisk(decimal currentPrice, DateTime time, int klineIndex)
+        private void CheckPositionRisk(decimal currentPrice, DateTime time, int klineIndex, DateTime klineOpenTime)
         {
             if (CurrentPosition == PositionType.Long)
             {
@@ -253,11 +264,11 @@ namespace WinFormsApp2
 
                 if (currentPrice >= tpPrice)
                 {
-                    ClosePosition(currentPrice, time, klineIndex, TradeExitReason.TakeProfit, Params.TakeProfitPct);
+                    ClosePosition(currentPrice, time, klineIndex, klineOpenTime, TradeExitReason.TakeProfit, Params.TakeProfitPct);
                 }
                 else if (currentPrice <= slPrice)
                 {
-                    ClosePosition(currentPrice, time, klineIndex, TradeExitReason.StopLoss, -Params.StopLossPct);
+                    ClosePosition(currentPrice, time, klineIndex, klineOpenTime, TradeExitReason.StopLoss, -Params.StopLossPct);
                 }
             }
             else if (CurrentPosition == PositionType.Short)
@@ -267,11 +278,11 @@ namespace WinFormsApp2
 
                 if (currentPrice <= tpPrice)
                 {
-                    ClosePosition(currentPrice, time, klineIndex, TradeExitReason.TakeProfit, Params.TakeProfitPct);
+                    ClosePosition(currentPrice, time, klineIndex, klineOpenTime, TradeExitReason.TakeProfit, Params.TakeProfitPct);
                 }
                 else if (currentPrice >= slPrice)
                 {
-                    ClosePosition(currentPrice, time, klineIndex, TradeExitReason.StopLoss, -Params.StopLossPct);
+                    ClosePosition(currentPrice, time, klineIndex, klineOpenTime, TradeExitReason.StopLoss, -Params.StopLossPct);
                 }
             }
         }
