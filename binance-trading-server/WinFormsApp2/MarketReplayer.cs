@@ -268,6 +268,15 @@ namespace WinFormsApp2
                         if (OnNeedNextBatchChunk != null)
                         {
                             OnLog?.Invoke("当前 3 天切片批次数据播放完成，无缝衔接已提前预读就绪的下一批次数据...");
+
+                            // 1. 显式切断上一个 Batch 的旧 Tick/Kline 大数组引用
+                            _ticks = Array.Empty<Tick>();
+                            _klines = Array.Empty<Kline>();
+
+                            // 2. 强行触发 LOH (Large Object Heap) 大对象堆回收与内存紧缩压缩，归还 Windows OS
+                            GC.Collect(2, GCCollectionMode.Forced, false, true);
+                            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+
                             var nextChunk = await OnNeedNextBatchChunk.Invoke().ConfigureAwait(false);
                             if (nextChunk != null && nextChunk.Klines != null && nextChunk.Klines.Length > 0)
                             {

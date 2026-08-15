@@ -27,6 +27,9 @@ namespace WinFormsApp2
         private List<PivotPoint> _currentActivePivots = new List<PivotPoint>();
         private List<TrendLine> _currentActiveTrendLines = new List<TrendLine>();
 
+        private static readonly double[] _tradeXBuffer = new double[1];
+        private static readonly double[] _tradeYBuffer = new double[1];
+
         public Form1()
         {
             InitializeComponent();
@@ -478,24 +481,31 @@ namespace WinFormsApp2
                     }
                 }
 
-                // E. 策略开仓与平仓图表标注
-                if (_isStrategyEnabled)
+                // E. 策略开仓与平仓图表标注 (倒序视口精准扫描，0 临时数组分配)
+                if (_isStrategyEnabled && _strategy.Trades.Count > 0)
                 {
-                    foreach (var trade in _strategy.Trades)
+                    for (int i = _strategy.Trades.Count - 1; i >= 0; i--)
                     {
+                        var trade = _strategy.Trades[i];
                         int localEntryX = trade.EntryKlineIndex;
                         int localExitX = trade.ExitKlineIndex;
 
+                        if (localEntryX < 0 && localExitX < 0) break;
+
                         if (localEntryX >= 0 && localEntryX < displayCount)
                         {
-                            var spEntry = formsPlot1.Plot.Add.ScatterPoints(new double[] { localEntryX }, new double[] { (double)trade.EntryPrice });
+                            _tradeXBuffer[0] = localEntryX;
+                            _tradeYBuffer[0] = (double)trade.EntryPrice;
+                            var spEntry = formsPlot1.Plot.Add.ScatterPoints(_tradeXBuffer, _tradeYBuffer);
                             spEntry.Color = trade.Position == PositionType.Long ? ScottPlot.Colors.Cyan : ScottPlot.Colors.Magenta;
                             spEntry.MarkerSize = 7;
                         }
 
                         if (localExitX >= 0 && localExitX < displayCount)
                         {
-                            var spExit = formsPlot1.Plot.Add.ScatterPoints(new double[] { localExitX }, new double[] { (double)trade.ExitPrice });
+                            _tradeXBuffer[0] = localExitX;
+                            _tradeYBuffer[0] = (double)trade.ExitPrice;
+                            var spExit = formsPlot1.Plot.Add.ScatterPoints(_tradeXBuffer, _tradeYBuffer);
                             spExit.Color = trade.IsWin ? ScottPlot.Colors.LimeGreen : ScottPlot.Colors.Red;
                             spExit.MarkerSize = 8;
                         }
@@ -506,7 +516,9 @@ namespace WinFormsApp2
                         int localEntryX = _strategy.CurrentEntryKlineIndex;
                         if (localEntryX >= 0 && localEntryX < displayCount)
                         {
-                            var spCurrent = formsPlot1.Plot.Add.ScatterPoints(new double[] { localEntryX }, new double[] { (double)_strategy.CurrentEntryPrice });
+                            _tradeXBuffer[0] = localEntryX;
+                            _tradeYBuffer[0] = (double)_strategy.CurrentEntryPrice;
+                            var spCurrent = formsPlot1.Plot.Add.ScatterPoints(_tradeXBuffer, _tradeYBuffer);
                             spCurrent.Color = _strategy.CurrentPosition == PositionType.Long ? ScottPlot.Colors.DeepSkyBlue : ScottPlot.Colors.HotPink;
                             spCurrent.MarkerSize = 9;
                         }

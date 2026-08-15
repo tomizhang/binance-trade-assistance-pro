@@ -64,12 +64,54 @@ namespace WinFormsApp2
         public event Action<TradeRecord> OnTradeClosed;
         public event Action<TradeRecord> OnTradeOpened;
 
+        private int _winCount = 0;
+        private decimal _totalProfitPct = 0m;
+
         public void Reset()
         {
             Trades.Clear();
             CurrentPosition = PositionType.None;
             CurrentEntryPrice = 0m;
+            _winCount = 0;
+            _totalProfitPct = 0m;
             ResetPenetrationState();
+        }
+
+        private void ClosePosition(decimal exitPrice, DateTime exitTime, int klineIndex, TradeExitReason reason, decimal profitPct)
+        {
+            var trade = new TradeRecord
+            {
+                Id = Trades.Count + 1,
+                Position = CurrentPosition,
+                EntryPrice = CurrentEntryPrice,
+                EntryTime = CurrentEntryTime,
+                EntryKlineIndex = CurrentEntryKlineIndex,
+                ExitPrice = exitPrice,
+                ExitTime = exitTime,
+                ExitKlineIndex = klineIndex,
+                ExitReason = reason,
+                ProfitPct = profitPct
+            };
+
+            Trades.Add(trade);
+            if (trade.IsWin) _winCount++;
+            _totalProfitPct += profitPct;
+
+            CurrentPosition = PositionType.None;
+            CurrentEntryPrice = 0m;
+
+            OnTradeClosed?.Invoke(trade);
+        }
+
+        public decimal GetWinRate()
+        {
+            if (Trades.Count == 0) return 0m;
+            return (decimal)_winCount / Trades.Count * 100m;
+        }
+
+        public decimal GetTotalProfitPct()
+        {
+            return _totalProfitPct;
         }
 
         private void ResetPenetrationState()
@@ -215,39 +257,5 @@ namespace WinFormsApp2
             }
         }
 
-        private void ClosePosition(decimal exitPrice, DateTime exitTime, int klineIndex, TradeExitReason reason, decimal profitPct)
-        {
-            var trade = new TradeRecord
-            {
-                Id = Trades.Count + 1,
-                Position = CurrentPosition,
-                EntryPrice = CurrentEntryPrice,
-                EntryTime = CurrentEntryTime,
-                EntryKlineIndex = CurrentEntryKlineIndex,
-                ExitPrice = exitPrice,
-                ExitTime = exitTime,
-                ExitKlineIndex = klineIndex,
-                ExitReason = reason,
-                ProfitPct = profitPct
-            };
-
-            Trades.Add(trade);
-            CurrentPosition = PositionType.None;
-            CurrentEntryPrice = 0m;
-
-            OnTradeClosed?.Invoke(trade);
-        }
-
-        public decimal GetWinRate()
-        {
-            if (Trades.Count == 0) return 0m;
-            int winCount = Trades.Count(t => t.IsWin);
-            return (decimal)winCount / Trades.Count * 100m;
-        }
-
-        public decimal GetTotalProfitPct()
-        {
-            return Trades.Sum(t => t.ProfitPct);
-        }
     }
 }

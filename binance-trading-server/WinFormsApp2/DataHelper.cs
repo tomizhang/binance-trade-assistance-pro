@@ -154,7 +154,51 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 将 Kline 集合导出并保存为 CSV 文件
+        /// 读取单个 CSV 文件并转换为 Kline 数组 (预分配列表容量与 64KB 缓冲流)
+        /// </summary>
+        public static Kline[] ReadKlinesFromCsvFile(string filePath)
+        {
+            if (!File.Exists(filePath)) return Array.Empty<Kline>();
+
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+
+            List<Kline> list = new List<Kline>(1500);
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (TryParseKlineFromCsv(line, out Kline kline))
+                {
+                    list.Add(kline);
+                }
+            }
+            return list.ToArray();
+        }
+
+        /// <summary>
+        /// 读取单个 CSV 文件并转换为 Tick 数组 (预分配列表容量与 64KB 缓冲流)
+        /// </summary>
+        public static Tick[] ReadTicksFromCsvFile(string filePath)
+        {
+            if (!File.Exists(filePath)) return Array.Empty<Tick>();
+
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+
+            List<Tick> list = new List<Tick>(100000);
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (TryParseTickFromCsv(line, out Tick tick))
+                {
+                    list.Add(tick);
+                }
+            }
+            return list.ToArray();
+        }
+
+        /// <summary>
+        /// 将 Kline 集合高效导出并保存为 CSV 文件 (64KB 缓冲流直投)
         /// </summary>
         public static void SaveKlinesToCsvFile(string filePath, IEnumerable<Kline> klines)
         {
@@ -164,19 +208,19 @@ namespace WinFormsApp2
                 Directory.CreateDirectory(dir);
             }
 
-            using var writer = new StreamWriter(filePath, false, System.Text.Encoding.UTF8);
+            using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 65536);
+            using var writer = new StreamWriter(stream, Encoding.UTF8);
             foreach (var k in klines)
             {
-                string line = string.Format(CultureInfo.InvariantCulture,
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
                     "{0:yyyy-MM-dd HH:mm:ss},{1},{2},{3},{4},{5},{6:yyyy-MM-dd HH:mm:ss},{7},{8},{9},{10}",
                     k.OpenTime, k.OpenPrice, k.HighPrice, k.LowPrice, k.ClosePrice, k.Volume,
-                    k.CloseTime, k.QuoteVolume, k.TradeCount, k.TakerBuyBaseVolume, k.TakerBuyQuoteVolume);
-                writer.WriteLine(line);
+                    k.CloseTime, k.QuoteVolume, k.TradeCount, k.TakerBuyBaseVolume, k.TakerBuyQuoteVolume));
             }
         }
 
         /// <summary>
-        /// 将 Tick 逐笔成交数据导出并保存为 CSV 文件
+        /// 将 Tick 逐笔成交数据高效导出并保存为 CSV 文件 (64KB 缓冲流直投)
         /// </summary>
         public static void SaveTicksToCsvFile(string filePath, IEnumerable<Tick> ticks)
         {
@@ -186,13 +230,13 @@ namespace WinFormsApp2
                 Directory.CreateDirectory(dir);
             }
 
-            using var writer = new StreamWriter(filePath, false, System.Text.Encoding.UTF8);
+            using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 65536);
+            using var writer = new StreamWriter(stream, Encoding.UTF8);
             foreach (var t in ticks)
             {
-                string line = string.Format(CultureInfo.InvariantCulture,
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
                     "{0:yyyy-MM-dd HH:mm:ss.fff},{1},{2}",
-                    t.Time, t.LastPrice, t.Volume);
-                writer.WriteLine(line);
+                    t.Time, t.LastPrice, t.Volume));
             }
         }
 
@@ -207,46 +251,6 @@ namespace WinFormsApp2
                     return DateTimeOffset.FromUnixTimeSeconds(timestamp).LocalDateTime;
             }
             return DateTime.Parse(timeStr, CultureInfo.InvariantCulture);
-        }
-
-        #endregion
-
-        #region 本地文件读取 (File Data Reading)
-
-        /// <summary>
-        /// 读取单个 CSV 文件并转换为 Kline 数组
-        /// </summary>
-        public static Kline[] ReadKlinesFromCsvFile(string filePath)
-        {
-            if (!File.Exists(filePath)) return Array.Empty<Kline>();
-
-            List<Kline> list = new List<Kline>();
-            foreach (var line in File.ReadLines(filePath))
-            {
-                if (TryParseKlineFromCsv(line, out Kline kline))
-                {
-                    list.Add(kline);
-                }
-            }
-            return list.ToArray();
-        }
-
-        /// <summary>
-        /// 读取单个 CSV 文件并转换为 Tick 数组
-        /// </summary>
-        public static Tick[] ReadTicksFromCsvFile(string filePath)
-        {
-            if (!File.Exists(filePath)) return Array.Empty<Tick>();
-
-            List<Tick> list = new List<Tick>();
-            foreach (var line in File.ReadLines(filePath))
-            {
-                if (TryParseTickFromCsv(line, out Tick tick))
-                {
-                    list.Add(tick);
-                }
-            }
-            return list.ToArray();
         }
 
         /// <summary>

@@ -134,23 +134,31 @@ namespace WinFormsApp2
         }
 
         /// <summary>
-        /// 只提取相对高点 (Pivot High)，价格使用 HighPrice
+        /// 只提取相对高点 (Pivot High)，价格使用 HighPrice (0 LINQ 极速滤除)
         /// </summary>
         public static List<PivotPoint> GetPivotHighs(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
-            return CalculatePeaksCombinedFast(klines, leftBars, rightBars)
-                .Where(p => p.Type == PivotType.High)
-                .ToList();
+            var all = CalculatePeaksCombinedFast(klines, leftBars, rightBars);
+            List<PivotPoint> highs = new List<PivotPoint>(all.Count / 2 + 1);
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (all[i].Type == PivotType.High) highs.Add(all[i]);
+            }
+            return highs;
         }
 
         /// <summary>
-        /// 只提取相对低点 (Pivot Low)，价格使用 LowPrice
+        /// 只提取相对低点 (Pivot Low)，价格使用 LowPrice (0 LINQ 极速滤除)
         /// </summary>
         public static List<PivotPoint> GetPivotLows(Kline[] klines, int leftBars = 3, int rightBars = 3)
         {
-            return CalculatePeaksCombinedFast(klines, leftBars, rightBars)
-                .Where(p => p.Type == PivotType.Low)
-                .ToList();
+            var all = CalculatePeaksCombinedFast(klines, leftBars, rightBars);
+            List<PivotPoint> lows = new List<PivotPoint>(all.Count / 2 + 1);
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (all[i].Type == PivotType.Low) lows.Add(all[i]);
+            }
+            return lows;
         }
     }
 }
