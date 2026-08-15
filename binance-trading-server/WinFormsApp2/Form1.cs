@@ -599,8 +599,8 @@ namespace WinFormsApp2
                     startDate,
                     endDate,
                     enableTickPush,
-                    maxQueueCapacity: 5,
-                    batchDays: 5,
+                    maxQueueCapacity: 3,
+                    batchDays: 1,
                     logger: AppendLog);
 
                 // 2. 启动队列流水线并出队首批 3 天切片数据

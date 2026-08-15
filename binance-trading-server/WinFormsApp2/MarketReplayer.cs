@@ -180,9 +180,10 @@ namespace WinFormsApp2
         private int FindTickIndexForTime(DateTime targetTime, int startIndex = 0)
         {
             if (_ticks.Length == 0) return 0;
-            if (startIndex < 0 || startIndex >= _ticks.Length) startIndex = 0;
+            if (startIndex < 0) startIndex = 0;
+            if (startIndex >= _ticks.Length) startIndex = _ticks.Length - 1;
 
-            // 绝大多数顺序播放场景：从上次记住的游标 _lastTickIndex 直接顺序向前，0~2 步即刻命中 (O(1) 均摊)
+            // 1. 顺向前进游走 (99.9% 正常推演场景)：从上次记忆的 _lastTickIndex 直接向前 0~2 步即刻命中 (O(1) 0 耗时)
             if (_ticks[startIndex].Time <= targetTime)
             {
                 while (startIndex < _ticks.Length && _ticks[startIndex].Time < targetTime)
@@ -192,7 +193,17 @@ namespace WinFormsApp2
                 return startIndex;
             }
 
-            // 发生回退或跳帧场景：使用二分查找在 O(log N) 0.0001ms 内极速定位起始 Tick 索引，绝不盲目从 0 全扫描！
+            // 2. 毫秒级微调游走 (上次 scanIndex 停留在当前 klineStart 之后几十毫秒处)：向前微退 0~2 步即刻精准命中，绝对无需启动 3000 万全表二分！
+            if (startIndex > 0 && (_ticks[startIndex].Time - targetTime).TotalSeconds < 10)
+            {
+                while (startIndex > 0 && _ticks[startIndex - 1].Time >= targetTime)
+                {
+                    startIndex--;
+                }
+                return startIndex;
+            }
+
+            // 3. 跨天大跳帧保底：仅在跨度超过 10 秒大跳帧时，才使用二分查找定位
             int low = 0;
             int high = _ticks.Length - 1;
             int result = _ticks.Length;
@@ -226,7 +237,7 @@ namespace WinFormsApp2
 
             // 2. 从定位到的游标位置直投当前 K 线时间窗口内的 Tick 数据
             int scanIndex = _lastTickIndex;
-            sw.Start();
+            sw.Restart();
             while (scanIndex < _ticks.Length)
             {
                 if (token.IsCancellationRequested || State == ReplayState.Stopped) break;
@@ -255,8 +266,10 @@ namespace WinFormsApp2
             _lastTickIndex = scanIndex;
 
             sw.Stop();
-            if (sw.ElapsedMilliseconds > 200)
-                Logger.Log($"tick 花费时间毫秒:{sw.ElapsedMilliseconds}ms; tick长度: {_ticks.Length}");
+            if (sw.ElapsedMilliseconds > 500)
+            {
+                Logger.Log($"[单帧 Tick 推送异常告警] 耗时:{sw.ElapsedMilliseconds}ms | 切片 Tick 总数: {_ticks.Length}");
+            }
         }
 
         /// <summary>
