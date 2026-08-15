@@ -49,6 +49,8 @@ namespace WinFormsApp2
         public int MinLineAge { get; set; } = 80;
         public decimal TakeProfitPct { get; set; } = 1.5m; // 止盈 1.5%
         public decimal StopLossPct { get; set; } = 0.8m;   // 止损 0.8%
+        public bool IsLiveTrading { get; set; } = false;   // 是否为实盘交易模式
+        public bool IsExchangeStopLossActive { get; set; } = false; // 交易所侧是否已挂止损单
     }
 
     /// <summary>
@@ -142,6 +144,19 @@ namespace WinFormsApp2
         /// 策略核心 Tick 级实时处理引擎 (接收当前 Tick, K 线索引, 趋势线列表与当前 K 线时间信息)
         /// 规则: Tick 值穿过趋势线后，在后续 3 个 Tick 内回到趋势线之上/之下则开仓
         /// </summary>
+        private decimal GetLinePriceAt(TrendLine line, int currentIndex, DateTime klineOpenTime)
+        {
+            if (klineOpenTime > DateTime.MinValue && line.Time1 > DateTime.MinValue && line.Time2 > line.Time1)
+            {
+                return line.GetPriceAtTime(klineOpenTime);
+            }
+            return line.GetPriceAt(currentIndex);
+        }
+
+        /// <summary>
+        /// 策略核心 Tick 级实时处理引擎 (接收当前 Tick, K 线索引, 趋势线列表与当前 K 线时间信息)
+        /// 兼容历史回演与在线实盘 LiveStream 双模式 (时间戳精确插值)
+        /// </summary>
         public void ProcessTick(Tick tick, int currentIndex, List<TrendLine> activeTrendLines, Kline currentKline)
         {
             if (!Params.Enabled || activeTrendLines == null || activeTrendLines.Count == 0)
@@ -161,9 +176,9 @@ namespace WinFormsApp2
             {
                 _ticksSincePenetration++;
                 var targetLine = _pendingTargetLine.Value;
-                decimal linePrice = targetLine.GetPriceAt(currentIndex);
+                decimal linePrice = GetLinePriceAt(targetLine, currentIndex, currentKline.OpenTime);
 
-                // A. 支撑趋势线 (PivotType.Low): 跌破趋势线后，在 3 个 Tick 内收复回到趋势线之上 (Price > LinePrice) -> 开多单 (BUY LONG)
+                // A. 支撑趋势线 (PivotType.Low): 跌破趋势线后，在 5 个 Tick 内收复回到趋势线之上 (Price > LinePrice) -> 开多单 (BUY LONG)
                 if (targetLine.Type == PivotType.Low)
                 {
                     if (price > linePrice && _ticksSincePenetration <= 5)
@@ -173,7 +188,7 @@ namespace WinFormsApp2
                         return;
                     }
                 }
-                // B. 阻力趋势线 (PivotType.High): 突破趋势线后，在 3 个 Tick 内回落回到趋势线之下 (Price < LinePrice) -> 开空单 (SELL SHORT)
+                // B. 阻力趋势线 (PivotType.High): 突破趋势线后，在 5 个 Tick 内回落回到趋势线之下 (Price < LinePrice) -> 开空单 (SELL SHORT)
                 else if (targetLine.Type == PivotType.High)
                 {
                     if (price < linePrice && _ticksSincePenetration <= 5)
@@ -184,8 +199,8 @@ namespace WinFormsApp2
                     }
                 }
 
-                // 超过 3 个 Tick 未回到趋势线另一侧，说明是有效破位/突破，放弃开仓并复位等待状态
-                if (_ticksSincePenetration > 3)
+                // 超过 5 个 Tick 未回到趋势线另一侧，说明是有效破位/突破，放弃开仓并复位等待状态
+                if (_ticksSincePenetration > 5)
                 {
                     ResetPenetrationState();
                 }
@@ -200,7 +215,7 @@ namespace WinFormsApp2
                     if (tl.LineX1X2 < Params.MinLineX1X2 || tl.LineAge < Params.MinLineAge)
                         continue;
 
-                    decimal linePrice = tl.GetPriceAt(currentIndex);
+                    decimal linePrice = GetLinePriceAt(tl, currentIndex, currentKline.OpenTime);
                     if (linePrice <= 0m) continue;
 
                     // A. 支撑趋势线 (Low): Tick 价格跌破趋势线 (price < linePrice)
@@ -257,6 +272,12 @@ namespace WinFormsApp2
 
         private void CheckPositionRisk(decimal currentPrice, DateTime time, int klineIndex, DateTime klineOpenTime)
         {
+            // 实盘模式下若交易所侧设置了止损/止盈委托单，则由交易所撮合系统自动触发平仓，本地客户端不再重复处理
+            if (Params.IsLiveTrading || Params.IsExchangeStopLossActive)
+            {
+                return;
+            }
+
             if (CurrentPosition == PositionType.Long)
             {
                 decimal tpPrice = CurrentEntryPrice * (1m + Params.TakeProfitPct / 100m);

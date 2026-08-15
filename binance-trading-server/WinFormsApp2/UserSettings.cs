@@ -31,6 +31,13 @@ namespace WinFormsApp2
         public decimal StopLossPct { get; set; } = 0.8m;
         public bool EnableWarmup { get; set; } = true;
 
+        // 实盘与下单队列参数
+        public bool IsLiveTrading { get; set; } = false; // false = 本地模拟, true = 币安真实 API 下单
+        public string ApiKey { get; set; } = "";
+        public string ApiSecret { get; set; } = "";
+        public int Leverage { get; set; } = 20; // 默认 20x 杠杆
+        public decimal OrderQuantityUsdt { get; set; } = 1m; // 默认单笔订单金额为 1 USDT
+
         public static string SettingsConfPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.conf");
 
         /// <summary>
@@ -147,6 +154,23 @@ namespace WinFormsApp2
                     case "stoplosspct":
                         if (decimal.TryParse(val, NumberStyles.Any, CultureInfo.InvariantCulture, out var sl)) StopLossPct = sl;
                         break;
+
+                    case "islivetrading":
+                    case "livetrading":
+                        if (bool.TryParse(val, out var ilt)) IsLiveTrading = ilt;
+                        break;
+                    case "apikey":
+                        ApiKey = val;
+                        break;
+                    case "apisecret":
+                        ApiSecret = val;
+                        break;
+                    case "leverage":
+                        if (int.TryParse(val, out var lev)) Leverage = lev;
+                        break;
+                    case "orderquantityusdt":
+                        if (decimal.TryParse(val, NumberStyles.Any, CultureInfo.InvariantCulture, out var oqu)) OrderQuantityUsdt = oqu;
+                        break;
                 }
             }
         }
@@ -168,19 +192,26 @@ namespace WinFormsApp2
             sb.AppendLine("# 2. K线周期 (可选: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M)");
             sb.AppendLine($"KlineInterval = {FormatKlineInterval(KlineInterval)}");
             sb.AppendLine();
-            sb.AppendLine("# 3. 数据回播开始与结束日期 (格式: yyyy-MM-dd)");
+            sb.AppendLine("# 3. 实盘模式与 ApiKey 凭据配置");
+            sb.AppendLine($"IsLiveTrading = {IsLiveTrading.ToString().ToLower()}");
+            sb.AppendLine($"ApiKey = {ApiKey}");
+            sb.AppendLine($"ApiSecret = {ApiSecret}");
+            sb.AppendLine($"Leverage = {Leverage}");
+            sb.AppendLine($"OrderQuantityUsdt = {OrderQuantityUsdt.ToString(CultureInfo.InvariantCulture)}");
+            sb.AppendLine();
+            sb.AppendLine("# 4. 数据回播开始与结束日期 (格式: yyyy-MM-dd)");
             sb.AppendLine($"StartDate = {StartDate:yyyy-MM-dd}");
             sb.AppendLine($"EndDate = {EndDate:yyyy-MM-dd}");
             sb.AppendLine();
-            sb.AppendLine("# 4. 回播间隔毫秒数 (建议: 500)");
+            sb.AppendLine("# 5. 回播间隔毫秒数 (建议: 500)");
             sb.AppendLine($"PlaybackIntervalMs = {PlaybackIntervalMs}");
             sb.AppendLine();
-            sb.AppendLine("# 5. 开关控制 (true / false)");
+            sb.AppendLine("# 6. 开关控制 (true / false)");
             sb.AppendLine($"EnableTickPush = {EnableTickPush.ToString().ToLower()}");
             sb.AppendLine($"AutoFitPrice = {AutoFitPrice.ToString().ToLower()}");
             sb.AppendLine($"HighlightHighVolume = {HighlightHighVolume.ToString().ToLower()}");
             sb.AppendLine();
-            sb.AppendLine("# 6. 趋势线回调策略参数设置");
+            sb.AppendLine("# 7. 趋势线回调策略参数设置");
             sb.AppendLine($"EnableStrategy = {EnableStrategy.ToString().ToLower()}");
             sb.AppendLine($"EnableWarmup = {EnableWarmup.ToString().ToLower()}");
             sb.AppendLine($"MinLineX1X2 = {MinLineX1X2}");

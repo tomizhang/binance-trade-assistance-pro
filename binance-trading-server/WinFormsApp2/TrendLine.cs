@@ -82,6 +82,25 @@ namespace WinFormsApp2
             return Y1 + RawK * (x - X1);
         }
 
+        /// <summary>
+        /// 基于 K 线时间戳推算延长线价格 (兼容在线实盘 LiveStream 模式与窗口滑动)
+        /// </summary>
+        public decimal GetPriceAtTime(DateTime targetTime)
+        {
+            if (Time2 <= Time1 || Time1 == DateTime.MinValue || targetTime == DateTime.MinValue)
+            {
+                return Y2;
+            }
+
+            double totalSeconds = (Time2 - Time1).TotalSeconds;
+            if (totalSeconds <= 0) return Y2;
+
+            double elapsedSeconds = (targetTime - Time1).TotalSeconds;
+            decimal priceDelta = Y2 - Y1;
+
+            return Y1 + priceDelta * (decimal)(elapsedSeconds / totalSeconds);
+        }
+
         public override string ToString()
         {
             return $"[{Type}趋势线] ({X1}, {Y1:F4}) -> ({X2}, {Y2:F4}) | 归一化斜率K: {K:F4}%/bar, line_x1_x2: {LineX1X2}, line_age: {LineAge}, line_extension_range: {LineExtensionRange}";

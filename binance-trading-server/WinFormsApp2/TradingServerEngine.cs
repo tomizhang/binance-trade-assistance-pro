@@ -79,14 +79,46 @@ namespace WinFormsApp2
             {
                 Kline currentKline = default;
                 int currentSampleIndex = 0;
+
                 lock (ReplayKlines)
                 {
-                    if (CurrentKlineIndex >= 0 && CurrentKlineIndex < ReplayKlines.Count)
+                    if (ReplayKlines.Count > 0)
                     {
-                        currentKline = ReplayKlines[CurrentKlineIndex];
+                        int idx = CurrentKlineIndex;
+                        if (idx < 0 || idx >= ReplayKlines.Count)
+                        {
+                            idx = ReplayKlines.Count - 1; // 兼容在线实盘 LiveStream 模式 (自动锁定最新在建 K线)
+                        }
+                        currentKline = ReplayKlines[idx];
+
+                        // 在线交易/实盘 Tick 动态更新在建 K线的 OHLC 与最新收盘价
+                        if (tick.LastPrice > 0m)
+                        {
+                            if (currentKline.OpenPrice == 0m) currentKline.OpenPrice = tick.LastPrice;
+                            if (currentKline.HighPrice == 0m || tick.LastPrice > currentKline.HighPrice) currentKline.HighPrice = tick.LastPrice;
+                            if (currentKline.LowPrice == 0m || tick.LastPrice < currentKline.LowPrice) currentKline.LowPrice = tick.LastPrice;
+                            currentKline.ClosePrice = tick.LastPrice;
+                            if (currentKline.OpenTime == default) currentKline.OpenTime = tick.Time;
+                            ReplayKlines[idx] = currentKline;
+                        }
                     }
-                    currentSampleIndex = Math.Max(0, Math.Min(CombinedHistoryList.Count, 500) - 1);
+                    else
+                    {
+                        // 若在线行情初始为空，依据 Tick 实时合成首根 K线
+                        currentKline = new Kline
+                        {
+                            OpenTime = tick.Time,
+                            OpenPrice = tick.LastPrice,
+                            HighPrice = tick.LastPrice,
+                            LowPrice = tick.LastPrice,
+                            ClosePrice = tick.LastPrice
+                        };
+                    }
+
+                    int totalCount = (WarmupKlinesBuffer != null ? WarmupKlinesBuffer.Length : 0) + ReplayKlines.Count;
+                    currentSampleIndex = Math.Max(0, Math.Min(totalCount, 500) - 1);
                 }
+
                 Strategy.ProcessTick(tick, currentSampleIndex, ActiveTrendLines, currentKline);
             }
         }
@@ -100,12 +132,14 @@ namespace WinFormsApp2
     {
         private readonly MarketReplayer _replayer = new MarketReplayer();
         private readonly LiveFeedManager _liveFeedManager = new LiveFeedManager();
+        private readonly OrderExecutionQueue _orderQueue = new OrderExecutionQueue();
         private readonly ConcurrentDictionary<string, SymbolEngineContext> _symbolEngines = new ConcurrentDictionary<string, SymbolEngineContext>();
         private BatchQueueManager? _batchQueueManager;
 
         public ExecutionMode Mode { get; private set; } = ExecutionMode.Idle;
         public MarketReplayer Replayer => _replayer;
         public LiveFeedManager LiveFeedManager => _liveFeedManager;
+        public OrderExecutionQueue OrderQueue => _orderQueue;
         public bool IsRunning => Mode != ExecutionMode.Idle;
 
         public string ActiveSymbol { get; set; } = "BTCUSDT";
@@ -113,7 +147,13 @@ namespace WinFormsApp2
         public SymbolEngineContext GetOrCreateContext(string symbol)
         {
             symbol = symbol.Trim().ToUpper();
-            return _symbolEngines.GetOrAdd(symbol, s => new SymbolEngineContext(s));
+            return _symbolEngines.GetOrAdd(symbol, s =>
+            {
+                var ctx = new SymbolEngineContext(s);
+                ctx.Strategy.Params.IsLiveTrading = _orderQueue.IsLiveTrading;
+                BindStrategyOrderEvents(ctx);
+                return ctx;
+            });
         }
 
         public SymbolEngineContext ActiveContext => GetOrCreateContext(ActiveSymbol);
@@ -142,6 +182,64 @@ namespace WinFormsApp2
             _liveFeedManager.OnLog += Log;
             _liveFeedManager.OnMultiLiveKlinePushed += Core_OnMultiLiveKlinePushed;
             _liveFeedManager.OnMultiLiveTickPushed += Core_OnMultiLiveTickPushed;
+
+            _orderQueue.OnLog += Log;
+        }
+
+        public decimal OrderQuantityUsdt { get; set; } = 1m;
+
+        public void ConfigureOrderEngine(bool isLiveTrading, string apiKey, string apiSecret, int leverage, decimal orderQuantityUsdt = 1m)
+        {
+            OrderQuantityUsdt = orderQuantityUsdt > 0 ? orderQuantityUsdt : 1m;
+            _orderQueue.ConfigureApi(isLiveTrading, apiKey, apiSecret, leverage, OrderQuantityUsdt);
+
+            foreach (var ctx in _symbolEngines.Values)
+            {
+                ctx.Strategy.Params.IsLiveTrading = isLiveTrading;
+            }
+        }
+
+        public Task<bool> SetLeverageAsync(string symbol, int leverage)
+        {
+            return _orderQueue.SetLeverageAsync(symbol, leverage);
+        }
+
+        private void BindStrategyOrderEvents(SymbolEngineContext ctx)
+        {
+            string sym = ctx.Symbol;
+            ctx.Strategy.OnTradeOpened += trade =>
+            {
+                OnTradeOpened?.Invoke(trade);
+
+                OrderType oType = trade.Position == PositionType.Long ? OrderType.BuyLongOpen : OrderType.SellShortOpen;
+                _orderQueue.EnqueueOrder(new OrderRequest
+                {
+                    TradeId = trade.Id,
+                    Symbol = sym,
+                    Type = oType,
+                    Price = trade.EntryPrice,
+                    QuantityUsdt = OrderQuantityUsdt,
+                    Timestamp = trade.EntryTime,
+                    Comment = "策略信号触发开仓"
+                });
+            };
+
+            ctx.Strategy.OnTradeClosed += trade =>
+            {
+                OnTradeClosed?.Invoke(trade);
+
+                OrderType oType = trade.Position == PositionType.Long ? OrderType.CloseLong : OrderType.CloseShort;
+                _orderQueue.EnqueueOrder(new OrderRequest
+                {
+                    TradeId = trade.Id,
+                    Symbol = sym,
+                    Type = oType,
+                    Price = trade.ExitPrice,
+                    QuantityUsdt = OrderQuantityUsdt,
+                    Timestamp = trade.ExitTime,
+                    Comment = "策略止盈/止损平仓"
+                });
+            };
         }
 
         public void Log(string msg)
@@ -243,8 +341,6 @@ namespace WinFormsApp2
             {
                 var ctx = GetOrCreateContext(sym);
                 ctx.Reset();
-                ctx.Strategy.OnTradeOpened += trade => OnTradeOpened?.Invoke(trade);
-                ctx.Strategy.OnTradeClosed += trade => OnTradeClosed?.Invoke(trade);
 
                 try
                 {

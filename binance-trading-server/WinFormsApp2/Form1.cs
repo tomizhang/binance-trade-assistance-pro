@@ -169,6 +169,7 @@ namespace WinFormsApp2
             btnStepBackward.MouseWheel += StepButton_MouseWheel;
             FormClosing += (s, e) => SaveCurrentSettings();
 
+            _engine.ConfigureOrderEngine(_userSettings.IsLiveTrading, _userSettings.ApiKey, _userSettings.ApiSecret, _userSettings.Leverage, _userSettings.OrderQuantityUsdt);
             SyncStrategyParams();
         }
 

@@ -33,18 +33,21 @@ namespace WinFormsApp2
             Console.WriteLine("  🚀 币安交易助手 Pro (Linux 64-bit Multi-Symbol Trading Server) ");
             Console.WriteLine("=================================================================");
             Console.WriteLine($"📄 已成功读取配置文件 [{UserSettings.SettingsConfPath}]");
+            Console.WriteLine($"⚙ 交易模式: {(settings.IsLiveTrading ? "🟢 币安真实实盘下单 (Live)" : "🟡 本地模拟/回测挂单 (Simulated)")} | 杠杆: {settings.Leverage}x | 单笔资金: {settings.OrderQuantityUsdt} USDT");
 
             var engine = new TradingServerEngine();
+            engine.ConfigureOrderEngine(settings.IsLiveTrading, settings.ApiKey, settings.ApiSecret, settings.Leverage, settings.OrderQuantityUsdt);
+
             engine.OnLog += msg => Console.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {msg}");
             engine.OnTradeOpened += trade =>
             {
                 string posStr = trade.Position == PositionType.Long ? "BUY LONG" : "SELL SHORT";
-                Console.WriteLine($"🟢 [策略开仓] #{trade.Id} [{posStr}] @ {trade.EntryPrice} ({trade.EntryTime:yyyy-MM-dd HH:mm:ss})");
+                Console.WriteLine($"🟢 [策略开仓信号] #{trade.Id} [{posStr}] @ {trade.EntryPrice} ({trade.EntryTime:yyyy-MM-dd HH:mm:ss})");
             };
             engine.OnTradeClosed += trade =>
             {
                 string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit ? "TAKE PROFIT" : "STOP LOSS";
-                Console.WriteLine($"🔴 [策略平仓] #{trade.Id} [{reasonStr}] 收益: {trade.ProfitPct:+0.00;-0.00;0.00}% @ {trade.ExitPrice}");
+                Console.WriteLine($"🔴 [策略平仓信号] #{trade.Id} [{reasonStr}] 收益: {trade.ProfitPct:+0.00;-0.00;0.00}% @ {trade.ExitPrice}");
             };
 
             List<string> symbolList = new List<string>();
@@ -70,7 +73,7 @@ namespace WinFormsApp2
             {
                 await engine.StartMultiLiveStreamAsync(symbolList, settings.KlineInterval);
 
-                Console.WriteLine("⚡ 多币种实盘盯盘与策略推演服务已常驻运行。按 Ctrl+C 安全退出...");
+                Console.WriteLine("⚡ 多币种实盘盯盘与消费下单队列已常驻运行。按 Ctrl+C 安全退出...");
                 var tcs = new TaskCompletionSource<bool>();
                 Console.CancelKeyPress += (s, e) =>
                 {
