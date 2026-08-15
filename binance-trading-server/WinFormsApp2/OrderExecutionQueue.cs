@@ -418,7 +418,7 @@ namespace WinFormsApp2
                     {
                         OrderSide exitSide = (side == OrderSide.Buy) ? OrderSide.Sell : OrderSide.Buy;
 
-                        // A. 币安交易所侧自动止盈挂单 (TakeProfitMarket, closePosition: true)
+                        // A. 币安交易所侧自动止盈挂单 (TakeProfitMarket, reduceOnly: true, quantity: qty)
                         if (req.TakeProfitPrice > 0)
                         {
                             decimal roundedTp = RoundPriceToPrecision(cleanSymbol, req.TakeProfitPrice);
@@ -426,14 +426,14 @@ namespace WinFormsApp2
                                 symbol: cleanSymbol,
                                 side: exitSide,
                                 type: FuturesOrderType.TakeProfitMarket,
-                                quantity: null,
+                                quantity: qty,
                                 stopPrice: roundedTp,
-                                closePosition: true,
+                                reduceOnly: true,
                                 workingType: WorkingType.Contract).ConfigureAwait(false);
 
                             if (tpOrder.Success)
                             {
-                                Log($"🎯 [币安交易所止盈挂单成功] [{cleanSymbol}] 止盈价: {roundedTp}");
+                                Log($"🎯 [币安交易所止盈挂单成功] [{cleanSymbol}] 止盈价: {roundedTp} | 数量: {qty}");
                             }
                             else
                             {
@@ -441,7 +441,7 @@ namespace WinFormsApp2
                             }
                         }
 
-                        // B. 币安交易所侧自动止损挂单 (StopMarket, closePosition: true)
+                        // B. 币安交易所侧自动止损挂单 (StopMarket, reduceOnly: true, quantity: qty)
                         if (req.StopLossPrice > 0)
                         {
                             decimal roundedSl = RoundPriceToPrecision(cleanSymbol, req.StopLossPrice);
@@ -449,14 +449,14 @@ namespace WinFormsApp2
                                 symbol: cleanSymbol,
                                 side: exitSide,
                                 type: FuturesOrderType.StopMarket,
-                                quantity: null,
+                                quantity: qty,
                                 stopPrice: roundedSl,
-                                closePosition: true,
+                                reduceOnly: true,
                                 workingType: WorkingType.Contract).ConfigureAwait(false);
 
                             if (slOrder.Success)
                             {
-                                Log($"🛡 [币安交易所止损挂单成功] [{cleanSymbol}] 止损价: {roundedSl}");
+                                Log($"🛡 [币安交易所止损挂单成功] [{cleanSymbol}] 止损价: {roundedSl} | 数量: {qty}");
                             }
                             else
                             {

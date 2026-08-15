@@ -41,7 +41,7 @@ namespace WinFormsApp2
             InitLiveFeed();
             InitUiTimer();
             InitializePlot();
-            AppendLog("系统初始化完成。预设多币种排队管道、实盘接口与 API 预热配置加载成功。");
+            PrintConfigurationSummary();
         }
 
         private void InitLiveFeed()
@@ -178,9 +178,14 @@ namespace WinFormsApp2
             numTakeProfit.Value = Math.Max(numTakeProfit.Minimum, Math.Min(numTakeProfit.Maximum, _userSettings.TakeProfitPct));
             numStopLoss.Value = Math.Max(numStopLoss.Minimum, Math.Min(numStopLoss.Maximum, _userSettings.StopLossPct));
 
-            // 3. 绑定参数控件变动自动保存逻辑
+            // 3. 绑定参数控件变动自动保存与多币种图表视角切换逻辑
             cmbSymbol.TextChanged += (s, e) => SaveCurrentSettings();
-            cmbSymbol.SelectedIndexChanged += (s, e) => SaveCurrentSettings();
+            cmbSymbol.SelectedIndexChanged += (s, e) =>
+            {
+                SaveCurrentSettings();
+                string selected = cmbSymbol.SelectedItem?.ToString() ?? cmbSymbol.Text;
+                SwitchActiveChartSymbol(selected);
+            };
             cmbKlineInterval.SelectedIndexChanged += (s, e) => SaveCurrentSettings();
             dtpStartDate.ValueChanged += (s, e) => SaveCurrentSettings();
             dtpEndDate.ValueChanged += (s, e) => SaveCurrentSettings();
@@ -201,6 +206,69 @@ namespace WinFormsApp2
             FormClosing += (s, e) => SaveCurrentSettings();
 
             SyncStrategyParams();
+        }
+
+        /// <summary>
+        /// 格式化日志输出当前系统参数与多币种差异化配置信息总览
+        /// </summary>
+        private void PrintConfigurationSummary()
+        {
+            var symbolConfigs = _userSettings.SymbolConfigs.Where(c => c.Enabled).ToList();
+            if (symbolConfigs.Count == 0)
+            {
+                symbolConfigs = UserSettings.GetDefaultSymbolConfigs();
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("======================================================================");
+            sb.AppendLine("📋 [系统参数配置总览 - 已全量加载]");
+            sb.AppendLine("----------------------------------------------------------------------");
+            sb.AppendLine($"▶ 交易模式: {(_userSettings.IsLiveTrading ? "🟢 币安真实合约实盘下单" : "🟡 本地模拟挂单匹配 (Simulated)")}");
+            sb.AppendLine($"▶ API 凭证状态: {(string.IsNullOrWhiteSpace(_userSettings.ApiKey) ? "❌ 未配置" : "✅ 已设置 (" + _userSettings.ApiKey.Length + " 位)")}");
+            sb.AppendLine($"▶ 策略风控参数: 止盈 +{_userSettings.TakeProfitPct}% | 止损 -{_userSettings.StopLossPct}% | 趋势线跨度: {_userSettings.MinLineX1X2} | 最小寿命: {_userSettings.MinLineAge} 根");
+            sb.AppendLine($"▶ 差异化多币种列表 (共 {symbolConfigs.Count} 个使能币种):");
+
+            for (int i = 0; i < symbolConfigs.Count; i++)
+            {
+                var cfg = symbolConfigs[i];
+                string levStr = cfg.Leverage <= 0 ? "-1 (自动最大杠杆)" : $"{cfg.Leverage}x";
+                sb.AppendLine($"   [{i + 1}] {cfg.Symbol,-10} | 周期: {cfg.KlineInterval,-4} | 杠杆: {levStr,-16} | 单笔资金: {cfg.OrderQuantityUsdt} USDT");
+            }
+            sb.AppendLine("======================================================================");
+
+            AppendLog(sb.ToString());
+        }
+
+        /// <summary>
+        /// 切换图表当前视口渲染币种 (实盘多币种盯盘时支持随时切换观察)
+        /// </summary>
+        private void SwitchActiveChartSymbol(string newSymbol)
+        {
+            if (string.IsNullOrWhiteSpace(newSymbol)) return;
+            string cleanSymbol = OrderExecutionQueue.SanitizeSymbol(newSymbol);
+            if (string.IsNullOrEmpty(cleanSymbol)) return;
+
+            _currentSymbol = cleanSymbol;
+
+            if (_multiSymbolPipeline.IsRunning)
+            {
+                var ctx = _multiSymbolPipeline.GetContext(cleanSymbol);
+                if (ctx != null && ctx.IsInitialized)
+                {
+                    lock (_replayKlines)
+                    {
+                        _replayKlines.Clear();
+                        _replayKlines.AddRange(ctx.Klines);
+                        _currentKlineIndex = Math.Max(0, _replayKlines.Count - 1);
+                    }
+                    _currentActivePivots = ctx.ActivePivots;
+                    _currentActiveTrendLines = ctx.ActiveTrendLines;
+                    _chartTitle = $"🟢 币安多币种实盘盯盘中 [{cleanSymbol}] - 视口渲染中";
+                    UpdateDisplayPivotsAndTrendLines();
+                    _needChartRefresh = true;
+                    AppendLog($"🔄 [图表视角切换] 当前渲染币种已成功切换至: [{cleanSymbol}] (已有 K线: {ctx.Klines.Count} 根, 趋势线: {ctx.ActiveTrendLines.Count} 条)");
+                }
+            }
         }
 
         private volatile bool _isStrategyEnabled = true;
@@ -885,10 +953,24 @@ namespace WinFormsApp2
                 symbolConfigs = UserSettings.GetDefaultSymbolConfigs();
             }
 
+            // 更新下拉框选项，列出当前实盘运行的全部币种方便用户点击切换渲染
+            cmbSymbol.Items.Clear();
+            foreach (var cfg in symbolConfigs)
+            {
+                cmbSymbol.Items.Add(cfg.Symbol);
+            }
+            if (cmbSymbol.Items.Count > 0)
+            {
+                cmbSymbol.SelectedIndex = 0;
+            }
+
             string primarySymbol = symbolConfigs[0].Symbol;
             _currentSymbol = primarySymbol;
             _strategy.Reset();
             UpdateStrategyStatsUI();
+
+            // 格式化输出实盘/管道启动时的参数配置信息总览
+            PrintConfigurationSummary();
 
             btnLiveMode.Enabled = false;
             try
