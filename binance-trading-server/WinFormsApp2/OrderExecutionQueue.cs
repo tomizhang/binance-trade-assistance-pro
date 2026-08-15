@@ -412,6 +412,58 @@ namespace WinFormsApp2
                     res.Message = "币安实盘订单成交成功";
 
                     Log($"✅ [币安实盘成交成功!] 单号 #{res.OrderId} [{cleanSymbol}] [{req.Type}] 均价: {res.ExecutedPrice} | 数量: {res.ExecutedQuantity}{tpSlLog} | ⚡ 耗时: {res.ElapsedMs}ms");
+
+                    // 2. 在开仓单 (BuyLongOpen / SellShortOpen) 成交后，全自动向币安交易所侧投递止盈挂单与止损挂单
+                    if (req.Type == OrderType.BuyLongOpen || req.Type == OrderType.SellShortOpen)
+                    {
+                        OrderSide exitSide = (side == OrderSide.Buy) ? OrderSide.Sell : OrderSide.Buy;
+
+                        // A. 币安交易所侧自动止盈挂单 (TakeProfitMarket, closePosition: true)
+                        if (req.TakeProfitPrice > 0)
+                        {
+                            decimal roundedTp = RoundPriceToPrecision(cleanSymbol, req.TakeProfitPrice);
+                            var tpOrder = await _restClient.UsdFuturesApi.Trading.PlaceOrderAsync(
+                                symbol: cleanSymbol,
+                                side: exitSide,
+                                type: FuturesOrderType.TakeProfitMarket,
+                                quantity: null,
+                                stopPrice: roundedTp,
+                                closePosition: true,
+                                workingType: WorkingType.Contract).ConfigureAwait(false);
+
+                            if (tpOrder.Success)
+                            {
+                                Log($"🎯 [币安交易所止盈挂单成功] [{cleanSymbol}] 止盈价: {roundedTp}");
+                            }
+                            else
+                            {
+                                Log($"⚠️ [币安交易所止盈挂单提示] [{cleanSymbol}] 止盈挂单提示: {tpOrder.Error?.Message}");
+                            }
+                        }
+
+                        // B. 币安交易所侧自动止损挂单 (StopMarket, closePosition: true)
+                        if (req.StopLossPrice > 0)
+                        {
+                            decimal roundedSl = RoundPriceToPrecision(cleanSymbol, req.StopLossPrice);
+                            var slOrder = await _restClient.UsdFuturesApi.Trading.PlaceOrderAsync(
+                                symbol: cleanSymbol,
+                                side: exitSide,
+                                type: FuturesOrderType.StopMarket,
+                                quantity: null,
+                                stopPrice: roundedSl,
+                                closePosition: true,
+                                workingType: WorkingType.Contract).ConfigureAwait(false);
+
+                            if (slOrder.Success)
+                            {
+                                Log($"🛡 [币安交易所止损挂单成功] [{cleanSymbol}] 止损价: {roundedSl}");
+                            }
+                            else
+                            {
+                                Log($"⚠️ [币安交易所止损挂单提示] [{cleanSymbol}] 止损挂单提示: {slOrder.Error?.Message}");
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -517,6 +569,18 @@ namespace WinFormsApp2
             }
 
             return roundedQty;
+        }
+
+        /// <summary>
+        /// 币种价格精度修剪 (辅助币安交易所侧止盈 TakeProfitMarket 与止损 StopMarket 挂单价格对齐)
+        /// </summary>
+        private static decimal RoundPriceToPrecision(string symbol, decimal price)
+        {
+            if (price <= 0m) return 0m;
+            if (price >= 1000m) return Math.Round(price, 1);
+            if (price >= 10m) return Math.Round(price, 2);
+            if (price >= 1m) return Math.Round(price, 4);
+            return Math.Round(price, 6);
         }
 
         #endregion
