@@ -668,61 +668,78 @@ namespace WinFormsApp2
                     }
                 }
 
-                // E. 策略开仓与平仓图表标注 (按 K线 OpenTime 精准匹配视口 x 坐标，0 下标偏移)
-                if (_isStrategyEnabled && _strategy.Trades.Count > 0)
+                // E. 策略开仓与平仓图表标注 (按 K线 OpenTime / TickTime 全时区多维精准匹配，并采用小段横线清晰标定)
+                TrendLineStrategy activeStrategy = _strategy;
+                if (_multiSymbolPipeline.IsRunning && !string.IsNullOrEmpty(_currentSymbol))
                 {
-                    for (int i = _strategy.Trades.Count - 1; i >= 0; i--)
+                    var ctx = _multiSymbolPipeline.GetContext(_currentSymbol);
+                    if (ctx != null)
                     {
-                        var trade = _strategy.Trades[i];
-                        int localEntryX = -1;
-                        int localExitX = -1;
+                        activeStrategy = ctx.Strategy;
+                    }
+                }
 
-                        for (int k = 0; k < displayCount; k++)
-                        {
-                            DateTime kTime = _displayKlinesBuffer[k].OpenTime;
-                            if (kTime == trade.EntryKlineOpenTime) localEntryX = k;
-                            if (kTime == trade.ExitKlineOpenTime) localExitX = k;
-                        }
+                if (_isStrategyEnabled && activeStrategy.Trades.Count > 0)
+                {
+                    for (int i = activeStrategy.Trades.Count - 1; i >= 0; i--)
+                    {
+                        var trade = activeStrategy.Trades[i];
+                        int localEntryX = FindKlineIndexForTrade(trade.EntryTime, trade.EntryKlineOpenTime, _displayKlinesBuffer, displayCount);
+                        int localExitX = FindKlineIndexForTrade(trade.ExitTime, trade.ExitKlineOpenTime, _displayKlinesBuffer, displayCount);
 
+                        // 1. 开仓点位：采用小段横线 (黑色, 宽度 0.8f)
                         if (localEntryX >= 0 && localEntryX < displayCount)
                         {
-                            _tradeXBuffer[0] = localEntryX;
-                            _tradeYBuffer[0] = (double)trade.EntryPrice;
-                            var spEntry = formsPlot1.Plot.Add.ScatterPoints(_tradeXBuffer, _tradeYBuffer);
-                            spEntry.Color = trade.Position == PositionType.Long ? ScottPlot.Colors.Cyan : ScottPlot.Colors.Magenta;
-                            spEntry.MarkerSize = 7;
+                            var entryLine = formsPlot1.Plot.Add.Line(
+                                localEntryX - 0.45, (double)trade.EntryPrice,
+                                localEntryX + 0.45, (double)trade.EntryPrice);
+                            entryLine.LineWidth = 0.8f;
+                            entryLine.Color = ScottPlot.Colors.Black;
                         }
 
+                        // 2. 关仓/平仓点位：采用小段横线 (橙色, 宽度 0.8f)
                         if (localExitX >= 0 && localExitX < displayCount)
                         {
-                            _tradeXBuffer[0] = localExitX;
-                            _tradeYBuffer[0] = (double)trade.ExitPrice;
-                            var spExit = formsPlot1.Plot.Add.ScatterPoints(_tradeXBuffer, _tradeYBuffer);
-                            spExit.Color = trade.IsWin ? ScottPlot.Colors.LimeGreen : ScottPlot.Colors.Red;
-                            spExit.MarkerSize = 8;
+                            var exitLine = formsPlot1.Plot.Add.Line(
+                                localExitX - 0.45, (double)trade.ExitPrice,
+                                localExitX + 0.45, (double)trade.ExitPrice);
+                            exitLine.LineWidth = 0.8f;
+                            exitLine.Color = ScottPlot.Colors.Orange;
+                        }
+
+                        // 3. 开仓与平仓之间绘制细虚线连接 (开平仓生命周期连线)
+                        if (localEntryX >= 0 && localExitX >= localEntryX && localExitX < displayCount)
+                        {
+                            var linkLine = formsPlot1.Plot.Add.Line(
+                                localEntryX, (double)trade.EntryPrice,
+                                localExitX, (double)trade.ExitPrice);
+                            linkLine.LineWidth = 0.8f;
+                            linkLine.LinePattern = ScottPlot.LinePattern.Dashed;
+                            linkLine.Color = trade.IsWin ? ScottPlot.Color.FromHex("#8000FF00") : ScottPlot.Color.FromHex("#80FF0000");
                         }
                     }
+                }
 
-                    if (_strategy.CurrentPosition != PositionType.None)
+                if (_isStrategyEnabled && activeStrategy.CurrentPosition != PositionType.None && activeStrategy.CurrentTrade != null)
+                {
+                    int localEntryX = FindKlineIndexForTrade(activeStrategy.CurrentEntryTime, activeStrategy.CurrentTrade.EntryKlineOpenTime, _displayKlinesBuffer, displayCount);
+
+                    if (localEntryX >= 0 && localEntryX < displayCount)
                     {
-                        int localEntryX = -1;
-                        for (int k = 0; k < displayCount; k++)
-                        {
-                            if (_displayKlinesBuffer[k].OpenTime == _strategy.CurrentTrade.EntryKlineOpenTime)
-                            {
-                                localEntryX = k;
-                                break;
-                            }
-                        }
+                        // 当前持仓开仓小横线 (黑色, 0.8f)
+                        var currentEntryLine = formsPlot1.Plot.Add.Line(
+                            localEntryX - 0.45, (double)activeStrategy.CurrentEntryPrice,
+                            localEntryX + 0.45, (double)activeStrategy.CurrentEntryPrice);
+                        currentEntryLine.LineWidth = 0.8f;
+                        currentEntryLine.Color = ScottPlot.Colors.Black;
 
-                        if (localEntryX >= 0 && localEntryX < displayCount)
-                        {
-                            _tradeXBuffer[0] = localEntryX;
-                            _tradeYBuffer[0] = (double)_strategy.CurrentEntryPrice;
-                            var spCurrent = formsPlot1.Plot.Add.ScatterPoints(_tradeXBuffer, _tradeYBuffer);
-                            spCurrent.Color = _strategy.CurrentPosition == PositionType.Long ? ScottPlot.Colors.DeepSkyBlue : ScottPlot.Colors.HotPink;
-                            spCurrent.MarkerSize = 9;
-                        }
+                        // 从开仓点延伸至当前最新帧的持仓跟踪虚线 (0.8f)
+                        var activeRay = formsPlot1.Plot.Add.Line(
+                            localEntryX, (double)activeStrategy.CurrentEntryPrice,
+                            displayCount - 1, (double)activeStrategy.CurrentEntryPrice);
+                        activeRay.LineWidth = 0.8f;
+                        activeRay.LinePattern = ScottPlot.LinePattern.Dashed;
+                        activeRay.Color = ScottPlot.Color.FromHex("#90000000");
                     }
                 }
 
@@ -751,6 +768,69 @@ namespace WinFormsApp2
 
                 formsPlot1.Refresh();
             }
+        }
+
+        /// <summary>
+        /// 全时区自适应精准定位交易点位在视口当前 K 线切片中的 X 轴索引 (支持 UTC/Local 时区自动对齐与区间自适应落入)
+        /// </summary>
+        private static int FindKlineIndexForTrade(DateTime tradeTime, DateTime tradeKlineOpenTime, Kline[] displayKlines, int displayCount)
+        {
+            if (displayCount <= 0 || displayKlines == null) return -1;
+
+            // 1. 精确 OpenTime 匹配 (支持直接相等或 UTC 转换后相等)
+            if (tradeKlineOpenTime > DateTime.MinValue)
+            {
+                for (int k = 0; k < displayCount; k++)
+                {
+                    DateTime kOpen = displayKlines[k].OpenTime;
+                    if (kOpen == tradeKlineOpenTime ||
+                        Math.Abs((kOpen - tradeKlineOpenTime).TotalSeconds) < 2 ||
+                        Math.Abs((kOpen.ToUniversalTime() - tradeKlineOpenTime.ToUniversalTime()).TotalSeconds) < 2)
+                    {
+                        return k;
+                    }
+                }
+            }
+
+            // 2. 成交时间区间落入匹配 [OpenTime, CloseTime]
+            if (tradeTime > DateTime.MinValue)
+            {
+                for (int k = 0; k < displayCount; k++)
+                {
+                    DateTime open = displayKlines[k].OpenTime;
+                    DateTime close = displayKlines[k].CloseTime > open ? displayKlines[k].CloseTime : open.AddMinutes(15);
+
+                    if ((tradeTime >= open && tradeTime <= close) ||
+                        (tradeTime.ToUniversalTime() >= open.ToUniversalTime() && tradeTime.ToUniversalTime() <= close.ToUniversalTime()))
+                    {
+                        return k;
+                    }
+                }
+
+                // 3. 最小时间差模糊对齐 (智能寻找视口中最匹配的 K 线柱)
+                int bestIdx = -1;
+                double minDiffSec = double.MaxValue;
+                for (int k = 0; k < displayCount; k++)
+                {
+                    DateTime kOpen = displayKlines[k].OpenTime;
+                    double diff1 = Math.Abs((tradeTime - kOpen).TotalSeconds);
+                    double diff2 = Math.Abs((tradeTime.ToUniversalTime() - kOpen.ToUniversalTime()).TotalSeconds);
+                    double diff = Math.Min(diff1, diff2);
+
+                    if (diff < minDiffSec)
+                    {
+                        minDiffSec = diff;
+                        bestIdx = k;
+                    }
+                }
+
+                if (bestIdx >= 0 && minDiffSec < 86400)
+                {
+                    return bestIdx;
+                }
+            }
+
+            return -1;
         }
 
         private async void btnStart_Click(object sender, EventArgs e)
