@@ -328,6 +328,12 @@ namespace WinFormsApp2
                     {
                         var result = await ExecuteSingleOrderAsync(request).ConfigureAwait(false);
                         OnOrderExecuted?.Invoke(result);
+
+                        // 实时推送企业微信群机器人消息 (Markdown 格式富文本)
+                        if (result != null && result.Success)
+                        {
+                            WeComNotifier.Instance.SendOrderNotification(result, request, IsLiveTrading);
+                        }
                     }
                 }
                 catch (OperationCanceledException)

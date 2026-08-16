@@ -179,6 +179,10 @@ namespace WinFormsApp2
             numTakeProfit.Value = Math.Max(numTakeProfit.Minimum, Math.Min(numTakeProfit.Maximum, _userSettings.TakeProfitPct));
             numStopLoss.Value = Math.Max(numStopLoss.Minimum, Math.Min(numStopLoss.Maximum, _userSettings.StopLossPct));
 
+            // 初始化并绑定腾讯企业微信群机器人 Webhook 推送通知服务
+            WeComNotifier.Instance.Configure(_userSettings.EnableWeComNotification, _userSettings.WeComWebhookUrl);
+            WeComNotifier.Instance.OnLog += AppendLog;
+
             // 3. 绑定参数控件变动自动保存与多币种图表视角切换逻辑
             cmbSymbol.TextChanged += (s, e) => SaveCurrentSettings();
             cmbSymbol.SelectedIndexChanged += (s, e) =>
@@ -226,6 +230,7 @@ namespace WinFormsApp2
             sb.AppendLine("----------------------------------------------------------------------");
             sb.AppendLine($"▶ 交易模式: {(_userSettings.IsLiveTrading ? "🟢 币安真实合约实盘下单" : "🟡 本地模拟挂单匹配 (Simulated)")}");
             sb.AppendLine($"▶ API 凭证状态: {(string.IsNullOrWhiteSpace(_userSettings.ApiKey) ? "❌ 未配置" : "✅ 已设置 (" + _userSettings.ApiKey.Length + " 位)")}");
+            sb.AppendLine($"▶ 企业微信推送: {(_userSettings.EnableWeComNotification ? "🟢 已启用 (Webhook 机器人就绪)" : "⚪ 已停用")}");
             sb.AppendLine($"▶ 策略风控参数: 止盈 +{_userSettings.TakeProfitPct}% | 止损 -{_userSettings.StopLossPct}% | 趋势线跨度: {_userSettings.MinLineX1X2} | 最小寿命: {_userSettings.MinLineAge} 根");
             sb.AppendLine($"▶ 差异化多币种列表 (共 {symbolConfigs.Count} 个使能币种):");
 
@@ -958,6 +963,7 @@ namespace WinFormsApp2
                 btnLiveMode.Text = "📡 启动币安实盘行情 (Live Stream)";
                 btnLiveMode.ForeColor = Color.DarkGreen;
                 AppendLog("⏹ 多币种实盘行情与管道模式已停止。");
+                WeComNotifier.Instance.SendSystemStatus("币安量化盯盘系统 - 实盘已停止", "多币种实盘行情推送与自动交易管道已安全停止。");
                 return;
             }
 
@@ -1007,10 +1013,17 @@ namespace WinFormsApp2
 
                 btnLiveMode.Text = "🛑 停止币安实盘行情 (Stop Live)";
                 btnLiveMode.ForeColor = Color.Red;
+
+                string modeDesc = _userSettings.IsLiveTrading ? "🟢 币安真实合约 0 延迟 WS 实盘下单" : "🟡 本地模拟挂单匹配";
+                string symListStr = string.Join(", ", symbolConfigs.Select(c => $"{c.Symbol}({c.KlineInterval})"));
+                WeComNotifier.Instance.SendSystemStatus(
+                    "币安量化盯盘系统 - 实盘管道已启动",
+                    $"**交易模式**: {modeDesc}\n> **活跃监控币种 ({symbolConfigs.Count}个)**: `{symListStr}`\n> **风控规则**: 止盈 `+{_userSettings.TakeProfitPct}%` | 止损 `-{_userSettings.StopLossPct}%`");
             }
             catch (Exception ex)
             {
                 AppendLog($"❌ 启动多币种实盘行情管道失败: {ex.Message}");
+                WeComNotifier.Instance.SendSystemStatus("币安量化盯盘系统 - 启动异常报警", $"启动多币种实盘行情管道发生严重异常: {ex.Message}", isAlert: true);
                 MessageBox.Show($"启动多币种实盘行情失败: {ex.Message}", "实盘错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally

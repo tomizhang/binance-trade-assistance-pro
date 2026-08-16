@@ -48,6 +48,12 @@ namespace WinFormsApp2
         public decimal StopLossPct { get; set; } = 0.8m;
 
         /// <summary>
+        /// 腾讯企业微信群机器人 Webhook 推送配置
+        /// </summary>
+        public bool EnableWeComNotification { get; set; } = true;
+        public string WeComWebhookUrl { get; set; } = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=15746205-c9a8-4ebc-9a19-0e96a4998af1";
+
+        /// <summary>
         /// 多币种独立周期、独立杠杆与独立资金配置列表
         /// </summary>
         public List<SymbolConfigItem> SymbolConfigs { get; set; } = new List<SymbolConfigItem>();
