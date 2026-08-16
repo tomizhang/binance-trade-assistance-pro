@@ -777,11 +777,22 @@ namespace WinFormsApp2
             _strategy.Reset(); // 策略复位
             UpdateStrategyStatsUI();
 
-            AppendLog($"准备分批加载 [{_currentSymbol}] [{interval}] 日期范围 [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}] 数据启动回放...");
+            AppendLog($"▶ 启动流式行情回放与策略引擎 | 交易对: [{_currentSymbol}] | 周期: [{interval}] | 日期: [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}] | 策略: {(chkEnableStrategy.Checked ? "开启" : "关闭")}");
+
+            // 1. 立即复位图表画板并呈现流式就绪状态
+            lock (_replayKlines)
+            {
+                _replayKlines.Clear();
+            }
+            UpdateDisplayPivotsAndTrendLines();
+            formsPlot1.Plot.Clear();
+            formsPlot1.Plot.Grid.IsVisible = false;
+            formsPlot1.Plot.Title($"[{_currentSymbol}] 流式回放已启动 (正在等待管道抓取首批切片数据)...");
+            formsPlot1.Refresh();
 
             try
             {
-                // 1. 初始化 FIFO 流式数据队列管道 (容量最大限制为 5 批次，每批次 3 天，后台自动做生产者补齐)
+                // 2. 初始化 FIFO 流式数据队列管道 (容量最大限制为 5 批次，每批次 3 天，后台自动做生产者补齐)
                 _batchQueueManager?.Stop();
                 _batchQueueManager = new BatchQueueManager(
                     _currentSymbol,
@@ -789,23 +800,27 @@ namespace WinFormsApp2
                     startDate,
                     endDate,
                     enableTickPush,
-                    maxQueueCapacity: 3,
-                    batchDays: 1,
+                    maxQueueCapacity: 5,
+                    batchDays: 3,
                     logger: AppendLog);
 
-                // 2. 启动队列流水线并出队首批 3 天切片数据
+                AppendLog("⏳ [流式管道就绪] 正在等待后台拉取历史数据，一旦首批就绪将自动开启逐帧回放...");
+
+                // 3. 安全等待出队首批切片数据 (持续等待，绝不因网络慢而提前中断返回)
                 BatchDataChunk? firstChunk = await _batchQueueManager.StartQueuePipelineAsync();
 
                 if (firstChunk == null || firstChunk.Klines.Length == 0)
                 {
-                    AppendLog("未装载到任何 K线数据，无法开始回放。");
+                    AppendLog("⚠️ [数据提示] 所选日期区间未拉取到历史 K线数据。");
+                    formsPlot1.Plot.Title($"[{_currentSymbol}] 未拉取到该区间历史 K线数据");
+                    formsPlot1.Refresh();
                     return;
                 }
 
                 Kline[] klines = firstChunk.Klines;
                 Tick[] ticks = firstChunk.Ticks;
 
-                // 3. 策略启动前 API 预热控制 (只计算高低点与趋势线，不推演不跳帧)
+                // 4. 策略启动前 API 预热控制 (只计算高低点与趋势线，不推演不跳帧)
                 _warmupKlinesBuffer = Array.Empty<Kline>();
                 if (chkEnableWarmup.Checked)
                 {
@@ -830,20 +845,10 @@ namespace WinFormsApp2
                     AppendLog("[API 预热关闭] 用户未勾选 API 预热，直接使用装载的回放 K 线计算趋势线。");
                 }
 
-                // 4. 复位图表并启动回放引擎
-                lock (_replayKlines)
-                {
-                    _replayKlines.Clear();
-                }
-
-                UpdateDisplayPivotsAndTrendLines();
-
-                formsPlot1.Plot.Clear();
-                formsPlot1.Plot.Grid.IsVisible = false;
-                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放准备完毕 (首批 3 天共 {klines.Length} 帧，FIFO 5 队列管道极速运行)");
+                formsPlot1.Plot.Title($"[{_currentSymbol}] 行情回放进行中 (首批共 {klines.Length} 帧，FIFO 5 队列管道极速运行)");
                 formsPlot1.Refresh();
 
-                AppendLog($"▶ 启动行情回放与策略引擎 | 首批: 3 天 ({klines.Length} 帧) | 总批次: {_batchQueueManager.TotalBatches} 批 (FIFO 5 队列管道) | 交易对: {_currentSymbol} | 策略: {(chkEnableStrategy.Checked ? "开启" : "关闭")}");
+                AppendLog($"🎬 开启逐帧回放与策略推演 | 首批: {klines.Length} 帧 | 总批次: {_batchQueueManager.TotalBatches} 批 (FIFO 5 队列管道) | 交易对: {_currentSymbol}");
                 _replayer.StartPlayback(klines, ticks, enableTickPush, intervalMs);
             }
             catch (Exception ex)
@@ -887,6 +892,89 @@ namespace WinFormsApp2
         {
             rtbLog.Clear();
             AppendLog("日志已清空。");
+        }
+
+        /// <summary>
+        /// 异步下载指定交易对与时间范围的周期 K 线历史数据 (多线程并发抓取 + DuckDB & Parquet 本地自动时间分区缓存)
+        /// </summary>
+        private async void btnDownloadKlines_Click(object sender, EventArgs e)
+        {
+            string rawInput = cmbSymbol.Text.Trim().ToUpper();
+            string[] symbols = rawInput.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (symbols.Length == 0)
+            {
+                MessageBox.Show("请先选择或输入有效的交易对名称 (如 BTCUSDT)", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            string symbol = symbols[0].Trim().ToUpper();
+
+            dynamic selectedIntervalObj = cmbKlineInterval.SelectedItem;
+            KlineInterval interval = (KlineInterval)selectedIntervalObj.Value;
+            DateTime startDate = dtpStartDate.Value.Date;
+            DateTime endDate = dtpEndDate.Value.Date;
+
+            btnDownloadKlines.Enabled = false;
+            AppendLog($"📥 [K线下载任务启动] 币种: [{symbol}] | 周期: [{interval}] | 区间: [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}]...");
+
+            try
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var klines = await MultiThreadDownloader.DownloadKlinesParallelAsync(
+                    symbol, interval, startDate, endDate, maxDegreeOfParallelism: 4, logger: AppendLog);
+                sw.Stop();
+
+                AppendLog($"✅ [K线下载任务完成] 累计获取 {klines.Length} 根 K 线数据 (已入库 DuckDB & Parquet 极速本地分区) | 耗时: {sw.ElapsedMilliseconds} ms");
+                MessageBox.Show($"成功下载并缓存 [{symbol}] [{interval}] 历史 K 线数据共 {klines.Length} 根！", "下载完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ [K线下载失败] {ex.Message}");
+                MessageBox.Show($"K线数据下载异常: {ex.Message}", "下载错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnDownloadKlines.Enabled = true;
+            }
+        }
+
+        /// <summary>
+        /// 异步下载指定交易对与时间范围的全量 Tick 逐笔历史成交数据 (多线程并发抓取 + 自动解压与 DuckDB Parquet 转存)
+        /// </summary>
+        private async void btnDownloadTicks_Click(object sender, EventArgs e)
+        {
+            string rawInput = cmbSymbol.Text.Trim().ToUpper();
+            string[] symbols = rawInput.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (symbols.Length == 0)
+            {
+                MessageBox.Show("请先选择或输入有效的交易对名称 (如 BTCUSDT)", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            string symbol = symbols[0].Trim().ToUpper();
+            DateTime startDate = dtpStartDate.Value.Date;
+            DateTime endDate = dtpEndDate.Value.Date;
+
+            btnDownloadTicks.Enabled = false;
+            AppendLog($"📥 [Tick逐笔下载任务启动] 币种: [{symbol}] | 日期区间: [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}]...");
+
+            try
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var ticks = await MultiThreadDownloader.DownloadTicksInSlicesParallelAsync(
+                    symbol, startDate, endDate, maxDegreeOfParallelism: 4, logger: AppendLog);
+                sw.Stop();
+
+                AppendLog($"✅ [Tick下载任务完成] 累计成功获取 {ticks.Length} 笔逐笔成交 Tick (已入库 DuckDB & Parquet 本地时间分区) | 耗时: {sw.ElapsedMilliseconds} ms");
+                MessageBox.Show($"成功下载并缓存 [{symbol}] 历史逐笔 Tick 数据共 {ticks.Length} 笔！", "下载完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ [Tick下载失败] {ex.Message}");
+                MessageBox.Show($"Tick逐笔数据下载异常: {ex.Message}", "下载错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnDownloadTicks.Enabled = true;
+            }
         }
 
         #region 回放事件响应 (无锁入队，无卡顿渲染)

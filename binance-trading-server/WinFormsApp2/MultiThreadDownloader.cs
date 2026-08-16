@@ -96,12 +96,18 @@ namespace WinFormsApp2
                                 }
                             }
 
-                            // 3. 本地无缓存，在线全量翻页抓取
-                            DateTime dayStart = day.Date;
-                            DateTime dayEnd = day.Date.AddDays(1).AddTicks(-1);
+                            // 3. 本地无缓存：优先直连币安官方开源数据源 (https://data.binance.vision/data/futures/um/daily/klines/) 极速下载 ZIP 包
+                            logger?.Invoke($"[线程-{Task.CurrentId}] 正在从 data.binance.vision 下载 {symbol} ({interval}) {dayStr} K线 ZIP 压缩包...");
+                            Kline[] fetchedData = await DataHelper.FetchBinanceVisionDailyKlinesAsync(symbol, interval, day, logger);
 
-                            logger?.Invoke($"[线程-{Task.CurrentId}] 开始在线全量翻页抓取 {symbol} ({interval}) {dayStr} K线...");
-                            Kline[] fetchedData = await DataHelper.FetchAllKlinesForRangeAsync(symbol, interval, dayStart, dayEnd);
+                            // 4. 若官方开源归档未收录 (如当天未收盘最新 K 线或极冷门币种)，自动无缝降级走 REST API 翻页抓取
+                            if (fetchedData.Length == 0)
+                            {
+                                DateTime dayStart = day.Date;
+                                DateTime dayEnd = day.Date.AddDays(1).AddTicks(-1);
+                                logger?.Invoke($"[线程-{Task.CurrentId}] Binance Vision 未收录或为当天数据，自动降级走在线 REST API 抓取 [{dayStr}]...");
+                                fetchedData = await DataHelper.FetchAllKlinesForRangeAsync(symbol, interval, dayStart, dayEnd);
+                            }
 
                             if (fetchedData.Length > 0)
                             {
@@ -110,7 +116,7 @@ namespace WinFormsApp2
 
                                 foreach (var item in fetchedData) allKlinesBag.Add(item);
                                 Interlocked.Increment(ref downloadedDays);
-                                logger?.Invoke($"[线程-{Task.CurrentId}] 成功抓取全量 K线并保存为 Parquet 格式 [{dayStr}] ({fetchedData.Length} 帧)");
+                                logger?.Invoke($"[线程-{Task.CurrentId}] 成功抓取全量 K线并入库 DuckDB Parquet [{dayStr}] ({fetchedData.Length} 帧)");
                             }
                             else
                             {

@@ -496,6 +496,135 @@ namespace WinFormsApp2
         }
 
         /// <summary>
+        /// 将 KlineInterval 枚举转为 Binance Vision 标准周期路径代码 (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M)
+        /// </summary>
+        public static string ToBinanceVisionIntervalString(KlineInterval interval)
+        {
+            return interval switch
+            {
+                KlineInterval.OneMinute => "1m",
+                KlineInterval.ThreeMinutes => "3m",
+                KlineInterval.FiveMinutes => "5m",
+                KlineInterval.FifteenMinutes => "15m",
+                KlineInterval.ThirtyMinutes => "30m",
+                KlineInterval.OneHour => "1h",
+                KlineInterval.TwoHour => "2h",
+                KlineInterval.FourHour => "4h",
+                KlineInterval.SixHour => "6h",
+                KlineInterval.EightHour => "8h",
+                KlineInterval.TwelveHour => "12h",
+                KlineInterval.OneDay => "1d",
+                KlineInterval.ThreeDay => "3d",
+                KlineInterval.OneWeek => "1w",
+                KlineInterval.OneMonth => "1M",
+                _ => "1m"
+            };
+        }
+
+        /// <summary>
+        /// 从币安官方开源数据源 (https://data.binance.vision/data/futures/um/daily/klines/{SYMBOL}/{INTERVAL}/) 
+        /// 直接下载并解压每日全量 K 线 ZIP 压缩包，彻底摆脱 1000 根 API 翻页限制与频控！
+        /// </summary>
+        public static async Task<Kline[]> FetchBinanceVisionDailyKlinesAsync(string symbol, KlineInterval interval, DateTime date, Action<string>? logger = null)
+        {
+            symbol = symbol.ToUpper().Trim();
+            string intervalStr = ToBinanceVisionIntervalString(interval);
+            string dateStr = date.ToString("yyyy-MM-dd");
+
+            // 币安官方开源数据 S3 直链 URL 列表 (优先匹配合约 UM klines，次匹配现货 spot klines)
+            string[] possibleUrls = new string[]
+            {
+                $"https://data.binance.vision/data/futures/um/daily/klines/{symbol}/{intervalStr}/{symbol}-{intervalStr}-{dateStr}.zip",
+                $"https://data.binance.vision/data/spot/daily/klines/{symbol}/{intervalStr}/{symbol}-{intervalStr}-{dateStr}.zip"
+            };
+
+            foreach (var url in possibleUrls)
+            {
+                try
+                {
+                    using var response = await _visionHttpClient.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode) continue;
+
+                    using var zipStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                    using var archive = new System.IO.Compression.ZipArchive(zipStream, System.IO.Compression.ZipArchiveMode.Read);
+
+                    var entry = archive.Entries.FirstOrDefault(e => e.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase));
+                    if (entry == null) continue;
+
+                    using var entryStream = entry.Open();
+                    using var reader = new System.IO.StreamReader(entryStream, Encoding.UTF8);
+
+                    List<Kline> klineList = new List<Kline>();
+                    string? line;
+
+                    while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        if (line.StartsWith("open_time") || line.StartsWith("OpenTime")) continue; // 跳过可能存在的表头
+
+                        string[] parts = line.Split(',');
+                        if (parts.Length < 6) continue;
+
+                        try
+                        {
+                            if (long.TryParse(parts[0], CultureInfo.InvariantCulture, out long openTimeMs))
+                            {
+                                DateTime openTime = DateTimeOffset.FromUnixTimeMilliseconds(openTimeMs).LocalDateTime;
+                                decimal openPrice = decimal.Parse(parts[1], CultureInfo.InvariantCulture);
+                                decimal highPrice = decimal.Parse(parts[2], CultureInfo.InvariantCulture);
+                                decimal lowPrice = decimal.Parse(parts[3], CultureInfo.InvariantCulture);
+                                decimal closePrice = decimal.Parse(parts[4], CultureInfo.InvariantCulture);
+                                decimal volume = decimal.Parse(parts[5], CultureInfo.InvariantCulture);
+
+                                DateTime closeTime = openTime.AddMinutes(1);
+                                if (parts.Length > 6 && long.TryParse(parts[6], CultureInfo.InvariantCulture, out long closeTimeMs))
+                                {
+                                    closeTime = DateTimeOffset.FromUnixTimeMilliseconds(closeTimeMs).LocalDateTime;
+                                }
+
+                                decimal quoteVolume = parts.Length > 7 ? decimal.Parse(parts[7], CultureInfo.InvariantCulture) : 0m;
+                                int tradeCount = parts.Length > 8 && int.TryParse(parts[8], out int tc) ? tc : 0;
+                                decimal takerBuyBase = parts.Length > 9 ? decimal.Parse(parts[9], CultureInfo.InvariantCulture) : 0m;
+                                decimal takerBuyQuote = parts.Length > 10 ? decimal.Parse(parts[10], CultureInfo.InvariantCulture) : 0m;
+
+                                klineList.Add(new Kline
+                                {
+                                    OpenTime = openTime,
+                                    OpenPrice = openPrice,
+                                    HighPrice = highPrice,
+                                    LowPrice = lowPrice,
+                                    ClosePrice = closePrice,
+                                    Volume = volume,
+                                    CloseTime = closeTime,
+                                    QuoteVolume = quoteVolume,
+                                    TradeCount = tradeCount,
+                                    TakerBuyBaseVolume = takerBuyBase,
+                                    TakerBuyQuoteVolume = takerBuyQuote
+                                });
+                            }
+                        }
+                        catch
+                        {
+                            // 忽略个别单行解析异常
+                        }
+                    }
+
+                    if (klineList.Count > 0)
+                    {
+                        logger?.Invoke($"[币安 Vision K线直链命中] {url} -> 成功解析 [{symbol}] [{intervalStr}] {dateStr} 全量 K 线 {klineList.Count} 帧 (官方开源归档数据)！");
+                        return klineList.OrderBy(k => k.OpenTime).ToArray();
+                    }
+                }
+                catch
+                {
+                    // 尝试下一个 URL
+                }
+            }
+
+            return Array.Empty<Kline>();
+        }
+
+        /// <summary>
         /// 从币安官方历史数据开源 Server (data.binance.vision/data/futures/um/daily/trades/) 在线下载全量 Tick 每日 ZIP 压缩包数据，
         /// 彻底打破 1000 条 API 频率与数量限制，秒级获得全天 100% 完整微秒级逐笔成交 Tick 数据。
         /// </summary>

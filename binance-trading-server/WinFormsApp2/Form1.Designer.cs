@@ -35,6 +35,8 @@ namespace WinFormsApp2
             rtbLog = new RichTextBox();
             panelRight = new Panel();
             grpActions = new GroupBox();
+            btnDownloadKlines = new Button();
+            btnDownloadTicks = new Button();
             btnLiveMode = new Button();
             btnClearLog = new Button();
             btnStop = new Button();
@@ -460,6 +462,8 @@ namespace WinFormsApp2
             // 
             // grpActions
             // 
+            grpActions.Controls.Add(btnDownloadTicks);
+            grpActions.Controls.Add(btnDownloadKlines);
             grpActions.Controls.Add(btnLiveMode);
             grpActions.Controls.Add(btnClearLog);
             grpActions.Controls.Add(btnStop);
@@ -470,19 +474,49 @@ namespace WinFormsApp2
             grpActions.Dock = DockStyle.Top;
             grpActions.Location = new Point(8, 643);
             grpActions.Name = "grpActions";
-            grpActions.Size = new Size(304, 245);
+            grpActions.Size = new Size(304, 280);
             grpActions.TabIndex = 2;
             grpActions.TabStop = false;
             grpActions.Text = "控制面板 (Controls)";
+            // 
+            // btnDownloadKlines
+            // 
+            btnDownloadKlines.Location = new Point(16, 165);
+            btnDownloadKlines.Name = "btnDownloadKlines";
+            btnDownloadKlines.Size = new Size(130, 30);
+            btnDownloadKlines.TabIndex = 5;
+            btnDownloadKlines.Text = "📥 下载周期K线";
+            btnDownloadKlines.UseVisualStyleBackColor = true;
+            btnDownloadKlines.Click += btnDownloadKlines_Click;
+            // 
+            // btnDownloadTicks
+            // 
+            btnDownloadTicks.Location = new Point(154, 165);
+            btnDownloadTicks.Name = "btnDownloadTicks";
+            btnDownloadTicks.Size = new Size(130, 30);
+            btnDownloadTicks.TabIndex = 6;
+            btnDownloadTicks.Text = "📥 下载Tick数据";
+            btnDownloadTicks.UseVisualStyleBackColor = true;
+            btnDownloadTicks.Click += btnDownloadTicks_Click;
+            // 
+            // btnClearLog
+            // 
+            btnClearLog.Location = new Point(16, 200);
+            btnClearLog.Name = "btnClearLog";
+            btnClearLog.Size = new Size(268, 30);
+            btnClearLog.TabIndex = 7;
+            btnClearLog.Text = "清空日志 (Clear Log)";
+            btnClearLog.UseVisualStyleBackColor = true;
+            btnClearLog.Click += btnClearLog_Click;
             // 
             // btnLiveMode
             // 
             btnLiveMode.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point);
             btnLiveMode.ForeColor = Color.DarkGreen;
-            btnLiveMode.Location = new Point(16, 200);
+            btnLiveMode.Location = new Point(16, 235);
             btnLiveMode.Name = "btnLiveMode";
             btnLiveMode.Size = new Size(268, 32);
-            btnLiveMode.TabIndex = 6;
+            btnLiveMode.TabIndex = 8;
             btnLiveMode.Text = "📡 启动币安实盘行情 (Live Stream)";
             btnLiveMode.UseVisualStyleBackColor = true;
             btnLiveMode.Click += btnLiveMode_Click;
@@ -536,16 +570,6 @@ namespace WinFormsApp2
             btnStop.Text = "停止回放 (Stop)";
             btnStop.UseVisualStyleBackColor = true;
             btnStop.Click += btnStop_Click;
-            // 
-            // btnClearLog
-            // 
-            btnClearLog.Location = new Point(16, 165);
-            btnClearLog.Name = "btnClearLog";
-            btnClearLog.Size = new Size(268, 30);
-            btnClearLog.TabIndex = 5;
-            btnClearLog.Text = "清空日志 (Clear Log)";
-            btnClearLog.UseVisualStyleBackColor = true;
-            btnClearLog.Click += btnClearLog_Click;
             // 
             // Form1
             // 
@@ -620,6 +644,8 @@ namespace WinFormsApp2
         private Button btnStepBackward;
         private Button btnStepForward;
         private Button btnStop;
+        private Button btnDownloadKlines;
+        private Button btnDownloadTicks;
         private Button btnClearLog;
         private Button btnLiveMode;
     }
