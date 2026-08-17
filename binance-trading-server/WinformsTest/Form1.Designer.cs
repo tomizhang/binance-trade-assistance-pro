@@ -35,6 +35,8 @@ namespace WinFormsApp2
             rtbLog = new RichTextBox();
             panelRight = new Panel();
             grpActions = new GroupBox();
+            btnOpenReportsFolder = new Button();
+            btnGenerateReport = new Button();
             btnClearLog = new Button();
             btnStop = new Button();
             btnStepForward = new Button();
@@ -459,6 +461,8 @@ namespace WinFormsApp2
             // 
             // grpActions
             // 
+            grpActions.Controls.Add(btnOpenReportsFolder);
+            grpActions.Controls.Add(btnGenerateReport);
             grpActions.Controls.Add(btnClearLog);
             grpActions.Controls.Add(btnStop);
             grpActions.Controls.Add(btnStepForward);
@@ -468,7 +472,7 @@ namespace WinFormsApp2
             grpActions.Dock = DockStyle.Top;
             grpActions.Location = new Point(8, 643);
             grpActions.Name = "grpActions";
-            grpActions.Size = new Size(304, 215);
+            grpActions.Size = new Size(304, 280);
             grpActions.TabIndex = 2;
             grpActions.TabStop = false;
             grpActions.Text = "控制面板 (Controls)";
@@ -532,6 +536,28 @@ namespace WinFormsApp2
             btnClearLog.Text = "清空日志 (Clear Log)";
             btnClearLog.UseVisualStyleBackColor = true;
             btnClearLog.Click += btnClearLog_Click;
+            // 
+            // btnGenerateReport
+            // 
+            btnGenerateReport.BackColor = Color.FromArgb(40, 167, 69);
+            btnGenerateReport.ForeColor = Color.White;
+            btnGenerateReport.Location = new Point(16, 200);
+            btnGenerateReport.Name = "btnGenerateReport";
+            btnGenerateReport.Size = new Size(268, 32);
+            btnGenerateReport.TabIndex = 6;
+            btnGenerateReport.Text = "📊 生成回测报告 (HTML)";
+            btnGenerateReport.UseVisualStyleBackColor = false;
+            btnGenerateReport.Click += btnGenerateReport_Click;
+            // 
+            // btnOpenReportsFolder
+            // 
+            btnOpenReportsFolder.Location = new Point(16, 237);
+            btnOpenReportsFolder.Name = "btnOpenReportsFolder";
+            btnOpenReportsFolder.Size = new Size(268, 30);
+            btnOpenReportsFolder.TabIndex = 7;
+            btnOpenReportsFolder.Text = "📂 打开报告目录 (Config)";
+            btnOpenReportsFolder.UseVisualStyleBackColor = true;
+            btnOpenReportsFolder.Click += btnOpenReportsFolder_Click;
             // 
             // Form1
             // 
@@ -607,5 +633,7 @@ namespace WinFormsApp2
         private Button btnStepForward;
         private Button btnStop;
         private Button btnClearLog;
+        private Button btnGenerateReport;
+        private Button btnOpenReportsFolder;
     }
 }

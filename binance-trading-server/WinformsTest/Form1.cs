@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Text;
@@ -693,6 +694,68 @@ namespace WinFormsApp2
             AppendLog("日志已清空。");
         }
 
+        private void btnGenerateReport_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (_strategy.Trades.Count == 0)
+                {
+                    MessageBox.Show("当前策略暂无任何已平仓交易记录，请先开始回放或等待产生交易信号后再生成报告。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                dynamic selectedIntervalObj = cmbKlineInterval.SelectedItem;
+                KlineInterval interval = selectedIntervalObj != null ? (KlineInterval)selectedIntervalObj.Value : _userSettings.KlineInterval;
+
+                var ctx = new BacktestReportService.BacktestContext
+                {
+                    Symbol = string.IsNullOrWhiteSpace(_currentSymbol) ? "BTCUSDT" : _currentSymbol,
+                    KlineInterval = interval,
+                    StartDate = dtpStartDate.Value.Date,
+                    EndDate = dtpEndDate.Value.Date,
+                    StrategyParams = _strategy.Params,
+                    EnableTickPush = chkEnableTickPush.Checked,
+                    EnableWarmup = chkEnableWarmup.Checked,
+                    Trades = new List<TradeRecord>(_strategy.Trades),
+                    InitialCapital = 10000m
+                };
+
+                string reportPath = BacktestReportService.GenerateAndSaveHtmlReport(ctx);
+                AppendLog($"📊 回测报告生成成功！\r\n  └─ 报告文件: {reportPath}\r\n  └─ 统一存放目录: {Config.GetConfigPath()}");
+
+                // 自动在系统默认浏览器中打开 HTML 报告
+                BacktestReportService.OpenReportInBrowser(reportPath);
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"[生成回测报告异常] {ex.Message}");
+                MessageBox.Show($"生成回测报告失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void btnOpenReportsFolder_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string configPath = Config.GetConfigPath();
+                if (!Directory.Exists(configPath))
+                {
+                    Directory.CreateDirectory(configPath);
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = configPath,
+                    UseShellExecute = true,
+                    Verb = "open"
+                });
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"[打开报告目录失败] {ex.Message}");
+            }
+        }
+
         #region 回放事件响应 (无锁入队，无卡顿渲染)
 
         private void Replayer_OnKlinePushed(Kline kline, int current, int total)
@@ -750,6 +813,33 @@ namespace WinFormsApp2
         private void Replayer_OnPlaybackCompleted()
         {
             EnqueueLog("🎉 行情回放播放完毕！");
+
+            // 回测结束若有交易记录，自动在后台统一生成最新回测报告
+            if (_strategy.Trades.Count > 0)
+            {
+                try
+                {
+                    var ctx = new BacktestReportService.BacktestContext
+                    {
+                        Symbol = string.IsNullOrWhiteSpace(_currentSymbol) ? "BTCUSDT" : _currentSymbol,
+                        KlineInterval = _userSettings.KlineInterval,
+                        StartDate = _userSettings.StartDate,
+                        EndDate = _userSettings.EndDate,
+                        StrategyParams = _strategy.Params,
+                        EnableTickPush = _userSettings.EnableTickPush,
+                        EnableWarmup = _userSettings.EnableWarmup,
+                        Trades = new List<TradeRecord>(_strategy.Trades),
+                        InitialCapital = 10000m
+                    };
+
+                    string reportPath = BacktestReportService.GenerateAndSaveHtmlReport(ctx);
+                    EnqueueLog($"📊 [回测完成] 自动生成 HTML 回测报告:\r\n  └─ 报告文件: {reportPath}\r\n  └─ 统一存放目录: {Config.GetConfigPath()}");
+                }
+                catch (Exception ex)
+                {
+                    EnqueueLog($"[自动生成回测报告异常] {ex.Message}");
+                }
+            }
         }
 
         #endregion

@@ -58,5 +58,19 @@ namespace WinFormsApp2
             if (!Directory.Exists(path)) Directory.CreateDirectory(path);
             return path;
         }
+
+        public static string GetConfigPath()
+        {
+            string path = Path.Combine(GetRootPath(), "config");
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            return path;
+        }
+
+        public static string GetReportsPath()
+        {
+            string path = Path.Combine(GetConfigPath(), "reports");
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            return path;
+        }
     }
 }
