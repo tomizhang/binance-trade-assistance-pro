@@ -15,6 +15,9 @@
   "MinLineAge": 80,
   "TakeProfitPct": 1.5,
   "StopLossPct": 0.8,
+  "EnableEventContract": false,
+  "EventContractDuration": "10m",
+  "EventContractEarlyExit": false,
   "EnableWeComNotification": true,
   "WeComWebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=15746205-c9a8-4ebc-9a19-0e96a4998af1",
   "SymbolConfigs": [

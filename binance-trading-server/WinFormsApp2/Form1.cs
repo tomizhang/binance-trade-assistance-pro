@@ -17,6 +17,7 @@ namespace WinFormsApp2
         private readonly ConcurrentQueue<string> _logBufferQueue = new ConcurrentQueue<string>();
         private readonly System.Windows.Forms.Timer _uiRenderTimer = new System.Windows.Forms.Timer();
         private readonly TrendLineStrategy _strategy = new TrendLineStrategy();
+        private readonly EventContractStrategy _eventStrategy = new EventContractStrategy();
         private UserSettings _userSettings = new UserSettings();
 
         private string _currentSymbol = "BTCUSDT";
@@ -130,6 +131,14 @@ namespace WinFormsApp2
             cmbKlineInterval.DisplayMember = "Text";
             cmbKlineInterval.ValueMember = "Value";
 
+            // 初始化事件合约到期判定周期下拉选项
+            cmbEventDuration.Items.Clear();
+            cmbEventDuration.Items.Add(new { Text = "10 分钟 (10m)", Value = "10m" });
+            cmbEventDuration.Items.Add(new { Text = "30 分钟 (30m)", Value = "30m" });
+            cmbEventDuration.Items.Add(new { Text = "1 小时 (1h)", Value = "1h" });
+            cmbEventDuration.DisplayMember = "Text";
+            cmbEventDuration.ValueMember = "Value";
+
             // 2. 读取并应用持久化的用户右侧参数设置
             _userSettings = UserSettings.Load();
 
@@ -179,6 +188,21 @@ namespace WinFormsApp2
             numTakeProfit.Value = Math.Max(numTakeProfit.Minimum, Math.Min(numTakeProfit.Maximum, _userSettings.TakeProfitPct));
             numStopLoss.Value = Math.Max(numStopLoss.Minimum, Math.Min(numStopLoss.Maximum, _userSettings.StopLossPct));
 
+            // 事件合约参数恢复
+            chkEnableEventContract.Checked = _userSettings.EnableEventContract;
+            int matchedDurationIdx = 0;
+            for (int i = 0; i < cmbEventDuration.Items.Count; i++)
+            {
+                dynamic item = cmbEventDuration.Items[i];
+                if ((string)item.Value == _userSettings.EventContractDuration)
+                {
+                    matchedDurationIdx = i;
+                    break;
+                }
+            }
+            cmbEventDuration.SelectedIndex = matchedDurationIdx;
+            chkEventEarlyExit.Checked = _userSettings.EventContractEarlyExit;
+
             // 初始化并绑定腾讯企业微信群机器人 Webhook 推送通知服务
             WeComNotifier.Instance.Configure(_userSettings.EnableWeComNotification, _userSettings.WeComWebhookUrl);
             WeComNotifier.Instance.OnLog += AppendLog;
@@ -206,6 +230,11 @@ namespace WinFormsApp2
             numTakeProfit.ValueChanged += (s, e) => SyncStrategyParams();
             numStopLoss.ValueChanged += (s, e) => SyncStrategyParams();
 
+            // 绑定事件合约控件变动
+            chkEnableEventContract.CheckedChanged += (s, e) => SyncStrategyParams();
+            cmbEventDuration.SelectedIndexChanged += (s, e) => SyncStrategyParams();
+            chkEventEarlyExit.CheckedChanged += (s, e) => SyncStrategyParams();
+
             btnStepForward.MouseWheel += StepButton_MouseWheel;
             btnStepBackward.MouseWheel += StepButton_MouseWheel;
             FormClosing += (s, e) => SaveCurrentSettings();
@@ -232,6 +261,7 @@ namespace WinFormsApp2
             sb.AppendLine($"▶ API 凭证状态: {(string.IsNullOrWhiteSpace(_userSettings.ApiKey) ? "❌ 未配置" : "✅ 已设置 (" + _userSettings.ApiKey.Length + " 位)")}");
             sb.AppendLine($"▶ 企业微信推送: {(_userSettings.EnableWeComNotification ? "🟢 已启用 (Webhook 机器人就绪)" : "⚪ 已停用")}");
             sb.AppendLine($"▶ 策略风控参数: 止盈 +{_userSettings.TakeProfitPct}% | 止损 -{_userSettings.StopLossPct}% | 趋势线跨度: {_userSettings.MinLineX1X2} | 最小寿命: {_userSettings.MinLineAge} 根");
+            sb.AppendLine($"▶ 事件合约策略: {(_userSettings.EnableEventContract ? $"🟢 已启用 (判定周期: {_userSettings.EventContractDuration}, 提前止盈止损: {(_userSettings.EventContractEarlyExit ? "是" : "否")})" : "⚪ 未开启")}");
             sb.AppendLine($"▶ 差异化多币种列表 (共 {symbolConfigs.Count} 个使能币种):");
 
             for (int i = 0; i < symbolConfigs.Count; i++)
@@ -296,6 +326,7 @@ namespace WinFormsApp2
 
         private volatile bool _isStrategyEnabled = true;
         private volatile bool _needStrategyStatsUpdate = false;
+        private volatile bool _needEventStatsUpdate = false;
 
         private void SyncStrategyParams()
         {
@@ -306,7 +337,30 @@ namespace WinFormsApp2
             _strategy.Params.TakeProfitPct = numTakeProfit.Value;
             _strategy.Params.StopLossPct = numStopLoss.Value;
 
+            _eventStrategy.Params.Enabled = chkEnableEventContract.Checked;
+            string durationStr = "10m";
+            if (cmbEventDuration.SelectedItem != null)
+            {
+                dynamic item = cmbEventDuration.SelectedItem;
+                durationStr = (string)item.Value;
+            }
+            _eventStrategy.Params.Duration = durationStr switch
+            {
+                "30m" => EventContractDuration.ThirtyMinutes,
+                "1h" or "60m" => EventContractDuration.OneHour,
+                _ => EventContractDuration.TenMinutes
+            };
+            _eventStrategy.Params.MinLineX1X2 = (int)numMinLineX1X2.Value;
+            _eventStrategy.Params.MinLineAge = (int)numMinLineAge.Value;
+            _eventStrategy.Params.EnableEarlyExit = chkEventEarlyExit.Checked;
+            _eventStrategy.Params.TakeProfitPct = numTakeProfit.Value;
+            _eventStrategy.Params.StopLossPct = numStopLoss.Value;
+
+            // 实时热同步给正在运行的多币种实盘管道中的每一个币种上下文
+            _multiSymbolPipeline.UpdateStrategyParameters(_strategy.Params, _eventStrategy.Params);
+
             _needStrategyStatsUpdate = true;
+            _needEventStatsUpdate = true;
             SaveCurrentSettings();
         }
 
@@ -334,6 +388,14 @@ namespace WinFormsApp2
                 _userSettings.TakeProfitPct = numTakeProfit.Value;
                 _userSettings.StopLossPct = numStopLoss.Value;
 
+                _userSettings.EnableEventContract = chkEnableEventContract.Checked;
+                if (cmbEventDuration.SelectedItem != null)
+                {
+                    dynamic item = cmbEventDuration.SelectedItem;
+                    _userSettings.EventContractDuration = (string)item.Value;
+                }
+                _userSettings.EventContractEarlyExit = chkEventEarlyExit.Checked;
+
                 _userSettings.Save();
             }
             catch
@@ -359,7 +421,9 @@ namespace WinFormsApp2
 
             _strategy.OnTradeClosed += trade =>
             {
-                string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit ? "[止盈平仓 TAKE PROFIT (+1.5%)]" : "[止损平仓 STOP LOSS (-0.8%)]";
+                string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit
+                    ? $"[止盈平仓 TAKE PROFIT (+{_strategy.Params.TakeProfitPct:F1}%)]"
+                    : $"[止损平仓 STOP LOSS (-{_strategy.Params.StopLossPct:F1}%)]";
                 string closeLog = $"[策略平仓信号] #{trade.Id} {reasonStr}\r\n" +
                                   $"  └─ 平仓离场价格: {trade.ExitPrice}\r\n" +
                                   $"  └─ 平仓离场时间: {trade.ExitTime:yyyy-MM-dd HH:mm:ss.fff}\r\n" +
@@ -367,6 +431,19 @@ namespace WinFormsApp2
                                   $"  └─ 持仓开仓时间: {trade.EntryTime:yyyy-MM-dd HH:mm:ss.fff}";
                 EnqueueLog(closeLog);
                 _needStrategyStatsUpdate = true;
+                _needChartRefresh = true;
+            };
+
+            // 事件合约策略事件响应
+            _eventStrategy.OnLog += msg => EnqueueLog(msg);
+            _eventStrategy.OnContractOpened += contract =>
+            {
+                _needEventStatsUpdate = true;
+                _needChartRefresh = true;
+            };
+            _eventStrategy.OnContractSettled += contract =>
+            {
+                _needEventStatsUpdate = true;
                 _needChartRefresh = true;
             };
         }
@@ -379,6 +456,16 @@ namespace WinFormsApp2
 
             lblStrategyStats.Text = $"交易次数: {count} 笔 | 胜率: {winRate:F1}%\r\n累计收益: {totalProfit:+0.00;-0.00;0.00}%";
             lblStrategyStats.ForeColor = totalProfit >= 0 ? System.Drawing.Color.DarkGreen : System.Drawing.Color.DarkRed;
+        }
+
+        private void UpdateEventStatsUI()
+        {
+            int count = _eventStrategy.Contracts.Count;
+            decimal winRate = _eventStrategy.GetWinRate();
+            decimal totalProfit = _eventStrategy.GetTotalProfitPct();
+
+            lblEventStats.Text = $"事件合约: 判定 {count} 笔 | 胜率: {winRate:F1}%\r\n累计收益: {totalProfit:+0.00;-0.00;0.00}%";
+            lblEventStats.ForeColor = totalProfit >= 0 ? System.Drawing.Color.DarkGreen : System.Drawing.Color.DarkRed;
         }
 
         private void StepButton_MouseWheel(object sender, MouseEventArgs e)
@@ -482,7 +569,7 @@ namespace WinFormsApp2
             Kline[] sampleSlice = new Kline[sampleSize];
             Array.Copy(_displayKlinesBuffer, 0, sampleSlice, 0, sampleSize);
 
-            _currentActivePivots = PivotHelper.CalculatePeaksCombinedFast(sampleSlice, leftBars: 3, rightBars: 3);
+            _currentActivePivots = PivotHelper.CalculatePivotPoints(sampleSlice, leftBars: 2, rightBars: 2);
             _currentActiveTrendLines = TrendLineHelper.GenerateTrendLinesFromPivots(sampleSlice, _currentActivePivots, filterPenetrated: true);
         }
 
@@ -493,6 +580,12 @@ namespace WinFormsApp2
             {
                 _needStrategyStatsUpdate = false;
                 UpdateStrategyStatsUI();
+            }
+
+            if (_needEventStatsUpdate)
+            {
+                _needEventStatsUpdate = false;
+                UpdateEventStatsUI();
             }
 
             // 2. 批量渲染日志文本
@@ -836,6 +929,7 @@ namespace WinFormsApp2
         private async void btnStart_Click(object sender, EventArgs e)
         {
             SaveCurrentSettings(); // 点击开始回放时主动同步持久化设置
+            SyncStrategyParams();
 
             string rawInput = cmbSymbol.Text.Trim().ToUpper();
             string[] symbols = rawInput.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -855,9 +949,11 @@ namespace WinFormsApp2
             bool enableTickPush = chkEnableTickPush.Checked;
 
             _strategy.Reset(); // 策略复位
+            _eventStrategy.Reset();
             UpdateStrategyStatsUI();
+            UpdateEventStatsUI();
 
-            AppendLog($"▶ 启动流式行情回放与策略引擎 | 交易对: [{_currentSymbol}] | 周期: [{interval}] | 日期: [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}] | 策略: {(chkEnableStrategy.Checked ? "开启" : "关闭")}");
+            AppendLog($"▶ 启动流式行情回放与策略引擎 | 交易对: [{_currentSymbol}] | 周期: [{interval}] | 日期: [{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd}] | 趋势线策略: {(chkEnableStrategy.Checked ? "开启" : "关闭")} | 事件合约: {(chkEnableEventContract.Checked ? $"开启({_eventStrategy.Params.DurationMinutes}m)" : "关闭")}");
 
             // 1. 立即复位图表画板并呈现流式就绪状态
             lock (_replayKlines)
@@ -1097,19 +1193,27 @@ namespace WinFormsApp2
         private void Replayer_OnTickPushed(Tick tick)
         {
             // 0 锁，0 跨线程 UI 锁，0 内存分配，常数级 O(1) 极致流畅推演！
+            Kline currentKline = default;
+            int currentSampleIndex = 0;
+            lock (_replayKlines)
+            {
+                if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
+                {
+                    currentKline = _replayKlines[_currentKlineIndex];
+                }
+                currentSampleIndex = Math.Max(0, Math.Min(_combinedHistoryList.Count, 500) - 1);
+            }
+
+            // 1. 趋势线策略推演
             if (_isStrategyEnabled && _currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
             {
-                Kline currentKline = default;
-                int currentSampleIndex = 0;
-                lock (_replayKlines)
-                {
-                    if (_currentKlineIndex >= 0 && _currentKlineIndex < _replayKlines.Count)
-                    {
-                        currentKline = _replayKlines[_currentKlineIndex];
-                    }
-                    currentSampleIndex = Math.Max(0, Math.Min(_combinedHistoryList.Count, 500) - 1);
-                }
                 _strategy.ProcessTick(tick, currentSampleIndex, _currentActiveTrendLines, currentKline);
+            }
+
+            // 2. 事件合约策略推演 (10m / 30m / 1h 到期判定)
+            if (_eventStrategy.Params.Enabled)
+            {
+                _eventStrategy.ProcessTick(tick, currentSampleIndex, _currentActiveTrendLines, currentKline, _currentSymbol);
             }
         }
 
@@ -1134,6 +1238,9 @@ namespace WinFormsApp2
                 WeComNotifier.Instance.SendSystemStatus("币安量化盯盘系统 - 实盘已停止", "多币种实盘行情推送与自动交易管道已安全停止。");
                 return;
             }
+
+            SaveCurrentSettings();
+            SyncStrategyParams();
 
             // 1. 停止当前历史回演
             _replayer.StopPlayback();
@@ -1164,7 +1271,9 @@ namespace WinFormsApp2
             string primarySymbol = symbolConfigs[0].Symbol;
             _currentSymbol = primarySymbol;
             _strategy.Reset();
+            _eventStrategy.Reset();
             UpdateStrategyStatsUI();
+            UpdateEventStatsUI();
 
             // 格式化输出实盘/管道启动时的参数配置信息总览
             PrintConfigurationSummary();
@@ -1177,7 +1286,9 @@ namespace WinFormsApp2
                     symbolConfigs,
                     _userSettings.IsLiveTrading,
                     _userSettings.ApiKey,
-                    _userSettings.ApiSecret);
+                    _userSettings.ApiSecret,
+                    _strategy.Params,
+                    _eventStrategy.Params);
 
                 btnLiveMode.Text = "🛑 停止币安实盘行情 (Stop Live)";
                 btnLiveMode.ForeColor = Color.Red;
@@ -1186,7 +1297,7 @@ namespace WinFormsApp2
                 string symListStr = string.Join(", ", symbolConfigs.Select(c => $"{c.Symbol}({c.KlineInterval})"));
                 WeComNotifier.Instance.SendSystemStatus(
                     "币安量化盯盘系统 - 实盘管道已启动",
-                    $"**交易模式**: {modeDesc}\n> **活跃监控币种 ({symbolConfigs.Count}个)**: `{symListStr}`\n> **风控规则**: 止盈 `+{_userSettings.TakeProfitPct}%` | 止损 `-{_userSettings.StopLossPct}%`");
+                    $"**交易模式**: {modeDesc}\n> **活跃监控币种 ({symbolConfigs.Count}个)**: `{symListStr}`\n> **风控规则**: 止盈 `+{_strategy.Params.TakeProfitPct}%` | 止损 `-{_strategy.Params.StopLossPct}%`\n> **事件合约**: {(_eventStrategy.Params.Enabled ? $"启用 ({_eventStrategy.Params.DurationMinutes}m)" : "未开启")}");
             }
             catch (Exception ex)
             {

@@ -56,6 +56,12 @@ namespace WinFormsApp2
             numMinLineX1X2 = new NumericUpDown();
             lblMinLineX1X2 = new Label();
             chkEnableStrategy = new CheckBox();
+            grpEventContract = new GroupBox();
+            lblEventStats = new Label();
+            chkEventEarlyExit = new CheckBox();
+            cmbEventDuration = new ComboBox();
+            lblEventDuration = new Label();
+            chkEnableEventContract = new CheckBox();
             grpParams = new GroupBox();
             chkHighlightHighVolume = new CheckBox();
             chkAutoFitPrice = new CheckBox();
@@ -82,6 +88,7 @@ namespace WinFormsApp2
             grpLog.SuspendLayout();
             panelRight.SuspendLayout();
             grpActions.SuspendLayout();
+            grpEventContract.SuspendLayout();
             grpStrategy.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)numStopLoss).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numTakeProfit).BeginInit();
@@ -165,6 +172,7 @@ namespace WinFormsApp2
             // 
             panelRight.AutoScroll = true;
             panelRight.Controls.Add(grpActions);
+            panelRight.Controls.Add(grpEventContract);
             panelRight.Controls.Add(grpStrategy);
             panelRight.Controls.Add(grpParams);
             panelRight.Dock = DockStyle.Fill;
@@ -460,6 +468,70 @@ namespace WinFormsApp2
             lblStrategyStats.TabIndex = 9;
             lblStrategyStats.Text = "交易次数: 0 笔 | 胜率: 0.0%\r\n累计收益: 0.00%";
             // 
+            // grpEventContract
+            // 
+            grpEventContract.Controls.Add(lblEventStats);
+            grpEventContract.Controls.Add(chkEventEarlyExit);
+            grpEventContract.Controls.Add(cmbEventDuration);
+            grpEventContract.Controls.Add(lblEventDuration);
+            grpEventContract.Controls.Add(chkEnableEventContract);
+            grpEventContract.Dock = DockStyle.Top;
+            grpEventContract.Location = new Point(8, 643);
+            grpEventContract.Name = "grpEventContract";
+            grpEventContract.Size = new Size(304, 175);
+            grpEventContract.TabIndex = 2;
+            grpEventContract.TabStop = false;
+            grpEventContract.Text = "事件合约策略 (Event Contracts)";
+            // 
+            // chkEnableEventContract
+            // 
+            chkEnableEventContract.AutoSize = true;
+            chkEnableEventContract.Location = new Point(16, 22);
+            chkEnableEventContract.Name = "chkEnableEventContract";
+            chkEnableEventContract.Size = new Size(200, 21);
+            chkEnableEventContract.TabIndex = 0;
+            chkEnableEventContract.Text = "启用事件合约 (定时判定)";
+            chkEnableEventContract.UseVisualStyleBackColor = true;
+            // 
+            // lblEventDuration
+            // 
+            lblEventDuration.AutoSize = true;
+            lblEventDuration.Location = new Point(16, 48);
+            lblEventDuration.Name = "lblEventDuration";
+            lblEventDuration.Size = new Size(160, 17);
+            lblEventDuration.TabIndex = 1;
+            lblEventDuration.Text = "到期判定周期 (Duration):";
+            // 
+            // cmbEventDuration
+            // 
+            cmbEventDuration.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbEventDuration.FormattingEnabled = true;
+            cmbEventDuration.Location = new Point(16, 68);
+            cmbEventDuration.Name = "cmbEventDuration";
+            cmbEventDuration.Size = new Size(268, 25);
+            cmbEventDuration.TabIndex = 2;
+            // 
+            // chkEventEarlyExit
+            // 
+            chkEventEarlyExit.AutoSize = true;
+            chkEventEarlyExit.Location = new Point(16, 100);
+            chkEventEarlyExit.Name = "chkEventEarlyExit";
+            chkEventEarlyExit.Size = new Size(240, 21);
+            chkEventEarlyExit.TabIndex = 3;
+            chkEventEarlyExit.Text = "允许到期前止盈止损提前平仓";
+            chkEventEarlyExit.UseVisualStyleBackColor = true;
+            // 
+            // lblEventStats
+            // 
+            lblEventStats.AutoSize = true;
+            lblEventStats.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point);
+            lblEventStats.ForeColor = Color.DarkGreen;
+            lblEventStats.Location = new Point(16, 125);
+            lblEventStats.Name = "lblEventStats";
+            lblEventStats.Size = new Size(268, 34);
+            lblEventStats.TabIndex = 4;
+            lblEventStats.Text = "事件合约: 判定 0 笔 | 胜率: 0.0%\r\n累计收益: 0.00%";
+            // 
             // grpActions
             // 
             grpActions.Controls.Add(btnDownloadTicks);
@@ -592,6 +664,8 @@ namespace WinFormsApp2
             grpLog.ResumeLayout(false);
             panelRight.ResumeLayout(false);
             grpActions.ResumeLayout(false);
+            grpEventContract.ResumeLayout(false);
+            grpEventContract.PerformLayout();
             grpStrategy.ResumeLayout(false);
             grpStrategy.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)numStopLoss).EndInit();
@@ -638,6 +712,12 @@ namespace WinFormsApp2
         private Label lblStopLoss;
         private NumericUpDown numStopLoss;
         private Label lblStrategyStats;
+        private GroupBox grpEventContract;
+        private CheckBox chkEnableEventContract;
+        private Label lblEventDuration;
+        private ComboBox cmbEventDuration;
+        private CheckBox chkEventEarlyExit;
+        private Label lblEventStats;
         private GroupBox grpActions;
         private Button btnStart;
         private Button btnPause;

@@ -48,6 +48,13 @@ namespace WinFormsApp2
         public decimal StopLossPct { get; set; } = 0.8m;
 
         /// <summary>
+        /// 事件合约策略参数配置 (基于 10m / 30m / 1h 固定时间到期判定与交割)
+        /// </summary>
+        public bool EnableEventContract { get; set; } = false;
+        public string EventContractDuration { get; set; } = "10m"; // "10m", "30m", "1h"
+        public bool EventContractEarlyExit { get; set; } = false;
+
+        /// <summary>
         /// 腾讯企业微信群机器人 Webhook 推送配置
         /// </summary>
         public bool EnableWeComNotification { get; set; } = true;

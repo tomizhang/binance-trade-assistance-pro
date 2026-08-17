@@ -24,14 +24,26 @@ namespace WinFormsApp2
         public List<TrendLine> ActiveTrendLines { get; set; } = new List<TrendLine>();
 
         public TrendLineStrategy Strategy { get; } = new TrendLineStrategy();
+        public EventContractStrategy EventStrategy { get; } = new EventContractStrategy();
 
         public bool IsInitialized { get; set; } = false;
         public int CurrentKlineIndex { get; set; } = 0;
 
-        public SingleSymbolContext(SymbolConfigItem config)
+        public SingleSymbolContext(SymbolConfigItem config, StrategyParameters? globalParams = null, EventContractParameters? eventParams = null)
         {
             Config = config ?? new SymbolConfigItem();
+
+            if (globalParams != null)
+            {
+                Strategy.Params = globalParams.Clone();
+            }
             Strategy.Params.IsLiveTrading = true;
+
+            if (eventParams != null)
+            {
+                EventStrategy.Params = eventParams.Clone();
+            }
+            EventStrategy.Params.IsLiveTrading = true;
         }
 
         public void UpdateDisplayPivotsAndTrendLines(int minLineX1X2 = 40, int minLineAge = 80)
@@ -44,7 +56,7 @@ namespace WinFormsApp2
                 Kline[] klineArray = Klines.ToArray();
 
                 // A. 增量计算高低点
-                var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 3, rightBars: 3);
+                var pivots = PivotHelper.CalculatePeaksCombinedFast(klineArray, leftBars: 2, rightBars: 2);
                 ActivePivots = pivots;
 
                 // B. 增量计算与过滤延伸趋势线
@@ -60,7 +72,7 @@ namespace WinFormsApp2
 
         public void ProcessTick(Tick tick)
         {
-            if (!IsInitialized || ActiveTrendLines == null || ActiveTrendLines.Count == 0)
+            if (!IsInitialized)
                 return;
 
             Kline currentKline = default;
@@ -72,7 +84,17 @@ namespace WinFormsApp2
                 }
             }
 
-            Strategy.ProcessTick(tick, CurrentKlineIndex, ActiveTrendLines, currentKline);
+            // 1. 趋势线回调策略驱动
+            if (Strategy.Params.Enabled && ActiveTrendLines != null && ActiveTrendLines.Count > 0)
+            {
+                Strategy.ProcessTick(tick, CurrentKlineIndex, ActiveTrendLines, currentKline);
+            }
+
+            // 2. 事件合约策略驱动 (10m / 30m / 1h 到期判定)
+            if (EventStrategy.Params.Enabled)
+            {
+                EventStrategy.ProcessTick(tick, CurrentKlineIndex, ActiveTrendLines, currentKline, Symbol);
+            }
         }
     }
 
@@ -96,6 +118,8 @@ namespace WinFormsApp2
         public event Action<string, Tick>? OnSymbolTickUpdated;
 
         public OrderExecutionQueue OrderQueue { get; } = new OrderExecutionQueue();
+        public StrategyParameters StrategyParams { get; set; } = new StrategyParameters();
+        public EventContractParameters EventParams { get; set; } = new EventContractParameters();
 
         public MultiSymbolQueuePipeline()
         {
@@ -123,11 +147,75 @@ namespace WinFormsApp2
         }
 
         /// <summary>
+        /// 动态热更新所有正在运行中的币种策略参数 (实时下发界面 TakeProfit / StopLoss 与事件合约周期)
+        /// </summary>
+        public void UpdateStrategyParameters(StrategyParameters stratParams, EventContractParameters? eventContractParams = null)
+        {
+            if (stratParams != null)
+            {
+                StrategyParams.Enabled = stratParams.Enabled;
+                StrategyParams.MinLineX1X2 = stratParams.MinLineX1X2;
+                StrategyParams.MinLineAge = stratParams.MinLineAge;
+                StrategyParams.TakeProfitPct = stratParams.TakeProfitPct;
+                StrategyParams.StopLossPct = stratParams.StopLossPct;
+            }
+
+            if (eventContractParams != null)
+            {
+                EventParams.Enabled = eventContractParams.Enabled;
+                EventParams.Duration = eventContractParams.Duration;
+                EventParams.MinLineX1X2 = eventContractParams.MinLineX1X2;
+                EventParams.MinLineAge = eventContractParams.MinLineAge;
+                EventParams.EnableEarlyExit = eventContractParams.EnableEarlyExit;
+                EventParams.TakeProfitPct = eventContractParams.TakeProfitPct;
+                EventParams.StopLossPct = eventContractParams.StopLossPct;
+            }
+
+            foreach (var ctx in _contexts.Values)
+            {
+                if (stratParams != null)
+                {
+                    ctx.Strategy.Params.Enabled = stratParams.Enabled;
+                    ctx.Strategy.Params.MinLineX1X2 = stratParams.MinLineX1X2;
+                    ctx.Strategy.Params.MinLineAge = stratParams.MinLineAge;
+                    ctx.Strategy.Params.TakeProfitPct = stratParams.TakeProfitPct;
+                    ctx.Strategy.Params.StopLossPct = stratParams.StopLossPct;
+                }
+
+                if (eventContractParams != null)
+                {
+                    ctx.EventStrategy.Params.Enabled = eventContractParams.Enabled;
+                    ctx.EventStrategy.Params.Duration = eventContractParams.Duration;
+                    ctx.EventStrategy.Params.MinLineX1X2 = eventContractParams.MinLineX1X2;
+                    ctx.EventStrategy.Params.MinLineAge = eventContractParams.MinLineAge;
+                    ctx.EventStrategy.Params.EnableEarlyExit = eventContractParams.EnableEarlyExit;
+                    ctx.EventStrategy.Params.TakeProfitPct = eventContractParams.TakeProfitPct;
+                    ctx.EventStrategy.Params.StopLossPct = eventContractParams.StopLossPct;
+                }
+            }
+        }
+
+        /// <summary>
         /// 核心方法：排队平滑初始化并启动多币种并发在线交易
         /// </summary>
-        public async Task StartPipelineAsync(IEnumerable<SymbolConfigItem> configs, bool isLiveTrading, string apiKey, string apiSecret)
+        public async Task StartPipelineAsync(
+            IEnumerable<SymbolConfigItem> configs,
+            bool isLiveTrading,
+            string apiKey,
+            string apiSecret,
+            StrategyParameters? strategyParams = null,
+            EventContractParameters? eventContractParams = null)
         {
             StopPipeline();
+
+            if (strategyParams != null)
+            {
+                StrategyParams = strategyParams.Clone();
+            }
+            if (eventContractParams != null)
+            {
+                EventParams = eventContractParams.Clone();
+            }
 
             var symbolList = configs.Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Symbol)).ToList();
             if (symbolList.Count == 0)
@@ -135,7 +223,7 @@ namespace WinFormsApp2
                 throw new ArgumentException("至少需要启用一个有效的配置币种！");
             }
 
-            Log($"🚀 [多币种排队管道启动] 准备平滑加载 {symbolList.Count} 个币种差异化配置 (1 位限制排队，防止 CPU 飙高与 API 限流)...");
+            Log($"🚀 [多币种排队管道启动] 准备平滑加载 {symbolList.Count} 个币种差异化配置 (止盈: +{StrategyParams.TakeProfitPct}%, 止损: -{StrategyParams.StopLossPct}%, 事件合约: {(EventParams.Enabled ? $"启用({EventParams.DurationMinutes}m)" : "未开启")})...");
 
             // 1. 初始化下单队列引擎
             OrderQueue.ConfigureApi(isLiveTrading, apiKey, apiSecret, leverage: 20, orderQuantityUsdt: 1m);
@@ -144,7 +232,7 @@ namespace WinFormsApp2
             foreach (var cfg in symbolList)
             {
                 string sym = cfg.Symbol.Trim().ToUpperInvariant();
-                var ctx = new SingleSymbolContext(cfg);
+                var ctx = new SingleSymbolContext(cfg, StrategyParams, EventParams);
                 _contexts[sym] = ctx;
 
                 // 绑定策略下单回调事件
@@ -188,7 +276,7 @@ namespace WinFormsApp2
                 ctx.UpdateDisplayPivotsAndTrendLines();
                 ctx.IsInitialized = true;
 
-                Log($"✅ [装载完毕] [{ctx.Symbol}] 建立 {ctx.Klines.Count} 根 K 线基线，计算高低点: {ctx.ActivePivots.Count} 个，活动趋势线: {ctx.ActiveTrendLines.Count} 条 (杠杆: {ctx.Leverage}x, 资金: {ctx.OrderQuantityUsdt} USDT)");
+                Log($"✅ [装载完毕] [{ctx.Symbol}] 建立 {ctx.Klines.Count} 根 K 线基线，计算高低点: {ctx.ActivePivots.Count} 个，活动趋势线: {ctx.ActiveTrendLines.Count} 条 (杠杆: {ctx.Leverage}x, 资金: {ctx.OrderQuantityUsdt} USDT, 止盈: +{ctx.Strategy.Params.TakeProfitPct}%, 止损: -{ctx.Strategy.Params.StopLossPct}%)");
 
                 OnSymbolInitialized?.Invoke(ctx.Symbol, ctx);
 
@@ -207,6 +295,7 @@ namespace WinFormsApp2
 
         private void BindStrategyEvents(SingleSymbolContext ctx)
         {
+            // 1. 趋势线回调策略事件绑定
             ctx.Strategy.OnTradeOpened += trade =>
             {
                 decimal tpPct = ctx.Strategy.Params.TakeProfitPct;
@@ -218,7 +307,7 @@ namespace WinFormsApp2
                     ? trade.EntryPrice * (1m - slPct / 100m)
                     : trade.EntryPrice * (1m + slPct / 100m);
 
-                Log($"🟢 [{ctx.Symbol} 策略开仓信号] #{trade.Id} [{(trade.Position == PositionType.Long ? "买入做多" : "卖出做空")}] @ {trade.EntryPrice} ({trade.EntryTime:yyyy-MM-dd HH:mm:ss}) | 🎯 止盈位: {tpPrice} (+{tpPct}%) | 🛡 止损位: {slPrice} (-{slPct}%)");
+                Log($"🟢 [{ctx.Symbol} 趋势线策略开仓] #{trade.Id} [{(trade.Position == PositionType.Long ? "买入做多" : "卖出做空")}] @ {trade.EntryPrice} ({trade.EntryTime:yyyy-MM-dd HH:mm:ss}) | 🎯 止盈位: {tpPrice} (+{tpPct}%) | 🛡 止损位: {slPrice} (-{slPct}%)");
 
                 OrderType oType = trade.Position == PositionType.Long ? OrderType.BuyLongOpen : OrderType.SellShortOpen;
                 OrderQueue.EnqueueOrder(new OrderRequest
@@ -239,7 +328,7 @@ namespace WinFormsApp2
 
             ctx.Strategy.OnTradeClosed += trade =>
             {
-                Log($"🔴 [{ctx.Symbol} 策略平仓信号] #{trade.Id} [{(trade.ExitReason == TradeExitReason.TakeProfit ? "止盈" : "止损")}] 收益: {trade.ProfitPct:+0.00;-0.00;0.00}% @ {trade.ExitPrice}");
+                Log($"🔴 [{ctx.Symbol} 趋势线策略平仓] #{trade.Id} [{(trade.ExitReason == TradeExitReason.TakeProfit ? "止盈" : "止损")}] 收益: {trade.ProfitPct:+0.00;-0.00;0.00}% @ {trade.ExitPrice}");
 
                 OrderType oType = trade.Position == PositionType.Long ? OrderType.CloseLong : OrderType.CloseShort;
                 OrderQueue.EnqueueOrder(new OrderRequest
@@ -251,6 +340,55 @@ namespace WinFormsApp2
                     QuantityUsdt = ctx.OrderQuantityUsdt,
                     Timestamp = trade.ExitTime,
                     Comment = $"{ctx.Symbol} 策略止盈/止损平仓"
+                });
+            };
+
+            // 2. 事件合约策略事件绑定 (10m / 30m / 1h 到期判定)
+            ctx.EventStrategy.OnContractOpened += contract =>
+            {
+                decimal tpPct = ctx.EventStrategy.Params.TakeProfitPct;
+                decimal slPct = ctx.EventStrategy.Params.StopLossPct;
+                decimal tpPrice = contract.Position == PositionType.Long
+                    ? contract.EntryPrice * (1m + tpPct / 100m)
+                    : contract.EntryPrice * (1m - tpPct / 100m);
+                decimal slPrice = contract.Position == PositionType.Long
+                    ? contract.EntryPrice * (1m - slPct / 100m)
+                    : contract.EntryPrice * (1m + slPct / 100m);
+
+                Log($"⏱ [{ctx.Symbol} 事件合约开仓] #{contract.Id} [{(contract.Position == PositionType.Long ? "买多 LONG" : "卖空 SHORT")}] @ {contract.EntryPrice} | 判定周期: {ctx.EventStrategy.Params.DurationMinutes}m | 预计到期: {contract.ExpectedExpiryTime:HH:mm:ss}");
+
+                OrderType oType = contract.Position == PositionType.Long ? OrderType.BuyLongOpen : OrderType.SellShortOpen;
+                OrderQueue.EnqueueOrder(new OrderRequest
+                {
+                    TradeId = contract.Id,
+                    Symbol = ctx.Symbol,
+                    Type = oType,
+                    Price = contract.EntryPrice,
+                    QuantityUsdt = ctx.OrderQuantityUsdt,
+                    Timestamp = contract.EntryTime,
+                    TakeProfitPrice = ctx.EventStrategy.Params.EnableEarlyExit ? tpPrice : 0m,
+                    StopLossPrice = ctx.EventStrategy.Params.EnableEarlyExit ? slPrice : 0m,
+                    TakeProfitPct = tpPct,
+                    StopLossPct = slPct,
+                    Comment = $"{ctx.Symbol} {ctx.EventStrategy.Params.DurationMinutes}m事件合约"
+                });
+            };
+
+            ctx.EventStrategy.OnContractSettled += contract =>
+            {
+                string resDesc = contract.IsWin ? "🏆 盈利 WIN" : "❌ 亏损 LOSS";
+                Log($"⏱ [{ctx.Symbol} 事件合约结算] #{contract.Id} {resDesc} | 原因: {contract.ExitReason} | 收益: {contract.ProfitPct:+0.00;-0.00;0.00}% @ {contract.ExitPrice}");
+
+                OrderType oType = contract.Position == PositionType.Long ? OrderType.CloseLong : OrderType.CloseShort;
+                OrderQueue.EnqueueOrder(new OrderRequest
+                {
+                    TradeId = contract.Id,
+                    Symbol = ctx.Symbol,
+                    Type = oType,
+                    Price = contract.ExitPrice,
+                    QuantityUsdt = ctx.OrderQuantityUsdt,
+                    Timestamp = contract.ExitTime,
+                    Comment = $"{ctx.Symbol} 事件合约到期交割"
                 });
             };
         }

@@ -51,6 +51,20 @@ namespace WinFormsApp2
         public decimal StopLossPct { get; set; } = 0.8m;   // 止损 0.8%
         public bool IsLiveTrading { get; set; } = false;   // 是否为在线实盘交易模式
         public bool IsExchangeStopLossActive { get; set; } = false; // 交易所侧是否已挂止损单
+
+        public StrategyParameters Clone()
+        {
+            return new StrategyParameters
+            {
+                Enabled = this.Enabled,
+                MinLineX1X2 = this.MinLineX1X2,
+                MinLineAge = this.MinLineAge,
+                TakeProfitPct = this.TakeProfitPct,
+                StopLossPct = this.StopLossPct,
+                IsLiveTrading = this.IsLiveTrading,
+                IsExchangeStopLossActive = this.IsExchangeStopLossActive
+            };
+        }
     }
 
     /// <summary>
