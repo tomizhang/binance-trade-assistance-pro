@@ -739,6 +739,10 @@ namespace WinFormsApp2
                 <span class=""param-val val-danger"">-{ctx.StrategyParams.StopLossPct:F2}%</span>
             </div>
             <div class=""param-item"">
+                <span class=""param-name"">开仓频率冷却 (Cooldown):</span>
+                <span class=""param-val"">{(ctx.StrategyParams.EnableCooldown ? "✅ 开启 (同分钟/同K线限1次)" : "❌ 关闭")}</span>
+            </div>
+            <div class=""param-item"">
                 <span class=""param-name"">Tick 细粒度推送 (Tick Stream):</span>
                 <span class=""param-val"">{(ctx.EnableTickPush ? "✅ 开启 (高精度)" : "❌ 关闭")}</span>
             </div>

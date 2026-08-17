@@ -48,6 +48,7 @@ namespace WinFormsApp2
         public int MinLineAge { get; set; } = 80;
         public decimal TakeProfitPct { get; set; } = 1m; // 止盈 1.5%
         public decimal StopLossPct { get; set; } = 0.3m;   // 止损 0.8%
+        public bool EnableCooldown { get; set; } = true;  // 开仓冷却：同分钟/同K线内最多开仓1次
     }
 
     /// <summary>
@@ -68,6 +69,10 @@ namespace WinFormsApp2
         private bool _isPenetrated = false;
         private int _ticksSincePenetration = 0;
 
+        // 开仓冷却跟踪 (记录最近一次开仓的 Tick 时间与 K 线 OpenTime)
+        private DateTime _lastTradeOpenTime = DateTime.MinValue;
+        private DateTime _lastTradeKlineOpenTime = DateTime.MinValue;
+
         public event Action<TradeRecord>? OnTradeClosed;
         public event Action<TradeRecord>? OnTradeOpened;
 
@@ -81,6 +86,8 @@ namespace WinFormsApp2
             CurrentEntryPrice = 0m;
             _winCount = 0;
             _totalProfitPct = 0m;
+            _lastTradeOpenTime = DateTime.MinValue;
+            _lastTradeKlineOpenTime = DateTime.MinValue;
             ResetPenetrationState();
         }
 
@@ -131,6 +138,7 @@ namespace WinFormsApp2
         /// <summary>
         /// 策略核心 Tick 级实时处理引擎 (接收当前 Tick, K 线索引, 趋势线列表与当前 K 线时间信息)
         /// 规则: Tick 值穿过趋势线后，在后续 3 个 Tick 内回到趋势线之上/之下则开仓
+        /// 冷却: 若当前分钟/K线内已经开过仓，禁止再次开仓
         /// </summary>
         public void ProcessTick(Tick tick, int currentIndex, List<TrendLine> activeTrendLines, Kline currentKline)
         {
@@ -139,14 +147,36 @@ namespace WinFormsApp2
 
             decimal price = tick.LastPrice;
 
-            // 1. 如果已有持仓，检查止盈(1.5%)与止损(0.8%)风控条件
+            // 1. 如果已有持仓，检查止盈(1.5%)与止损(0.8%)风控条件 (持仓风控必须实时响应，不受冷却影响)
             if (CurrentPosition != PositionType.None)
             {
                 CheckPositionRisk(price, tick.Time, currentIndex);
                 return;
             }
 
-            // 2. 检查处于假突破/假跌破等待状态中的趋势线
+            // 2. 开仓冷却检查：若当前分钟或当前 K 线已开过仓，则本周期内禁止再次开仓
+            if (Params.EnableCooldown && _lastTradeOpenTime > DateTime.MinValue)
+            {
+                bool isSameMinute = (tick.Time.Year == _lastTradeOpenTime.Year &&
+                                     tick.Time.Month == _lastTradeOpenTime.Month &&
+                                     tick.Time.Day == _lastTradeOpenTime.Day &&
+                                     tick.Time.Hour == _lastTradeOpenTime.Hour &&
+                                     tick.Time.Minute == _lastTradeOpenTime.Minute);
+
+                bool isSameKline = (currentKline.OpenTime > DateTime.MinValue &&
+                                    currentKline.OpenTime == _lastTradeKlineOpenTime);
+
+                if (isSameMinute || isSameKline)
+                {
+                    if (_isPenetrated)
+                    {
+                        ResetPenetrationState();
+                    }
+                    return;
+                }
+            }
+
+            // 3. 检查处于假突破/假跌破等待状态中的趋势线
             if (_isPenetrated && _pendingTargetLine.HasValue)
             {
                 _ticksSincePenetration++;
@@ -181,7 +211,7 @@ namespace WinFormsApp2
                 }
             }
 
-            // 3. 扫描活动趋势线，检测是否有 Tick 穿透趋势线 (Phase 1 触发)
+            // 4. 扫描活动趋势线，检测是否有 Tick 穿透趋势线 (Phase 1 触发)
             if (!_isPenetrated)
             {
                 for (int i = 0; i < activeTrendLines.Count; i++)
@@ -226,6 +256,8 @@ namespace WinFormsApp2
             CurrentEntryPrice = price;
             CurrentEntryTime = time;
             CurrentEntryKlineIndex = klineIndex;
+            _lastTradeOpenTime = time;
+            _lastTradeKlineOpenTime = klineOpenTime;
 
             var trade = new TradeRecord
             {

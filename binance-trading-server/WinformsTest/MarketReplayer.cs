@@ -235,8 +235,11 @@ namespace WinFormsApp2
             // 1. 记住上次下标：从上次记忆的 _lastTickIndex 索引开始游走定位起始点，绝不每次从 0 检索全天数据！
             _lastTickIndex = FindTickIndexForTime(klineStart, _lastTickIndex);
 
-            // 2. 从定位到的游标位置直投当前 K 线时间窗口内的 Tick 数据
+            // 2. 从定位到的游标位置直投当前 K 线时间窗口内的 Tick 数据 (动态高低价格极值过滤)
             int scanIndex = _lastTickIndex;
+            decimal dynamicHigh = decimal.MinValue;
+            decimal dynamicLow = decimal.MaxValue;
+
             sw.Restart();
             while (scanIndex < _ticks.Length)
             {
@@ -250,14 +253,20 @@ namespace WinFormsApp2
                     break;
                 }
 
-                // 价格无变动去重优化：如果新 Tick 价格与上一 Tick 价格完全一致，则直接跳过推送
-                if (_lastPushedTickPrice > 0m && tick.LastPrice == _lastPushedTickPrice)
+                decimal price = tick.LastPrice;
+
+                // 动态高低价格区间过滤优化：如果当前 Tick 价格处于已推送过的高低价格区间 [dynamicLow, dynamicHigh] 内，则无需处理（直接跳过）
+                if (dynamicHigh != decimal.MinValue && price >= dynamicLow && price <= dynamicHigh)
                 {
                     scanIndex++;
                     continue;
                 }
 
-                _lastPushedTickPrice = tick.LastPrice;
+                // 拓宽当前 K 线的动态极值边界
+                if (price > dynamicHigh) dynamicHigh = price;
+                if (price < dynamicLow) dynamicLow = price;
+
+                _lastPushedTickPrice = price;
                 OnTickPushed?.Invoke(tick);
                 scanIndex++;
             }
