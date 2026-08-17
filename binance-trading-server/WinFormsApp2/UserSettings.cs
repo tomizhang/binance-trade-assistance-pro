@@ -23,8 +23,8 @@ namespace WinFormsApp2
         public bool EnableStrategy { get; set; } = true;
         public int MinLineX1X2 { get; set; } = 40;
         public int MinLineAge { get; set; } = 80;
-        public decimal TakeProfitPct { get; set; } = 1.5m;
-        public decimal StopLossPct { get; set; } = 0.8m;
+        public decimal TakeProfitPct { get; set; } = 1m;
+        public decimal StopLossPct { get; set; } = 0.3m;
         public bool EnableWarmup { get; set; } = true;
 
         private static string SettingsDirectory => Path.Combine(

@@ -214,7 +214,7 @@ namespace WinFormsApp2
 
             _strategy.OnTradeClosed += trade =>
             {
-                string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit ? "[止盈平仓 TAKE PROFIT (+1.5%)]" : "[止损平仓 STOP LOSS (-0.8%)]";
+                string reasonStr = trade.ExitReason == TradeExitReason.TakeProfit ? $"[止盈平仓 TAKE PROFIT (+{_userSettings.TakeProfitPct}%)]" : $"[止损平仓 STOP LOSS (-{_userSettings.StopLossPct}%)]";
                 string closeLog = $"[策略平仓信号] #{trade.Id} {reasonStr}\r\n" +
                                   $"  └─ 平仓离场价格: {trade.ExitPrice}\r\n" +
                                   $"  └─ 平仓离场时间: {trade.ExitTime:yyyy-MM-dd HH:mm:ss.fff}\r\n" +

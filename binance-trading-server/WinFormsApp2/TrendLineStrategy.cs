@@ -46,8 +46,8 @@ namespace WinFormsApp2
         public bool Enabled { get; set; } = true;
         public int MinLineX1X2 { get; set; } = 40;
         public int MinLineAge { get; set; } = 80;
-        public decimal TakeProfitPct { get; set; } = 1.5m; // 止盈 1.5%
-        public decimal StopLossPct { get; set; } = 0.8m;   // 止损 0.8%
+        public decimal TakeProfitPct { get; set; } = 1m; // 止盈 1.5%
+        public decimal StopLossPct { get; set; } = 0.3m;   // 止损 0.8%
     }
 
     /// <summary>
@@ -156,7 +156,7 @@ namespace WinFormsApp2
                 // A. 支撑趋势线 (PivotType.Low): 跌破趋势线后，在 3 个 Tick 内收复回到趋势线之上 (Price > LinePrice) -> 开多单 (BUY LONG)
                 if (targetLine.Type == PivotType.Low)
                 {
-                    if (price > linePrice && _ticksSincePenetration <= 5)
+                    if (price > linePrice && _ticksSincePenetration <= 3)
                     {
                         OpenPosition(PositionType.Long, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice);
                         ResetPenetrationState();
@@ -166,7 +166,7 @@ namespace WinFormsApp2
                 // B. 阻力趋势线 (PivotType.High): 突破趋势线后，在 3 个 Tick 内回落回到趋势线之下 (Price < LinePrice) -> 开空单 (SELL SHORT)
                 else if (targetLine.Type == PivotType.High)
                 {
-                    if (price < linePrice && _ticksSincePenetration <= 5)
+                    if (price < linePrice && _ticksSincePenetration <= 3)
                     {
                         OpenPosition(PositionType.Short, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice);
                         ResetPenetrationState();
