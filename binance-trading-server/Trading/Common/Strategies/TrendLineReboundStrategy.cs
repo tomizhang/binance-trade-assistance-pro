@@ -157,7 +157,7 @@ namespace Common.Strategies
                 }
             }
 
-            Log($"[K线周期更新] 识别波峰:{peaks.Count}个, 波谷:{valleys.Count}个 | 保留未穿透合格趋势线: {qualifiedLines.Count} 条 (已自动删除历史被穿过趋势线)");
+            //Log($"[K线周期更新] 识别波峰:{peaks.Count}个, 波谷:{valleys.Count}个 | 保留未穿透合格趋势线: {qualifiedLines.Count} 条 (已自动删除历史被穿过趋势线)");
         }
 
         #endregion

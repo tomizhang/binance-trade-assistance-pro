@@ -69,7 +69,7 @@ namespace WinFormsApp
             SetupChartStyle();
             InitializeStrategy();
 
-            AppendLog("系统初始化就绪。统一时间标准: UTC+0");
+            AppendLog("系统初始化就绪。统一时间标准: UTC+0 | X轴使用数字序号并支持自由缩放");
             AppendLog($"数据根目录: {Config.GetRootPath()}");
         }
 
@@ -105,9 +105,8 @@ namespace WinFormsApp
         private void SetupChartStyle()
         {
             formsPlot1.Plot.Clear();
-            formsPlot1.Plot.Axes.DateTimeTicksBottom();
-            formsPlot1.Plot.Title("Binance 行情回放 - 趋势线与高低极值点");
-            formsPlot1.Plot.XLabel("时间 (UTC+0)");
+            formsPlot1.Plot.Title("Binance 行情回放 - 趋势线与高低极值点 (X轴数字/自由缩放)");
+            formsPlot1.Plot.XLabel("K线序号 (Bar Index)");
             formsPlot1.Plot.YLabel("价格 (USDT)");
             formsPlot1.Plot.Axes.AutoScale();
             formsPlot1.Refresh();
@@ -328,7 +327,7 @@ namespace WinFormsApp
 
         #endregion
 
-        #region 步进与图表渲染 (包含高低极值点、趋势线与策略信号)
+        #region 步进与图表渲染 (X轴采用数字序号，支持鼠标自由缩放和平移)
 
         private bool StepForward(bool isAutoReplay = false)
         {
@@ -413,6 +412,8 @@ namespace WinFormsApp
 
         private void UpdateChartAndLabels(MarketKline current)
         {
+            int currentIndex = _replayedKlines.Count - 1;
+
             // 1. 更新右侧面板状态信息
             lblProgress.Text = $"进度: {_klineCursor!.CurrentIndex + 1} / {_klineCursor.TotalCount}";
             lblTime.Text = $"时间: {current.FormattedOpenTime}";
@@ -422,28 +423,27 @@ namespace WinFormsApp
             lblBuffer.Text = $"100条缓存: {_klineCursor.GetBuffer().Count} / 100";
             lblActiveLines.Text = $"监控中存活趋势线: {_trendLineStrategy?.ActiveLinesCount ?? 0} 条";
 
-            // 2. 清空并重新构建 ScottPlot 图表
+            // 2. 清空并重新构建 ScottPlot 图表 (X 轴使用纯数字序号)
             formsPlot1.Plot.Clear();
-            formsPlot1.Plot.Axes.DateTimeTicksBottom();
-            formsPlot1.Plot.Title($"{_currentSymbol} {_currentInterval} 行情回放 (当前第 {_klineCursor.CurrentIndex + 1} 根 | 界面保留最新 2000 点)");
-            formsPlot1.Plot.XLabel("时间 (UTC+0)");
+            formsPlot1.Plot.Title($"{_currentSymbol} {_currentInterval} 行情回放 (当前第 {currentIndex + 1} 根 | 界面保留最新 2000 点)");
+            formsPlot1.Plot.XLabel("K线序号 (Bar Index)");
             formsPlot1.Plot.YLabel("价格 (USDT)");
 
-            if (_replayedDates.Count > 0)
+            if (_replayedKlines.Count > 0)
             {
                 // 界面显示保留最多 2000 个点
                 const int maxDisplayPoints = 2000;
-                int totalPoints = _replayedDates.Count;
+                int totalPoints = _replayedKlines.Count;
                 int startIndex = Math.Max(0, totalPoints - maxDisplayPoints);
                 int displayCount = totalPoints - startIndex;
 
-                DateTime minDisplayTime = _replayedDates[startIndex];
                 double[] xs = new double[displayCount];
                 double[] ys = new double[displayCount];
 
                 for (int i = 0; i < displayCount; i++)
                 {
-                    xs[i] = _replayedDates[startIndex + i].ToOADate();
+                    // 🌟 X 轴纯数字序号 (从 startIndex 到 totalPoints - 1)
+                    xs[i] = startIndex + i;
                     ys[i] = _replayedCloses[startIndex + i];
                 }
 
@@ -459,39 +459,54 @@ namespace WinFormsApp
                 marker.Size = 4;
                 marker.Shape = MarkerShape.FilledCircle;
 
+                // 建立时间戳到全局索引的快速映射，保证无论来自滑窗策略还是全局历史，点位与趋势线坐标 100% 绝对对齐
+                var timeToIndex = new Dictionary<DateTime, int>(_replayedKlines.Count);
+                for (int i = 0; i < _replayedKlines.Count; i++)
+                {
+                    timeToIndex[_replayedKlines[i].OpenTime] = i;
+                }
+
                 // 3. 计算并绘制高低极值点 (Pivot Points, 直径大小统一为 4)
                 var (peaks, valleys) = PivotHelper.CalculatePeaks(_replayedKlines, leftLen: 3, rightLen: 3);
 
                 if (chkShowPivots.Checked)
                 {
-                    // 绘制波峰高点 ▲ (红色，直径大小为 4)
+                    // 绘制波峰高点 ▲ (红色，位于 K 线的最高价 High 处)
                     foreach (var peak in peaks)
                     {
-                        if (peak.Time < minDisplayTime) continue;
+                        if (!timeToIndex.TryGetValue(peak.Time, out int px))
+                        {
+                            px = peak.Index;
+                        }
 
-                        double px = peak.Time.ToOADate();
+                        if (px < startIndex) continue;
+
                         double py = (double)peak.Price;
-                        var peakMarker = formsPlot1.Plot.Add.Marker(px, py);
+                        var peakMarker = formsPlot1.Plot.Add.Marker((double)px, py);
                         peakMarker.Color = PeakMarkerColor;
                         peakMarker.Size = 4;
                         peakMarker.Shape = MarkerShape.FilledTriangleUp;
                     }
 
-                    // 绘制波谷低点 ▼ (绿色，直径大小为 4)
+                    // 绘制波谷低点 ▼ (绿色，位于 K 线的最低价 Low 处)
                     foreach (var valley in valleys)
                     {
-                        if (valley.Time < minDisplayTime) continue;
+                        if (!timeToIndex.TryGetValue(valley.Time, out int vx))
+                        {
+                            vx = valley.Index;
+                        }
 
-                        double vx = valley.Time.ToOADate();
+                        if (vx < startIndex) continue;
+
                         double vy = (double)valley.Price;
-                        var valleyMarker = formsPlot1.Plot.Add.Marker(vx, vy);
+                        var valleyMarker = formsPlot1.Plot.Add.Marker((double)vx, vy);
                         valleyMarker.Color = ValleyMarkerColor;
                         valleyMarker.Size = 4;
                         valleyMarker.Shape = MarkerShape.FilledTriangleDown;
                     }
                 }
 
-                // 4. 绘制趋势线 (TrendLines, 统一线宽为 0.8，高低点生成严格颜色区分)
+                // 4. 绘制趋势线 (TrendLines, 严格通过时间戳映射保证与极值高低点 100% 精确对齐)
                 if (chkShowTrendLines.Checked)
                 {
                     var linesToDraw = new List<TrendLine>();
@@ -507,30 +522,46 @@ namespace WinFormsApp
                         linesToDraw.AddRange(supLines);
                     }
 
-                    int currentIndex = _replayedKlines.Count - 1;
-
                     foreach (var line in linesToDraw)
                     {
-                        if (line.Time2 < minDisplayTime) continue;
+                        // 🌟 精准匹配时间戳以获得图表全局 X 坐标
+                        int x1 = -1;
+                        int x2 = -1;
 
-                        double x1 = line.Time1.ToOADate();
+                        if (timeToIndex.TryGetValue(line.Time1, out int mapped1))
+                        {
+                            x1 = mapped1;
+                        }
+                        if (timeToIndex.TryGetValue(line.Time2, out int mapped2))
+                        {
+                            x2 = mapped2;
+                        }
+
+                        // 若时间未找到，使用滑窗偏移校正
+                        if (x1 == -1 || x2 == -1)
+                        {
+                            int windowOffset = Math.Max(0, currentIndex - 99);
+                            x1 = windowOffset + line.X1;
+                            x2 = windowOffset + line.X2;
+                        }
+
+                        if (x1 < 0 || x2 < 0 || x2 <= x1 || x2 < startIndex) continue;
+
                         double y1 = (double)line.Y1;
-                        double x2 = line.Time2.ToOADate();
                         double y2 = (double)line.Y2;
 
-                        // 🌟 颜色严格区分：高点阻力线为红色 (ResistanceLineColor)，低点支撑线为绿色 (SupportLineColor)
+                        // 🌟 颜色严格区分：高点阻力线为红色 (连接高点)，低点支撑线为绿色 (连接低点)
                         var color = line.IsResistance ? ResistanceLineColor : SupportLineColor;
 
                         // 绘制核心线段 (X1 -> X2, 线宽统一为 0.8)
-                        var linePlot = formsPlot1.Plot.Add.ScatterLine(new double[] { x1, x2 }, new double[] { y1, y2 }, color);
+                        var linePlot = formsPlot1.Plot.Add.ScatterLine(new double[] { (double)x1, (double)x2 }, new double[] { y1, y2 }, color);
                         linePlot.LineWidth = 0.8f;
 
                         // 绘制向后延伸至当前最新 K 线的延长线 (线宽统一为 0.8)
-                        if (currentIndex > line.X2)
+                        if (currentIndex > x2)
                         {
-                            double xExt = _replayedDates[^1].ToOADate();
-                            double yExt = (double)line.GetPriceAt(currentIndex);
-                            var extPlot = formsPlot1.Plot.Add.ScatterLine(new double[] { x2, xExt }, new double[] { y2, yExt }, color);
+                            double yExt = (double)(line.Y1 + ((line.Y2 - line.Y1) / (x2 - x1)) * (currentIndex - x1));
+                            var extPlot = formsPlot1.Plot.Add.ScatterLine(new double[] { (double)x2, (double)currentIndex }, new double[] { y2, yExt }, color);
                             extPlot.LineWidth = 0.8f;
                         }
                     }
@@ -541,9 +572,14 @@ namespace WinFormsApp
                 {
                     foreach (var sig in _triggeredSignals)
                     {
-                        if (sig.Time < minDisplayTime) continue;
+                        if (!timeToIndex.TryGetValue(sig.Time, out int sigIndex))
+                        {
+                            sigIndex = currentIndex;
+                        }
 
-                        double sx = sig.Time.ToOADate();
+                        if (sigIndex < startIndex) continue;
+
+                        double sx = sigIndex;
                         double sy = (double)sig.Price;
 
                         var sigMarker = formsPlot1.Plot.Add.Marker(sx, sy);
