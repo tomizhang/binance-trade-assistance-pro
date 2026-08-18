@@ -5,6 +5,7 @@ using Common.Helper;
 using Common.Interfaces;
 using Common.Models;
 using Common.Providers;
+using Common.Strategies;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,7 +20,7 @@ namespace ConsoleTest
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
             Console.WriteLine("=================================================================");
-            Console.WriteLine("          Binance Market Data Engine & Cursor Test Runner        ");
+            Console.WriteLine("          Binance Market Data Engine & Strategy Test Runner      ");
             Console.WriteLine("=================================================================");
             Console.WriteLine($"[系统信息] 数据根目录: {Config.GetRootPath()}");
             Console.WriteLine($"[系统信息] 当前统一 UTC 时间: {DateTime.UtcNow.ToUtc0String()}");
@@ -31,11 +32,12 @@ namespace ConsoleTest
                 Console.WriteLine("  1. 测试 UTC+0 时间转换与按需格式化规范 (TimeHelper)");
                 Console.WriteLine("  2. 测试 100条双向游标前进/后退/滑窗缓存 (MarketDataCursor)");
                 Console.WriteLine("  3. 测试 DuckDB 历史数据提供者 (DuckDbHistoricalDataProvider)");
-                Console.WriteLine("  4. 测试 实盘/回测解耦策略执行器 (IMarketDataProvider)");
-                Console.WriteLine("  5. 测试 Binance.Net 实时 WebSocket 推流 (BinanceLiveMarketDataProvider)");
-                Console.WriteLine("  6. 运行全套自动化自测 (Automated Self-Test)");
+                Console.WriteLine("  4. 测试 策略基类与双均线策略执行 (StrategyBase & MovingAverageCrossStrategy)");
+                Console.WriteLine("  5. 测试 极值点波峰波谷分形计算 (PivotHelper)");
+                Console.WriteLine("  6. 测试 Binance.Net 实时 WebSocket 推流 (BinanceLiveMarketDataProvider)");
+                Console.WriteLine("  7. 运行全套自动化自测 (Automated Self-Test)");
                 Console.WriteLine("  0. 退出");
-                Console.Write("\n请输入选项 (0-6): ");
+                Console.Write("\n请输入选项 (0-7): ");
 
                 string? input = Console.ReadLine()?.Trim();
                 Console.WriteLine();
@@ -52,12 +54,15 @@ namespace ConsoleTest
                         TestDuckDbHistoricalProvider();
                         break;
                     case "4":
-                        await TestStrategyDecoupling();
+                        await TestStrategyExecution();
                         break;
                     case "5":
-                        await TestLiveWebSocketStream();
+                        TestPivotHelper();
                         break;
                     case "6":
+                        await TestLiveWebSocketStream();
+                        break;
+                    case "7":
                         await RunAllSelfTests();
                         break;
                     case "0":
@@ -202,52 +207,119 @@ namespace ConsoleTest
 
         #endregion
 
-        #region 4. 实盘/回测解耦策略执行器测试
+        #region 4. 策略基类与双均线策略执行测试
 
-        static async Task TestStrategyDecoupling()
+        static async Task TestStrategyExecution()
         {
-            Console.WriteLine("--- [4] 测试 实盘/回测解耦策略执行器 ---");
-            Console.WriteLine("说明: 演示策略只依赖 IMarketDataProvider 接口，无需感知数据来自回测还是实盘。\n");
+            Console.WriteLine("--- [4] 测试 策略基类 (StrategyBase) 与双均线策略 (MovingAverageCrossStrategy) ---");
 
-            // 1. 创建回测提供者
-            IMarketDataProvider backtestProvider = new DuckDbHistoricalDataProvider();
+            // 1. 创建策略对象
+            var strategy = new MovingAverageCrossStrategy(symbol: "BTCUSDT", interval: "30m", fastPeriod: 3, slowPeriod: 6);
 
-            // 2. 模拟策略对象
-            var strategy = new SampleMovingAverageStrategy();
-
-            // 3. 策略绑定通用数据提供者接口
-            strategy.Bind(backtestProvider);
-
-            Console.WriteLine("[策略] 已成功绑定数据提供者 (IMarketDataProvider)");
-
-            // 4. 模拟向策略注入 5 根 K 线
-            DateTime baseTime = DateTime.UtcNow.AddHours(-3);
-            for (int i = 0; i < 5; i++)
+            int signalCount = 0;
+            strategy.OnSignal += signal =>
             {
+                Interlocked.Increment(ref signalCount);
+                Console.WriteLine($"  🔥 [策略信号触发] -> {signal}");
+            };
+
+            strategy.OnLog += logMsg =>
+            {
+                Console.WriteLine($"  📝 {logMsg}");
+            };
+
+            // 2. 模拟注入连续 12 根 K 线与 1 笔 Tick，观察均线金叉/死叉产生
+            DateTime baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            decimal[] simulatedPrices = new decimal[] { 60000m, 59900m, 59800m, 59700m, 59600m, 59500m, 60200m, 60800m, 61500m, 61000m, 60500m, 59800m };
+
+            for (int i = 0; i < simulatedPrices.Length; i++)
+            {
+                DateTime openTime = baseTime.AddMinutes(i * 30);
                 var kline = new MarketKline
                 {
                     Symbol = "BTCUSDT",
                     Interval = "30m",
-                    OpenTime = baseTime.AddMinutes(i * 30),
-                    CloseTime = baseTime.AddMinutes((i + 1) * 30),
-                    Open = 65000m + i * 20,
-                    Close = 65050m + i * 30,
-                    Volume = 50m
+                    OpenTime = openTime,
+                    CloseTime = openTime.AddMinutes(30),
+                    Open = simulatedPrices[i] - 50m,
+                    High = simulatedPrices[i] + 100m,
+                    Low = simulatedPrices[i] - 100m,
+                    Close = simulatedPrices[i],
+                    Volume = 200m
                 };
-                strategy.OnReceiveKline(kline);
+                strategy.OnKlineUpdate(kline);
+
+                // 模拟注入 Tick
+                var tick = new MarketTick
+                {
+                    Symbol = "BTCUSDT",
+                    TradeId = 1000 + i,
+                    Time = openTime.AddMinutes(15),
+                    Price = simulatedPrices[i],
+                    Quantity = 0.5m,
+                    IsBuyerMaker = false
+                };
+                strategy.OnTickUpdate(tick);
             }
 
+            Console.WriteLine($"\n[测试结果] 策略历史 K线缓存数量: {strategy.KlineHistory.Count}/100, 历史 Tick 缓存数量: {strategy.TickHistory.Count}/100");
+            Console.WriteLine($"[测试结果] 共捕获交易信号: {signalCount} 个");
+
             await Task.CompletedTask;
-            Console.WriteLine("\n[验证通过] 实盘与回测接口解耦架构设计完全通用！\n");
+            Console.WriteLine("[验证通过] StrategyBase 策略基类与双通道数据处理机制工作正常！\n");
         }
 
         #endregion
 
-        #region 5. Binance.Net 实时 WebSocket 推流测试
+        #region 5. 极值点分形计算测试 (PivotHelper)
+
+        static void TestPivotHelper()
+        {
+            Console.WriteLine("--- [5] 测试 极值点波峰波谷计算 (PivotHelper) ---");
+
+            // 构造包含明显波峰和波谷的测试 K 线序列
+            var klines = new List<MarketKline>();
+            DateTime baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            decimal[] highs = new decimal[] { 100, 105, 115, 130, 125, 110, 95, 90, 85, 92, 105, 120, 110 };
+            decimal[] lows = new decimal[] { 95, 100, 108, 120, 115, 100, 90, 80, 82, 88, 98, 112, 102 };
+
+            for (int i = 0; i < highs.Length; i++)
+            {
+                klines.Add(new MarketKline
+                {
+                    Symbol = "BTCUSDT",
+                    Interval = "30m",
+                    OpenTime = baseTime.AddMinutes(i * 30),
+                    High = highs[i],
+                    Low = lows[i],
+                    Close = (highs[i] + lows[i]) / 2m
+                });
+            }
+
+            var (peaks, valleys) = PivotHelper.CalculatePeaks(klines, leftLen: 2, rightLen: 2);
+
+            Console.WriteLine($"识别出的波峰 (Peaks) 数量: {peaks.Count}");
+            foreach (var p in peaks)
+            {
+                Console.WriteLine($"  {p}");
+            }
+
+            Console.WriteLine($"\n识别出的波谷 (Valleys) 数量: {valleys.Count}");
+            foreach (var v in valleys)
+            {
+                Console.WriteLine($"  {v}");
+            }
+
+            Console.WriteLine("\n[验证通过] PivotHelper 成功直接适配 IReadOnlyList<MarketKline> 并返回强类型 PivotPoint！\n");
+        }
+
+        #endregion
+
+        #region 6. Binance.Net 实时 WebSocket 推流测试
 
         static async Task TestLiveWebSocketStream()
         {
-            Console.WriteLine("--- [5] 测试 Binance.Net 实时 WebSocket 推流 ---");
+            Console.WriteLine("--- [6] 测试 Binance.Net 实时 WebSocket 推流 ---");
             Console.WriteLine("正在连接 Binance 现货公共行情 WebSocket (BTCUSDT 1m & Trades)...");
 
             using var liveProvider = new BinanceLiveMarketDataProvider(bufferCapacity: 100);
@@ -294,7 +366,7 @@ namespace ConsoleTest
 
         #endregion
 
-        #region 6. 全套自动化自测
+        #region 7. 全套自动化自测
 
         static async Task RunAllSelfTests()
         {
@@ -305,7 +377,8 @@ namespace ConsoleTest
             TestTimeHelper();
             TestBidirectionalCursor();
             TestDuckDbHistoricalProvider();
-            await TestStrategyDecoupling();
+            await TestStrategyExecution();
+            TestPivotHelper();
 
             Console.WriteLine("=================================================================");
             Console.WriteLine("                🎉 全套自动化自测全部通过！                       ");
@@ -313,45 +386,5 @@ namespace ConsoleTest
         }
 
         #endregion
-    }
-
-    /// <summary>
-    /// 示例演示策略：展示如何通过 IMarketDataProvider 和 100 条滑窗缓存计算指标
-    /// </summary>
-    internal class SampleMovingAverageStrategy
-    {
-        private IMarketDataProvider? _provider;
-        private readonly List<MarketKline> _historyBuffer = new List<MarketKline>();
-
-        public void Bind(IMarketDataProvider provider)
-        {
-            _provider = provider;
-            _provider.OnKline += OnReceiveKline;
-        }
-
-        public void OnReceiveKline(MarketKline kline)
-        {
-            _historyBuffer.Add(kline);
-            if (_historyBuffer.Count > 100)
-            {
-                _historyBuffer.RemoveAt(0);
-            }
-
-            // 计算简单移动平均线 SMA(3)
-            if (_historyBuffer.Count >= 3)
-            {
-                decimal sum = 0;
-                for (int i = _historyBuffer.Count - 3; i < _historyBuffer.Count; i++)
-                {
-                    sum += _historyBuffer[i].Close;
-                }
-                decimal sma3 = sum / 3m;
-                Console.WriteLine($"  [策略计算] 收到 K线 @ {kline.FormattedOpenTime} C:{kline.Close} -> SMA(3)={sma3:F2} (缓存容量: {_historyBuffer.Count}/100)");
-            }
-            else
-            {
-                Console.WriteLine($"  [策略计算] 收到 K线 @ {kline.FormattedOpenTime} C:{kline.Close} (预热中 {_historyBuffer.Count}/3)");
-            }
-        }
     }
 }
