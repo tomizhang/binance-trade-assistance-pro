@@ -214,6 +214,16 @@ namespace Common.Providers
             return new RawMarketDataCursor(snapshot);
         }
 
+        public IRawDataCursor GetStreamingRawKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc, int queueCapacity = 2000)
+        {
+            return GetRawKlineCursor(symbol, interval, startUtc, endUtc);
+        }
+
+        public IRawDataCursor GetStreamingRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc, int queueCapacity = 10000)
+        {
+            return GetRawTickCursor(symbol, startUtc, endUtc);
+        }
+
         public async Task ReplaySimulationAsync(
             string symbol,
             string interval,
@@ -231,11 +241,27 @@ namespace Common.Providers
             while (klineCursor.MoveNext() && !token.IsCancellationRequested)
             {
                 var kline = klineCursor.ReadCurrentKline(symbol, interval);
+                decimal? lastTickPriceInPeriod = null;
+
                 while (tickCursor.MoveNext() && !token.IsCancellationRequested)
                 {
                     long tickTimeMs = tickCursor.GetInt64(4);
                     if (tickTimeMs < kline.OpenTimeMs) continue;
-                    if (tickTimeMs > kline.CloseTimeMs) { tickCursor.MovePrevious(); break; }
+
+                    // 🌟 超过该 K 线的时间闭区间直接中断跳出 (提前早退，不浪费无谓循环)
+                    if (tickTimeMs > kline.CloseTimeMs)
+                    {
+                        tickCursor.MovePrevious();
+                        break;
+                    }
+
+                    // 🌟 价格无变动去重优化：如果新 Tick 价格与上一 Tick 价格完全一致，则直接跳过推送
+                    decimal tickPrice = tickCursor.GetDecimal(1);
+                    if (lastTickPriceInPeriod.HasValue && tickPrice == lastTickPriceInPeriod.Value)
+                    {
+                        continue;
+                    }
+                    lastTickPriceInPeriod = tickPrice;
 
                     var tick = tickCursor.ReadCurrentTick(symbol);
                     OnTick?.Invoke(tick);

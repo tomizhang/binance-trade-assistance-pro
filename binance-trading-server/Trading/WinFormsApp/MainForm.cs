@@ -193,30 +193,18 @@ namespace WinFormsApp
             Cursor = Cursors.WaitCursor;
             try
             {
-                // 🌟 从数据目录加载真实 K 线与真实 Tick 列式游标
-                _rawKlineCursor = _dataProvider.GetRawKlineCursor(_currentSymbol, _currentInterval, startUtc, endUtc);
-                _rawTickCursor = _dataProvider.GetRawTickCursor(_currentSymbol, startUtc, endUtc);
+                // 🌟 使用 Channel 有界队列管道流式游标加载 (后台逐文件预取生产，背压控制，内存恒定，零界面卡顿)
+                _rawKlineCursor = _dataProvider.GetStreamingRawKlineCursor(_currentSymbol, _currentInterval, startUtc, endUtc, queueCapacity: 2000);
+                _rawTickCursor = _dataProvider.GetStreamingRawTickCursor(_currentSymbol, startUtc, endUtc, queueCapacity: 10000);
 
-                if (_rawKlineCursor.TotalCount == 0)
-                {
-                    AppendLog($"[警告] 未在数据目录检索到指定区间的 K 线数据文件。");
-                    MessageBox.Show(
-                        $"未在数据目录检索到 [{_currentSymbol} {_currentInterval}] 从 {startUtc.ToUtc0String()} 至 {endUtc.ToUtc0String()} 的 K 线文件。\n\n请检查文件是否存放于:\n{klineDir}",
-                        "未找到 K 线数据",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-
-                    ResetReplayState();
-                    return;
-                }
-
-                AppendLog($"[加载成功] 成功就绪真实 K 线: {_rawKlineCursor.TotalCount} 根，真实逐笔成交 Tick: {_rawTickCursor.TotalCount} 笔。");
+                AppendLog($"[管道就绪] 已成功建立流式队列管道 (K线队列容量: 2000, Tick队列容量: 10000)。");
+                AppendLog($"  ↳ 零内存阻塞架构：后台线程按需预取并自动背压控制，界面零卡顿。");
 
                 InitializeStrategy();
                 ResetReplayState();
                 MessageBox.Show(
-                    $"成功加载历史数据！\n- 周期 K 线: {_rawKlineCursor.TotalCount} 根\n- 真实逐笔 Tick: {_rawTickCursor.TotalCount} 笔\n\n点击【▶ 开始回放】即可开始播放。",
-                    "加载成功",
+                    $"流式数据管道已成功就绪！\n\n已启用后台队列预取与滑动窗口缓冲机制，内存占用极低。\n点击【▶ 开始回放】即可流畅回放。",
+                    "数据管道就绪",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
@@ -373,6 +361,7 @@ namespace WinFormsApp
                 if (_trendLineStrategy != null && chkEnableStrategy.Checked)
                 {
                     int tickCountForPeriod = 0;
+                    decimal? lastTickPriceInPeriod = null;
 
                     // 严格从真实 Tick 数据游标中检索属于本 K 线周期的时间窗口 [openTimeMs, closeTimeMs]
                     if (_rawTickCursor != null)
@@ -381,16 +370,26 @@ namespace WinFormsApp
                         {
                             long tickTimeMs = _rawTickCursor.GetInt64(4); // 4 为 trade_time
 
+                            // 若 tick 时间尚未到达本根 K 线开盘时间，继续向前推
                             if (tickTimeMs < openTimeMs)
                             {
                                 continue;
                             }
 
+                            // 🌟 1. 超过该 K 线的时间闭区间直接中断跳出 (提前早退，不浪费无谓循环)
                             if (tickTimeMs > closeTimeMs)
                             {
                                 _rawTickCursor.MovePrevious();
                                 break;
                             }
+
+                            // 🌟 2. 价格无变动去重优化：如果新 Tick 价格与上一 Tick 价格完全一致，则直接跳过推送
+                            decimal tickPrice = _rawTickCursor.GetDecimal(1); // 1 为 price
+                            if (lastTickPriceInPeriod.HasValue && tickPrice == lastTickPriceInPeriod.Value)
+                            {
+                                continue;
+                            }
+                            lastTickPriceInPeriod = tickPrice;
 
                             tickCountForPeriod++;
                             var tick = _rawTickCursor.ReadCurrentTick(_currentSymbol);

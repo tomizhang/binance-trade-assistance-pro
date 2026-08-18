@@ -27,7 +27,7 @@ namespace Common.Strategies
         /// <summary>
         /// 趋势线最小跨度约束 (X2 - X1 > MinLineX1X2)
         /// </summary>
-        public int MinLineX1X2 { get; set; } = 10;
+        public int MinLineX1X2 { get; set; } = 40;
 
         /// <summary>
         /// 趋势线最小寿命约束 (latestIndex - X2 > MinLineAge)
@@ -226,7 +226,7 @@ namespace Common.Strategies
                 }
             }
 
-            Log($"[K线周期更新] 识别波峰:{peaks.Count}个, 波谷:{valleys.Count}个 | 保留存活趋势线: {qualifiedLines.Count} 条 (已排除被穿过销毁的线)");
+            //Log($"[K线周期更新] 识别波峰:{peaks.Count}个, 波谷:{valleys.Count}个 | 保留存活趋势线: {qualifiedLines.Count} 条 (已排除被穿过销毁的线)");
 
             // 🌟 触发趋势线列表更新事件，发回最新所有有效趋势线
             NotifyTrendLinesUpdated();

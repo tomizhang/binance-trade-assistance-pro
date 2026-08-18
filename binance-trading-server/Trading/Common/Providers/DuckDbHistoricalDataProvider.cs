@@ -54,18 +54,30 @@ namespace Common.Providers
 
         #endregion
 
-        #region 🌟 高性能列式游标 (零装箱与零 ToString 分配)
+        #region 🌟 高性能列式游标 (直接返回 DuckDB 原生列式游标，无时间过滤)
 
         public IRawDataCursor GetRawKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc)
         {
-            var klines = _dataEngine.LoadKlines(symbol, interval, startUtc, endUtc);
-            return new RawMarketDataCursor(klines);
+            return _dataEngine.QueryRawKlineCursor(symbol, interval, startUtc, endUtc);
         }
 
         public IRawDataCursor GetRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc)
         {
-            var trades = _dataEngine.LoadTrades(symbol, startUtc, endUtc);
-            return new RawMarketDataCursor(trades);
+            return _dataEngine.QueryRawTradeCursor(symbol, startUtc, endUtc);
+        }
+
+        #endregion
+
+        #region 🌟 队列管道流式数据游标 (避免一次性加载大内存与界面卡顿)
+
+        public IRawDataCursor GetStreamingRawKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc, int queueCapacity = 2000)
+        {
+            return _dataEngine.QueryStreamingKlineCursor(symbol, interval, startUtc, endUtc, queueCapacity);
+        }
+
+        public IRawDataCursor GetStreamingRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc, int queueCapacity = 10000)
+        {
+            return _dataEngine.QueryStreamingTradeCursor(symbol, startUtc, endUtc, queueCapacity);
         }
 
         #endregion
@@ -103,6 +115,7 @@ namespace Common.Providers
                     long klineCloseMs = kline.CloseTimeMs;
 
                     bool foundAnyTick = false;
+                    decimal? lastTickPriceInPeriod = null;
 
                     // 🌟 2. for 循环该周期的 tick 数据并执行推送
                     while (tickCursor.MoveNext() && !token.IsCancellationRequested)
@@ -114,11 +127,20 @@ namespace Common.Providers
                             continue;
                         }
 
+                        // 🌟 超过该 K 线的时间闭区间直接中断跳出 (提前早退，不浪费无谓循环)
                         if (tickTimeMs > klineCloseMs)
                         {
                             tickCursor.MovePrevious();
                             break;
                         }
+
+                        // 🌟 价格无变动去重优化：如果新 Tick 价格与上一 Tick 价格完全一致，则直接跳过推送
+                        decimal tickPrice = tickCursor.GetDecimal(1);
+                        if (lastTickPriceInPeriod.HasValue && tickPrice == lastTickPriceInPeriod.Value)
+                        {
+                            continue;
+                        }
+                        lastTickPriceInPeriod = tickPrice;
 
                         foundAnyTick = true;
                         var tick = tickCursor.ReadCurrentTick(symbol);

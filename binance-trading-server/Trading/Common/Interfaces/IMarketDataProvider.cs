@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace Common.Interfaces
 {
     /// <summary>
-    /// 统一市场数据提供者接口 (拉取游标 + 事件推流 + 高性能列式游标与双层嵌套回放)
+    /// 统一市场数据提供者接口 (拉取游标 + 事件推流 + 高性能列式游标 + 队列管道流式游标 + 双层嵌套回放)
     /// </summary>
     public interface IMarketDataProvider : IDisposable
     {
@@ -60,6 +60,20 @@ namespace Common.Interfaces
         /// 获取原始高性能列式 Tick/Trade 游标
         /// </summary>
         IRawDataCursor GetRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc);
+
+        #endregion
+
+        #region 🌟 队列管道流式数据游标接口 (避免一次性加载导致的界面卡顿与大内存占用)
+
+        /// <summary>
+        /// 获取基于 Channel 有界队列管道的流式 K 线游标 (后台逐文件预取生产，滑动窗口消费，内存占用极低)
+        /// </summary>
+        IRawDataCursor GetStreamingRawKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc, int queueCapacity = 2000);
+
+        /// <summary>
+        /// 获取基于 Channel 有界队列管道的流式 Tick/Trade 游标 (支持数百万笔海量逐笔成交无卡顿流式消费)
+        /// </summary>
+        IRawDataCursor GetStreamingRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc, int queueCapacity = 10000);
 
         #endregion
 
