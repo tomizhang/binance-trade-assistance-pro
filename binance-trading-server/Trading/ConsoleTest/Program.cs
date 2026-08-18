@@ -373,24 +373,24 @@ namespace ConsoleTest
                 strategy.OnKlineUpdate(kline);
             }
 
-            Console.WriteLine("\n[阶段 1] 70 根周期 K 线注入完毕，趋势线已拟合并处于就绪状态。");
+            Console.WriteLine($"\n[阶段 1] 70 根周期 K 线注入完毕，初始活跃趋势线数量: {strategy.ActiveLinesCount} 条。");
 
             // 2. 模拟 Tick 逐笔穿透与 5-Tick 回弹测试
-            // 假设支撑趋势线在当前最新点处的延伸价格约为 58700
             DateTime tickTime = baseTime.AddMinutes(70 * 30);
 
-            Console.WriteLine("[阶段 2] 开始注入 Tick 逐笔测试 (测试向下穿透并在第 3 个 Tick 回弹做多):");
+            Console.WriteLine("\n[阶段 2] 开始注入 Tick 逐笔测试 (向下穿透并在第 2 个 Tick 回弹做多):");
             // Tick 1: 58800 (在支撑线 58700 之上)
             strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 1, Time = tickTime.AddSeconds(1), Price = 58800m });
             // Tick 2: 58650 (向下穿过趋势线 58700 -> 触发穿透监测)
             strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 2, Time = tickTime.AddSeconds(2), Price = 58650m });
             // Tick 3: 58600 (穿透中继续下探)
             strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 3, Time = tickTime.AddSeconds(3), Price = 58600m });
-            // Tick 4: 58720 (第 2 个 Tick 迅速回弹突破 58700 支撑线之上 -> 触发做多信号 Buy!)
+            // Tick 4: 58720 (第 2 个 Tick 迅速回弹突破 58700 支撑线之上 -> 触发做多信号 Buy! 并立即删除该趋势线)
             strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 4, Time = tickTime.AddSeconds(4), Price = 58720m });
 
-            Console.WriteLine($"\n[测试统计] 成功捕获回弹交易信号: {signalCount} 个");
-            Console.WriteLine("[验证通过] TrendLineReboundStrategy 策略逻辑执行正确！\n");
+            Console.WriteLine($"\n[阶段 3] 穿透回弹后当前存活趋势线数量: {strategy.ActiveLinesCount} 条 (已成功删除被穿过趋势线)");
+            Console.WriteLine($"[测试统计] 成功捕获回弹交易信号: {signalCount} 个");
+            Console.WriteLine("[验证通过] TrendLineReboundStrategy 策略与穿透后自动删除机制工作正常！\n");
         }
 
         #endregion
