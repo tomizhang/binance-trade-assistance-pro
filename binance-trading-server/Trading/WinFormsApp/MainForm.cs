@@ -77,13 +77,15 @@ namespace WinFormsApp
         {
             _trendLineStrategy?.Unbind();
 
-            // 初始化趋势线策略 (跨度 > 40, 寿命 > 4, 5-Tick 回弹, 穿透即删除)
+            // 🌟 初始化趋势线策略 (滑窗容量支持 2000 根，拟合跨度支持 500 根以上，保留丰富趋势线)
             _trendLineStrategy = new TrendLineReboundStrategy(
                 symbol: _currentSymbol,
                 interval: _currentInterval,
-                minLineX1X2: 20, // 视窗便于在短区间快速观察
+                minLineX1X2: 10,
                 minLineAge: 3,
-                reboundTicksWindow: 5);
+                reboundTicksWindow: 5,
+                bufferCapacity: 2000,
+                maxSpan: 500);
 
             _trendLineStrategy.IsEnabled = chkEnableStrategy.Checked;
 
@@ -94,6 +96,21 @@ namespace WinFormsApp
                     _triggeredSignals.Add(signal);
                 }
                 AppendLog($"🔥 [策略信号触发] {signal.Type} | 价格: {signal.Price:F2} | 原因: {signal.Reason}");
+            };
+
+            _trendLineStrategy.OnTrendLinesUpdated += validLines =>
+            {
+                if (InvokeRequired)
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        lblActiveLines.Text = $"监控中存活趋势线: {validLines.Count} 条";
+                    }));
+                }
+                else
+                {
+                    lblActiveLines.Text = $"监控中存活趋势线: {validLines.Count} 条";
+                }
             };
 
             _trendLineStrategy.OnLog += logMsg =>
@@ -511,13 +528,14 @@ namespace WinFormsApp
                 {
                     var linesToDraw = new List<TrendLine>();
 
-                    if (_trendLineStrategy != null && _trendLineStrategy.ActiveLinesCount > 0)
+                    if (_trendLineStrategy != null && chkEnableStrategy.Checked)
                     {
-                        linesToDraw.AddRange(_trendLineStrategy.ActiveLines);
+                        // 🌟 启用策略时，通过策略提供的 GetAllValidTrendLines() 方法直接获取当前所有存活有效趋势线
+                        linesToDraw.AddRange(_trendLineStrategy.GetAllValidTrendLines());
                     }
                     else
                     {
-                        var (resLines, supLines) = TrendLineHelper.FindActiveTrendLines(_replayedKlines, leftLen: 3, rightLen: 3, maxSpan: 100);
+                        var (resLines, supLines) = TrendLineHelper.FindActiveTrendLines(_replayedKlines, leftLen: 3, rightLen: 3, maxSpan: 500);
                         linesToDraw.AddRange(resLines);
                         linesToDraw.AddRange(supLines);
                     }
