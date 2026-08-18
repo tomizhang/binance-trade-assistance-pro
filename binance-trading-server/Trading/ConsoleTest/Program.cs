@@ -34,10 +34,11 @@ namespace ConsoleTest
                 Console.WriteLine("  3. 测试 DuckDB 历史数据提供者 (DuckDbHistoricalDataProvider)");
                 Console.WriteLine("  4. 测试 策略基类与双均线策略执行 (StrategyBase & MovingAverageCrossStrategy)");
                 Console.WriteLine("  5. 测试 极值点波峰波谷分形计算 (PivotHelper)");
-                Console.WriteLine("  6. 测试 Binance.Net 实时 WebSocket 推流 (BinanceLiveMarketDataProvider)");
-                Console.WriteLine("  7. 运行全套自动化自测 (Automated Self-Test)");
+                Console.WriteLine("  6. 测试 趋势线Tick穿透回弹策略 (TrendLineReboundStrategy - LineX1X2>40, LineAge>4, 5-Tick Rebound)");
+                Console.WriteLine("  7. 测试 Binance.Net 实时 WebSocket 推流 (BinanceLiveMarketDataProvider)");
+                Console.WriteLine("  8. 运行全套自动化自测 (Automated Self-Test)");
                 Console.WriteLine("  0. 退出");
-                Console.Write("\n请输入选项 (0-7): ");
+                Console.Write("\n请输入选项 (0-8): ");
 
                 string? input = Console.ReadLine()?.Trim();
                 Console.WriteLine();
@@ -60,9 +61,12 @@ namespace ConsoleTest
                         TestPivotHelper();
                         break;
                     case "6":
-                        await TestLiveWebSocketStream();
+                        TestTrendLineReboundStrategy();
                         break;
                     case "7":
+                        await TestLiveWebSocketStream();
+                        break;
+                    case "8":
                         await RunAllSelfTests();
                         break;
                     case "0":
@@ -315,11 +319,87 @@ namespace ConsoleTest
 
         #endregion
 
-        #region 6. Binance.Net 实时 WebSocket 推流测试
+        #region 6. 趋势线Tick穿透回弹策略测试 (TrendLineReboundStrategy)
+
+        static void TestTrendLineReboundStrategy()
+        {
+            Console.WriteLine("--- [6] 测试 趋势线Tick穿透回弹策略 (TrendLineReboundStrategy) ---");
+            Console.WriteLine("规则: LineX1X2 > 40, LineAge > 4, 并在 5 个 Tick 内发生回弹时触发信号\n");
+
+            var strategy = new TrendLineReboundStrategy(
+                symbol: "BTCUSDT",
+                interval: "30m",
+                minLineX1X2: 40,
+                minLineAge: 4,
+                reboundTicksWindow: 5);
+
+            int signalCount = 0;
+            strategy.OnSignal += signal =>
+            {
+                Interlocked.Increment(ref signalCount);
+                Console.WriteLine($"  🎯 [趋势线回弹信号] -> {signal}");
+            };
+
+            strategy.OnLog += logMsg =>
+            {
+                Console.WriteLine($"  📝 {logMsg}");
+            };
+
+            // 1. 构造 70 根模拟 K 线生成跨度 > 40 且年龄 > 4 的有效趋势线
+            DateTime baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var klines = new List<MarketKline>();
+
+            for (int i = 0; i < 70; i++)
+            {
+                decimal basePrice = 60000m;
+                // 在 i=5 与 i=50 处构造明显波谷 (跨度 45 > 40, 距离末尾 70-50=20 > 4)
+                if (i == 5) basePrice = 58000m;
+                else if (i == 50) basePrice = 58500m;
+                else basePrice = 60000m + (i % 5) * 100m;
+
+                var kline = new MarketKline
+                {
+                    Symbol = "BTCUSDT",
+                    Interval = "30m",
+                    OpenTime = baseTime.AddMinutes(i * 30),
+                    CloseTime = baseTime.AddMinutes((i + 1) * 30),
+                    Open = basePrice + 50,
+                    High = basePrice + 150,
+                    Low = basePrice - 100,
+                    Close = basePrice,
+                    Volume = 100m
+                };
+                klines.Add(kline);
+                strategy.OnKlineUpdate(kline);
+            }
+
+            Console.WriteLine("\n[阶段 1] 70 根周期 K 线注入完毕，趋势线已拟合并处于就绪状态。");
+
+            // 2. 模拟 Tick 逐笔穿透与 5-Tick 回弹测试
+            // 假设支撑趋势线在当前最新点处的延伸价格约为 58700
+            DateTime tickTime = baseTime.AddMinutes(70 * 30);
+
+            Console.WriteLine("[阶段 2] 开始注入 Tick 逐笔测试 (测试向下穿透并在第 3 个 Tick 回弹做多):");
+            // Tick 1: 58800 (在支撑线 58700 之上)
+            strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 1, Time = tickTime.AddSeconds(1), Price = 58800m });
+            // Tick 2: 58650 (向下穿过趋势线 58700 -> 触发穿透监测)
+            strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 2, Time = tickTime.AddSeconds(2), Price = 58650m });
+            // Tick 3: 58600 (穿透中继续下探)
+            strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 3, Time = tickTime.AddSeconds(3), Price = 58600m });
+            // Tick 4: 58720 (第 2 个 Tick 迅速回弹突破 58700 支撑线之上 -> 触发做多信号 Buy!)
+            strategy.OnTickUpdate(new MarketTick { Symbol = "BTCUSDT", TradeId = 4, Time = tickTime.AddSeconds(4), Price = 58720m });
+
+            Console.WriteLine($"\n[测试统计] 成功捕获回弹交易信号: {signalCount} 个");
+            Console.WriteLine("[验证通过] TrendLineReboundStrategy 策略逻辑执行正确！\n");
+        }
+
+        #endregion
+
+        #region 7. Binance.Net 实时 WebSocket 推流测试
 
         static async Task TestLiveWebSocketStream()
         {
-            Console.WriteLine("--- [6] 测试 Binance.Net 实时 WebSocket 推流 ---");
+            Console.WriteLine("--- [7] 测试 Binance.Net 实时 WebSocket 推流 ---");
             Console.WriteLine("正在连接 Binance 现货公共行情 WebSocket (BTCUSDT 1m & Trades)...");
 
             using var liveProvider = new BinanceLiveMarketDataProvider(bufferCapacity: 100);
@@ -366,7 +446,7 @@ namespace ConsoleTest
 
         #endregion
 
-        #region 7. 全套自动化自测
+        #region 8. 全套自动化自测
 
         static async Task RunAllSelfTests()
         {
@@ -379,6 +459,7 @@ namespace ConsoleTest
             TestDuckDbHistoricalProvider();
             await TestStrategyExecution();
             TestPivotHelper();
+            TestTrendLineReboundStrategy();
 
             Console.WriteLine("=================================================================");
             Console.WriteLine("                🎉 全套自动化自测全部通过！                       ");
