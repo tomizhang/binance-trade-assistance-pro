@@ -70,6 +70,24 @@ namespace Common.Models
         public int LineAge { get; set; }
 
         /// <summary>
+        /// 🌟 起点 x1 到最新 K 线点的总跨度长度 (total_age = latestIndex - x1 = LineX1X2 + LineAge)
+        /// </summary>
+        public int TotalAge
+        {
+            get => LineX1X2 + LineAge;
+            set => LineAge = value - LineX1X2;
+        }
+
+        /// <summary>
+        /// 🌟 小写别名 totalage (记录 x1 到最新 K 线的长度)
+        /// </summary>
+        public int totalage
+        {
+            get => TotalAge;
+            set => TotalAge = value;
+        }
+
+        /// <summary>
         /// 趋势线向后延伸穿过/碰撞第一根 K 线的范围 (line_extension_range = x_collide - x2)。
         /// 若从 x2 向后延伸未穿透任何 K 线，则值为从 x2 延伸至最新 K 线的距离。
         /// </summary>
@@ -137,7 +155,7 @@ namespace Common.Models
         public override string ToString()
         {
             string lineTypeStr = IsResistance ? "阻力趋势线(Peak)" : "支撑趋势线(Valley)";
-            return $"[{lineTypeStr}] ({X1}, {Y1:F2} @ {FormattedTime1}) -> ({X2}, {Y2:F2} @ {FormattedTime2}) | 归一化斜率: {K:F4}%/bar, 跨度: {LineX1X2}, 寿命: {LineAge}, 延伸: {LineExtensionRange}";
+            return $"[{lineTypeStr}] ({X1}, {Y1:F2} @ {FormattedTime1}) -> ({X2}, {Y2:F2} @ {FormattedTime2}) | 归一化斜率: {K:F4}%/bar, 跨度: {LineX1X2}, 寿命: {LineAge}, 总长(X1->最新): {TotalAge}, 延伸: {LineExtensionRange}";
         }
     }
 }

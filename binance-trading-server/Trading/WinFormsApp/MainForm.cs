@@ -116,15 +116,15 @@ namespace WinFormsApp
         {
             _trendLineStrategy?.Unbind();
 
-            // 🌟 初始化趋势线策略 (滑窗容量支持 2000 根，拟合跨度支持 500 根以上，保留丰富趋势线)
+            // 🌟 初始化趋势线策略 (滑窗容量支持 2000 根，拟合跨度支持 1000 根，保留丰富趋势线)
             _trendLineStrategy = new TrendLineReboundStrategy(
                 symbol: _currentSymbol,
                 interval: _currentInterval,
-                minLineX1X2: 10,
-                minLineAge: 3,
+                minLineX1X2: 3,
+                minLineAge: 0,
                 reboundTicksWindow: 5,
                 bufferCapacity: 2000,
-                maxSpan: 500);
+                maxSpan: 1000);
 
             _trendLineStrategy.IsEnabled = chkEnableStrategy.Checked;
 
@@ -494,11 +494,12 @@ namespace WinFormsApp
                     timeToIndex[_replayedKlines[i].OpenTime] = i;
                 }
 
-                // 3. 计算并绘制高低极值点 (Pivot Points, 直径大小统一为 4)
-                var (peaks, valleys) = PivotHelper.CalculatePeaks(_replayedKlines, leftLen: 3, rightLen: 3);
-
-                if (chkShowPivots.Checked)
+                // 3. 🌟 直接从策略中获取高低极值点进行渲染呈现 (WinForm 不做任何业务指标计算)
+                if (chkShowPivots.Checked && _trendLineStrategy != null)
                 {
+                    var peaks = _trendLineStrategy.Peaks;
+                    var valleys = _trendLineStrategy.Valleys;
+
                     // 绘制波峰高点 ▲ (红色，位于 K 线的最高价 High 处)
                     foreach (var peak in peaks)
                     {
@@ -534,22 +535,10 @@ namespace WinFormsApp
                     }
                 }
 
-                // 4. 绘制趋势线 (TrendLines, 严格通过时间戳映射保证与极值高低点 100% 精确对齐)
-                if (chkShowTrendLines.Checked)
+                // 4. 🌟 直接从策略中获取有效存活趋势线进行渲染呈现 (WinForm 仅做纯粹的图表渲染)
+                if (chkShowTrendLines.Checked && _trendLineStrategy != null)
                 {
-                    var linesToDraw = new List<TrendLine>();
-
-                    if (_trendLineStrategy != null && chkEnableStrategy.Checked)
-                    {
-                        // 🌟 启用策略时，通过策略提供的 GetAllValidTrendLines() 方法直接获取当前所有存活有效趋势线
-                        linesToDraw.AddRange(_trendLineStrategy.GetAllValidTrendLines());
-                    }
-                    else
-                    {
-                        var (resLines, supLines) = TrendLineHelper.FindActiveTrendLines(_replayedKlines, leftLen: 3, rightLen: 3, maxSpan: 500);
-                        linesToDraw.AddRange(resLines);
-                        linesToDraw.AddRange(supLines);
-                    }
+                    var linesToDraw = _trendLineStrategy.GetAllValidTrendLines();
 
                     foreach (var line in linesToDraw)
                     {

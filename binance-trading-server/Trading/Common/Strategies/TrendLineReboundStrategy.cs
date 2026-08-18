@@ -113,8 +113,38 @@ namespace Common.Strategies
 
         private readonly List<TrendLineTracker> _activeTrackers = new List<TrendLineTracker>();
         private readonly HashSet<string> _destroyedLineKeys = new HashSet<string>();
+        private readonly List<PivotPoint> _peaks = new List<PivotPoint>();
+        private readonly List<PivotPoint> _valleys = new List<PivotPoint>();
         private readonly object _stateLock = new object();
         private decimal? _lastTickPrice;
+
+        /// <summary>
+        /// 🌟 获取策略当前计算识别的所有波峰高点集合 (供 WinForm 图表直接呈现，WinForm 无需自行计算)
+        /// </summary>
+        public IReadOnlyList<PivotPoint> Peaks
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _peaks.ToArray();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 🌟 获取策略当前计算识别的所有波谷低点集合 (供 WinForm 图表直接呈现)
+        /// </summary>
+        public IReadOnlyList<PivotPoint> Valleys
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _valleys.ToArray();
+                }
+            }
+        }
 
         /// <summary>
         /// 当前受监控的活跃趋势线数量
@@ -140,13 +170,15 @@ namespace Common.Strategies
         public TrendLineReboundStrategy(
             string symbol = "BTCUSDT",
             string interval = "30m",
-            int minLineX1X2 = 10,
-            int minLineAge = 3,
+            int minLineX1X2 = 3,
+            int minLineAge = 0,
             int reboundTicksWindow = 5,
-            int bufferCapacity = 500,
-            int maxSpan = 500)
+            int bufferCapacity = 2000,
+            int maxSpan = 1000)
             : base("趋势线Tick回弹策略", symbol, interval, bufferCapacity: bufferCapacity)
         {
+            PivotLeftLen = 2;
+            PivotRightLen = 2;
             MinLineX1X2 = minLineX1X2;
             MinLineAge = minLineAge;
             ReboundTicksWindow = reboundTicksWindow;
@@ -157,7 +189,7 @@ namespace Common.Strategies
 
         protected override void OnKline(MarketKline kline, IReadOnlyList<MarketKline> klineHistory)
         {
-            if (klineHistory.Count < MinLineX1X2 + MinLineAge + PivotLeftLen + PivotRightLen)
+            if (klineHistory.Count < PivotLeftLen + PivotRightLen + 2)
             {
                 return;
             }
@@ -167,24 +199,29 @@ namespace Common.Strategies
             // 1. 使用 PivotPoint 计算高低点 (波峰与波谷)
             var (peaks, valleys) = PivotHelper.CalculatePeaks(klineHistory, PivotLeftLen, PivotRightLen);
 
-            // 2. 使用 TrendLineHelper 拟合生成趋势线
-            var (resistanceLines, supportLines) = TrendLineHelper.GenerateTrendLines(klineHistory, peaks, valleys, maxSpan: MaxSpan);
+            // 2. 使用 TrendLineHelper 拟合生成趋势线 (支持高达 1000 根跨度)
+            var (resistanceLines, supportLines) = TrendLineHelper.GenerateTrendLines(klineHistory, peaks, valleys, maxSpan: MaxSpan, allowInternalPenetration: false);
 
-            // 3. 筛选满足条件 (LineX1X2 > 40 且 LineAge > 4 且 历史未被穿过且未被Tick穿透销毁) 的趋势线
+            // 3. 筛选满足条件且未被 Tick 穿透销毁的存活趋势线
             var qualifiedLines = new List<TrendLine>();
 
             lock (_stateLock)
             {
+                _peaks.Clear();
+                _peaks.AddRange(peaks);
+                _valleys.Clear();
+                _valleys.AddRange(valleys);
+
                 foreach (var line in resistanceLines)
                 {
                     string lineKey = GetLineKey(line);
-                    // 若已被 Tick 穿透销毁，或在历史 K 线中已被穿过，则直接丢弃
-                    if (_destroyedLineKeys.Contains(lineKey) || line.CollidedKlineIndex != -1)
+                    // 仅排除已被 Tick 穿透并触发销毁的线
+                    if (_destroyedLineKeys.Contains(lineKey))
                     {
                         continue;
                     }
 
-                    if (line.LineX1X2 > MinLineX1X2 && line.LineAge > MinLineAge)
+                    if (line.LineX1X2 >= MinLineX1X2 && line.LineAge >= MinLineAge)
                     {
                         qualifiedLines.Add(line);
                     }
@@ -193,12 +230,12 @@ namespace Common.Strategies
                 foreach (var line in supportLines)
                 {
                     string lineKey = GetLineKey(line);
-                    if (_destroyedLineKeys.Contains(lineKey) || line.CollidedKlineIndex != -1)
+                    if (_destroyedLineKeys.Contains(lineKey))
                     {
                         continue;
                     }
 
-                    if (line.LineX1X2 > MinLineX1X2 && line.LineAge > MinLineAge)
+                    if (line.LineX1X2 >= MinLineX1X2 && line.LineAge >= MinLineAge)
                     {
                         qualifiedLines.Add(line);
                     }
@@ -372,6 +409,8 @@ namespace Common.Strategies
             {
                 _activeTrackers.Clear();
                 _destroyedLineKeys.Clear();
+                _peaks.Clear();
+                _valleys.Clear();
                 _lastTickPrice = null;
             }
             NotifyTrendLinesUpdated();
