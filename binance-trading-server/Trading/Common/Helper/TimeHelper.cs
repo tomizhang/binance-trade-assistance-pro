@@ -16,6 +16,33 @@ namespace Common.Helper
         private static readonly DateTime UnixEpochUtc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         /// <summary>
+        /// 获取周期字符串对应的毫秒跨度 (如 1m -> 60,000, 30m -> 1,800,000, 1h -> 3,600,000)
+        /// </summary>
+        public static long GetIntervalMilliseconds(string interval)
+        {
+            return interval switch
+            {
+                "1s" => 1000L,
+                "1m" => 60 * 1000L,
+                "3m" => 3 * 60 * 1000L,
+                "5m" => 5 * 60 * 1000L,
+                "15m" => 15 * 60 * 1000L,
+                "30m" => 30 * 60 * 1000L,
+                "1h" => 60 * 60 * 1000L,
+                "2h" => 2 * 60 * 60 * 1000L,
+                "4h" => 4 * 60 * 60 * 1000L,
+                "6h" => 6 * 60 * 60 * 1000L,
+                "8h" => 8 * 60 * 60 * 1000L,
+                "12h" => 12 * 60 * 60 * 1000L,
+                "1d" => 24 * 60 * 60 * 1000L,
+                "3d" => 3 * 24 * 60 * 60 * 1000L,
+                "1w" => 7 * 24 * 60 * 60 * 1000L,
+                "1M" => 30 * 24 * 60 * 60 * 1000L,
+                _ => 30 * 60 * 1000L
+            };
+        }
+
+        /// <summary>
         /// 将 Unix 毫秒时间戳转换为 UTC+0 DateTime
         /// </summary>
         public static DateTime FromUnixTimeMilliseconds(long unixTimeMs)

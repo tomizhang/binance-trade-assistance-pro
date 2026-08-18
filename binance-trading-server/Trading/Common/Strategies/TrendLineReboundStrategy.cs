@@ -269,8 +269,6 @@ namespace Common.Strategies
                             tracker.TicksSincePenetration = 0;
                             tracker.PenetrationPrice = currentPrice;
                             tracker.HasTriggered = false;
-
-                            Log($"[Tick穿过] 价格 {currentPrice:F2} 向下穿过趋势线 (线价: {linePrice:F2}) -> 开启 5-Tick 回弹监测");
                         }
                         // 场景 B: 之前价格在线下方，当前 Tick 突破趋势线 (向上穿透)
                         else if (prevPrice <= linePrice && currentPrice > linePrice)
@@ -280,8 +278,6 @@ namespace Common.Strategies
                             tracker.TicksSincePenetration = 0;
                             tracker.PenetrationPrice = currentPrice;
                             tracker.HasTriggered = false;
-
-                            Log($"[Tick穿过] 价格 {currentPrice:F2} 向上穿过趋势线 (线价: {linePrice:F2}) -> 开启 5-Tick 回落监测");
                         }
                     }
                     else
@@ -311,7 +307,6 @@ namespace Common.Strategies
                                 // 🌟 穿过回弹触发信号后，该趋势线【立即从监控列表中删除消失】
                                 DeleteTrackerAt(i);
                                 linesChanged = true;
-                                Log($"[趋势线消失] 趋势线 {line.X1}->{line.X2} 产生做多信号后已完成使命并立即删除消失 (剩余存活: {_activeTrackers.Count} 条)");
                             }
                             // 规则 2: 向上穿过趋势线，并在 5 个 Tick 内回落向下 (做空 / Sell)
                             else if (tracker.PenetrationDirection == 1 && currentPrice <= linePrice)
@@ -333,7 +328,6 @@ namespace Common.Strategies
                                 // 🌟 穿过回落触发信号后，该趋势线【立即从监控列表中删除消失】
                                 DeleteTrackerAt(i);
                                 linesChanged = true;
-                                Log($"[趋势线消失] 趋势线 {line.X1}->{line.X2} 产生做空信号后已完成使命并立即删除消失 (剩余存活: {_activeTrackers.Count} 条)");
                             }
                         }
                         else if (tracker.TicksSincePenetration > ReboundTicksWindow)
@@ -341,7 +335,6 @@ namespace Common.Strategies
                             // 🌟 超过 5 个 Tick 未发生有效回弹，判定趋势线被有效击穿，【立即从监控列表中删除消失】
                             DeleteTrackerAt(i);
                             linesChanged = true;
-                            Log($"[趋势线消失] 趋势线 {line.X1}->{line.X2} 被Tick穿透后超过 {ReboundTicksWindow} 个Tick未回弹(判定有效击穿)，已立即删除消失 (剩余存活: {_activeTrackers.Count} 条)");
                         }
                     }
                 }

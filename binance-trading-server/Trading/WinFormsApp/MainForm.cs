@@ -332,6 +332,13 @@ namespace WinFormsApp
             _replayTimer.Interval = (int)numSpeed.Value;
         }
 
+        private void cboInterval_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            _currentInterval = cboInterval.SelectedItem?.ToString() ?? "30m";
+            formsPlot1.Plot.Title($"{_currentSymbol} {_currentInterval} 行情回放 - 趋势线与高低极值点 (X轴数字/自由缩放)");
+            formsPlot1.Refresh();
+        }
+
         private void chkLayer_CheckedChanged(object sender, EventArgs e)
         {
             if (_replayedKlines.Count > 0)
@@ -378,7 +385,7 @@ namespace WinFormsApp
                 if (_replayedKlines.Count > 0)
                 {
                     var kline = _replayedKlines[^1];
-                    if (!isAutoReplay || _dataProvider.CurrentKlineIndex % 10 == 0 || _dataProvider.CurrentKlineIndex == _dataProvider.TotalKlineCount - 1)
+                    if (!isAutoReplay || _dataProvider.CurrentKlineIndex % 50 == 0 || _dataProvider.CurrentKlineIndex == _dataProvider.TotalKlineCount - 1)
                     {
                         AppendLog($"[推进 {_dataProvider.CurrentKlineIndex + 1}/{_dataProvider.TotalKlineCount}] {kline.FormattedOpenTime} | C:{kline.Close:F2} | 存活趋势线:{_trendLineStrategy?.ActiveLinesCount ?? 0}");
                     }

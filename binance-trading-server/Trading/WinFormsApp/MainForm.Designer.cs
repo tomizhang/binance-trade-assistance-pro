@@ -613,6 +613,7 @@ namespace WinFormsApp
             this.cboInterval.Name = "cboInterval";
             this.cboInterval.Size = new System.Drawing.Size(212, 25);
             this.cboInterval.TabIndex = 3;
+            this.cboInterval.SelectedIndexChanged += new System.EventHandler(this.cboInterval_SelectedIndexChanged);
             // 
             // lblInterval
             // 

@@ -84,7 +84,8 @@ namespace Common.Providers
         /// 单步推进一根 K 线周期：
         /// 1. 推进 K 线游标获取当前周期的 [OpenTimeMs, CloseTimeMs]；
         /// 2. 内部循环检索该周期的所有真实 Tick 数据并触发 OnTick 事件 (含闭区间提前早退与同价去重)；
-        /// 3. 完成全部 Tick 推送后触发 OnKline 事件模拟真实交易收盘。
+        /// 3. 若无本地真实 Tick 记录，自动根据形态生成微观 Tick 序列推送；
+        /// 4. 完成全部 Tick 推送后触发 OnKline 事件模拟真实交易收盘。
         /// </summary>
         public bool StepForward()
         {
@@ -94,6 +95,13 @@ namespace Common.Providers
             {
                 long openTimeMs = _rawKlineCursor.GetInt64(0);
                 long closeTimeMs = _rawKlineCursor.GetInt64(6);
+                long intervalMs = TimeHelper.GetIntervalMilliseconds(_currentInterval);
+
+                // 🌟 确保收盘时间闭区间合法，防止无效的即时跳出
+                if (closeTimeMs <= openTimeMs)
+                {
+                    closeTimeMs = openTimeMs + intervalMs - 1;
+                }
 
                 var kline = _rawKlineCursor.ReadCurrentKline(_currentSymbol, _currentInterval);
                 lock (_historyKlines)
@@ -101,8 +109,10 @@ namespace Common.Providers
                     _historyKlines.Add(kline);
                 }
 
-                // 🌟 1. 内层循环：遍历属于本周期的真实 Tick 并通过 OnTick 事件推送
+                bool foundAnyTick = false;
                 decimal? lastTickPriceInPeriod = null;
+
+                // 🌟 1. 内层循环：遍历属于本周期的真实 Tick 并通过 OnTick 事件推送
                 if (_rawTickCursor != null)
                 {
                     while (_rawTickCursor.MoveNext())
@@ -130,17 +140,61 @@ namespace Common.Providers
                         }
                         lastTickPriceInPeriod = tickPrice;
 
+                        foundAnyTick = true;
                         var tick = _rawTickCursor.ReadCurrentTick(_currentSymbol);
                         OnTick?.Invoke(tick);
                     }
                 }
 
-                // 🌟 2. 完成本周期内全部 Tick 推送后，触发 OnKline 事件模拟收盘
+                // 🌟 2. 若数据源中无该周期的真实物理 Tick 记录，按形态 (Open->High->Low->Close) 仿真生成微观 Tick 序列推送
+                if (!foundAnyTick)
+                {
+                    var subTicks = GenerateSubTicks(kline);
+                    foreach (var subTick in subTicks)
+                    {
+                        OnTick?.Invoke(subTick);
+                    }
+                }
+
+                // 🌟 3. 完成本周期内全部 Tick 推送后，触发 OnKline 事件模拟收盘
                 OnKline?.Invoke(kline);
                 return true;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// 当缺少真实逐笔 Tick 数据时，根据 K 线形态生成标准的微观子 Tick 序列
+        /// </summary>
+        private static List<MarketTick> GenerateSubTicks(MarketKline kline)
+        {
+            var ticks = new List<MarketTick>();
+            long startMs = kline.OpenTimeMs;
+            long endMs = kline.CloseTimeMs > startMs ? kline.CloseTimeMs : startMs + 60000;
+            long stepMs = Math.Max(1, (endMs - startMs) / 4);
+
+            bool isBullish = kline.Close >= kline.Open;
+            decimal[] prices = isBullish
+                ? new[] { kline.Open, kline.Low, kline.High, kline.Close }
+                : new[] { kline.Open, kline.High, kline.Low, kline.Close };
+
+            for (int i = 0; i < prices.Length; i++)
+            {
+                ticks.Add(new MarketTick
+                {
+                    Symbol = kline.Symbol,
+                    TradeId = 0,
+                    Price = prices[i],
+                    Quantity = kline.Volume > 0 ? kline.Volume / 4 : 1,
+                    QuoteQuantity = kline.QuoteVolume > 0 ? kline.QuoteVolume / 4 : prices[i],
+                    Time = TimeHelper.FromUnixTimeMilliseconds(startMs + i * stepMs),
+                    IsBuyerMaker = !isBullish,
+                    IsBestMatch = true
+                });
+            }
+
+            return ticks;
         }
 
         /// <summary>
