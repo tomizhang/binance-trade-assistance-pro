@@ -42,12 +42,12 @@ namespace Common.Strategies
         /// <summary>
         /// 波峰波谷左侧分形臂长
         /// </summary>
-        public int PivotLeftLen { get; set; } = 3;
+        public int PivotLeftLen { get; set; } = 2;
 
         /// <summary>
         /// 波峰波谷右侧分形臂长
         /// </summary>
-        public int PivotRightLen { get; set; } = 3;
+        public int PivotRightLen { get; set; } = 2;
 
         /// <summary>
         /// 生成趋势线时的最大跨度 (至少保留500根K线跨度)

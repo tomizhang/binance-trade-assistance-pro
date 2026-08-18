@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace Common.Interfaces
 {
     /// <summary>
-    /// 统一市场数据提供者接口 (拉取游标 + 事件推流，历史与实盘无缝切换)
+    /// 统一市场数据提供者接口 (拉取游标 + 事件推流 + 高性能列式游标与双层嵌套回放)
     /// </summary>
     public interface IMarketDataProvider : IDisposable
     {
@@ -46,6 +46,41 @@ namespace Common.Interfaces
         /// 获取指定币种及时间范围的 Tick/Trade 逐笔成交游标
         /// </summary>
         ICursor<MarketTick> GetTickCursor(string symbol, DateTime startUtc, DateTime endUtc);
+
+        #endregion
+
+        #region 🌟 高性能原始列式游标接口 (杜绝 ToString 与大对象装箱分配)
+
+        /// <summary>
+        /// 获取原始高性能列式 K 线游标 (通过列索引直接读取原始数据，避免 ToString 与大对象分配)
+        /// </summary>
+        IRawDataCursor GetRawKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc);
+
+        /// <summary>
+        /// 获取原始高性能列式 Tick/Trade 游标
+        /// </summary>
+        IRawDataCursor GetRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc);
+
+        #endregion
+
+        #region 🌟 真实交易仿真：K线与Tick双层嵌套重放与推送
+
+        /// <summary>
+        /// 按照真实交易时序进行周期K线与微观Tick双层嵌套重放与推送：
+        /// 遍历每根周期K线 (如30分钟)：
+        ///   for 循环该周期的 tick 数据 -> 执行推送 tick (OnTick)
+        ///   完成 tick 推送后推送周期 K 线 (OnKline) 以模拟真实交易收盘
+        /// </summary>
+        Task ReplaySimulationAsync(
+            string symbol,
+            string interval,
+            DateTime startUtc,
+            DateTime endUtc,
+            int tickDelayMs = 0,
+            int klineDelayMs = 0,
+            CancellationToken token = default,
+            Action<MarketTick>? onTickAction = null,
+            Action<MarketKline>? onKlineAction = null);
 
         #endregion
 

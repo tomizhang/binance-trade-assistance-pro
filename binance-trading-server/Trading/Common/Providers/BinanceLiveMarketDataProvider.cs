@@ -38,7 +38,7 @@ namespace Common.Providers
         /// <summary>
         /// 构造函数，支持直接传入或自动创建 BinanceSocketClient
         /// </summary>
-        public BinanceLiveMarketDataProvider(IBinanceSocketClient? socketClient = null, int bufferCapacity = 100)
+        public BinanceLiveMarketDataProvider(IBinanceSocketClient? socketClient = null, int bufferCapacity = 500)
         {
             if (socketClient == null)
             {
@@ -116,18 +116,19 @@ namespace Common.Providers
             {
                 lock (list)
                 {
-                    // 若当前时间相同，更新末尾未收盘 K 线；若为新 K 线则追加
-                    if (list.Count > 0 && list[list.Count - 1].OpenTime == kline.OpenTime)
+                    int lastIdx = list.Count - 1;
+                    if (lastIdx >= 0 && list[lastIdx].OpenTime == kline.OpenTime)
                     {
-                        list[list.Count - 1] = kline;
+                        list[lastIdx] = kline;
                     }
                     else
                     {
                         list.Add(kline);
-                        if (list.Count > _bufferCapacity * 2)
-                        {
-                            list.RemoveRange(0, list.Count - _bufferCapacity);
-                        }
+                    }
+
+                    if (list.Count > _bufferCapacity)
+                    {
+                        list.RemoveRange(0, list.Count - _bufferCapacity);
                     }
                 }
             }
@@ -140,7 +141,7 @@ namespace Common.Providers
                 lock (list)
                 {
                     list.Add(tick);
-                    if (list.Count > _bufferCapacity * 2)
+                    if (list.Count > _bufferCapacity)
                     {
                         list.RemoveRange(0, list.Count - _bufferCapacity);
                     }
@@ -150,7 +151,7 @@ namespace Common.Providers
 
         #endregion
 
-        #region 游标拉取模式 (获取实盘内存中已缓存的最新 100 条数据)
+        #region 游标拉取模式 (按需切片加载并以双向缓存提供)
 
         public ICursor<MarketKline> GetKlineCursor(string symbol, KlineInterval interval, DateTime startUtc, DateTime endUtc)
         {
@@ -160,8 +161,7 @@ namespace Common.Providers
         public ICursor<MarketKline> GetKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc)
         {
             string key = $"{symbol.ToUpper()}_{interval}";
-            List<MarketKline> snapshot = new List<MarketKline>();
-
+            var snapshot = new List<MarketKline>();
             if (_liveKlines.TryGetValue(key, out var list))
             {
                 lock (list)
@@ -169,15 +169,13 @@ namespace Common.Providers
                     snapshot = list.Where(k => k.OpenTime >= startUtc && k.OpenTime <= endUtc).ToList();
                 }
             }
-
             return new MarketDataCursor<MarketKline>(snapshot, _bufferCapacity);
         }
 
         public ICursor<MarketTick> GetTickCursor(string symbol, DateTime startUtc, DateTime endUtc)
         {
             string sym = symbol.ToUpper();
-            List<MarketTick> snapshot = new List<MarketTick>();
-
+            var snapshot = new List<MarketTick>();
             if (_liveTicks.TryGetValue(sym, out var list))
             {
                 lock (list)
@@ -185,8 +183,70 @@ namespace Common.Providers
                     snapshot = list.Where(t => t.Time >= startUtc && t.Time <= endUtc).ToList();
                 }
             }
-
             return new MarketDataCursor<MarketTick>(snapshot, _bufferCapacity);
+        }
+
+        public IRawDataCursor GetRawKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc)
+        {
+            string key = $"{symbol.ToUpper()}_{interval}";
+            var snapshot = new List<MarketKline>();
+            if (_liveKlines.TryGetValue(key, out var list))
+            {
+                lock (list)
+                {
+                    snapshot = list.Where(k => k.OpenTime >= startUtc && k.OpenTime <= endUtc).ToList();
+                }
+            }
+            return new RawMarketDataCursor(snapshot);
+        }
+
+        public IRawDataCursor GetRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc)
+        {
+            string sym = symbol.ToUpper();
+            var snapshot = new List<MarketTick>();
+            if (_liveTicks.TryGetValue(sym, out var list))
+            {
+                lock (list)
+                {
+                    snapshot = list.Where(t => t.Time >= startUtc && t.Time <= endUtc).ToList();
+                }
+            }
+            return new RawMarketDataCursor(snapshot);
+        }
+
+        public async Task ReplaySimulationAsync(
+            string symbol,
+            string interval,
+            DateTime startUtc,
+            DateTime endUtc,
+            int tickDelayMs = 0,
+            int klineDelayMs = 0,
+            CancellationToken token = default,
+            Action<MarketTick>? onTickAction = null,
+            Action<MarketKline>? onKlineAction = null)
+        {
+            using var klineCursor = GetRawKlineCursor(symbol, interval, startUtc, endUtc);
+            using var tickCursor = GetRawTickCursor(symbol, startUtc, endUtc);
+
+            while (klineCursor.MoveNext() && !token.IsCancellationRequested)
+            {
+                var kline = klineCursor.ReadCurrentKline(symbol, interval);
+                while (tickCursor.MoveNext() && !token.IsCancellationRequested)
+                {
+                    long tickTimeMs = tickCursor.GetInt64(4);
+                    if (tickTimeMs < kline.OpenTimeMs) continue;
+                    if (tickTimeMs > kline.CloseTimeMs) { tickCursor.MovePrevious(); break; }
+
+                    var tick = tickCursor.ReadCurrentTick(symbol);
+                    OnTick?.Invoke(tick);
+                    onTickAction?.Invoke(tick);
+                    if (tickDelayMs > 0) await Task.Delay(tickDelayMs, token).ConfigureAwait(false);
+                }
+
+                OnKline?.Invoke(kline);
+                onKlineAction?.Invoke(kline);
+                if (klineDelayMs > 0) await Task.Delay(klineDelayMs, token).ConfigureAwait(false);
+            }
         }
 
         #endregion

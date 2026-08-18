@@ -195,29 +195,67 @@ namespace Common.Storage
             var csvFiles = new List<string>();
             DateTime current = startUtc.Date;
             DateTime end = endUtc.Date;
+            string klineBaseDir = Config.GetKlineDataPath(symbol, interval);
 
             while (current <= end)
             {
+                string dateStr = current.ToString("yyyy-MM-dd");
                 string csvPath = Config.GetKlineFilePath(symbol, interval, current, ".csv");
                 string zipPath = Config.GetKlineFilePath(symbol, interval, current, ".zip");
 
+                // 1. 标准层级路径 (klines/30m/yyyy/MM/xxx.zip)
                 if (File.Exists(csvPath))
                 {
                     csvFiles.Add(csvPath);
                 }
                 else if (File.Exists(zipPath))
                 {
-                    string extractedCsv = EnsureZipExtracted(zipPath, symbol, "klines", interval, current);
-                    if (!string.IsNullOrEmpty(extractedCsv) && File.Exists(extractedCsv))
+                    string extracted = EnsureZipExtracted(zipPath, symbol, "klines", interval, current);
+                    if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted)) csvFiles.Add(extracted);
+                }
+                else
+                {
+                    // 2. 扁平路径或子目录扫描 (BTCUSDT/klines/30m/xxx-2026-01-01.zip)
+                    string flatZip = Path.Combine(klineBaseDir, Config.GetKlineFileName(symbol, interval, current, ".zip"));
+                    string flatCsv = Path.Combine(klineBaseDir, Config.GetKlineFileName(symbol, interval, current, ".csv"));
+
+                    if (File.Exists(flatCsv))
                     {
-                        csvFiles.Add(extractedCsv);
+                        csvFiles.Add(flatCsv);
+                    }
+                    else if (File.Exists(flatZip))
+                    {
+                        string extracted = EnsureZipExtracted(flatZip, symbol, "klines", interval, current);
+                        if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted)) csvFiles.Add(extracted);
+                    }
+                    else if (Directory.Exists(klineBaseDir))
+                    {
+                        // 动态模糊匹配包含该日期的文件
+                        var matchedFiles = Directory.GetFiles(klineBaseDir, $"*{dateStr}*", SearchOption.AllDirectories);
+                        foreach (var mf in matchedFiles)
+                        {
+                            if (mf.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                            {
+                                csvFiles.Add(mf);
+                                break;
+                            }
+                            else if (mf.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string extracted = EnsureZipExtracted(mf, symbol, "klines", interval, current);
+                                if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted))
+                                {
+                                    csvFiles.Add(extracted);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
 
                 current = current.AddDays(1);
             }
 
-            return csvFiles;
+            return csvFiles.Distinct().ToList();
         }
 
         private List<string> ResolveTradeCsvFiles(string symbol, DateTime startUtc, DateTime endUtc)
@@ -225,29 +263,67 @@ namespace Common.Storage
             var csvFiles = new List<string>();
             DateTime current = startUtc.Date;
             DateTime end = endUtc.Date;
+            string tradeBaseDir = Config.GetTradeDataPath(symbol);
 
             while (current <= end)
             {
+                string dateStr = current.ToString("yyyy-MM-dd");
                 string csvPath = Config.GetTradeFilePath(symbol, current, ".csv");
                 string zipPath = Config.GetTradeFilePath(symbol, current, ".zip");
 
+                // 1. 标准层级路径 (trades/yyyy/MM/xxx-trades-yyyy-MM-dd.zip)
                 if (File.Exists(csvPath))
                 {
                     csvFiles.Add(csvPath);
                 }
                 else if (File.Exists(zipPath))
                 {
-                    string extractedCsv = EnsureZipExtracted(zipPath, symbol, "trades", string.Empty, current);
-                    if (!string.IsNullOrEmpty(extractedCsv) && File.Exists(extractedCsv))
+                    string extracted = EnsureZipExtracted(zipPath, symbol, "trades", string.Empty, current);
+                    if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted)) csvFiles.Add(extracted);
+                }
+                else
+                {
+                    // 2. 扁平路径 (如 D:\data\binance_market_data\BTCUSDT\trades\BTCUSDT-trades-2026-01-01.zip)
+                    string flatZip = Path.Combine(tradeBaseDir, Config.GetTradeFileName(symbol, current, ".zip"));
+                    string flatCsv = Path.Combine(tradeBaseDir, Config.GetTradeFileName(symbol, current, ".csv"));
+
+                    if (File.Exists(flatCsv))
                     {
-                        csvFiles.Add(extractedCsv);
+                        csvFiles.Add(flatCsv);
+                    }
+                    else if (File.Exists(flatZip))
+                    {
+                        string extracted = EnsureZipExtracted(flatZip, symbol, "trades", string.Empty, current);
+                        if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted)) csvFiles.Add(extracted);
+                    }
+                    else if (Directory.Exists(tradeBaseDir))
+                    {
+                        // 3. 动态全目录递归搜索匹配对应日期的 trade/aggTrade 文件
+                        var matchedFiles = Directory.GetFiles(tradeBaseDir, $"*{dateStr}*", SearchOption.AllDirectories);
+                        foreach (var mf in matchedFiles)
+                        {
+                            if (mf.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                            {
+                                csvFiles.Add(mf);
+                                break;
+                            }
+                            else if (mf.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string extracted = EnsureZipExtracted(mf, symbol, "trades", string.Empty, current);
+                                if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted))
+                                {
+                                    csvFiles.Add(extracted);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
 
                 current = current.AddDays(1);
             }
 
-            return csvFiles;
+            return csvFiles.Distinct().ToList();
         }
 
         private string EnsureZipExtracted(string zipFilePath, string symbol, string type, string interval, DateTime date)

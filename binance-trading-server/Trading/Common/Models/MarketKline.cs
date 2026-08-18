@@ -34,6 +34,30 @@ namespace Common.Models
         /// </summary>
         public bool IsClosed { get; set; } = true;
 
+        #region 时间戳属性 (UTC+0 Unix 毫秒/秒时间戳)
+
+        /// <summary>
+        /// 开盘 Unix 毫秒时间戳 (UTC)
+        /// </summary>
+        public long OpenTimeMs => TimeHelper.ToUnixTimeMilliseconds(OpenTime);
+
+        /// <summary>
+        /// 收盘 Unix 毫秒时间戳 (UTC)
+        /// </summary>
+        public long CloseTimeMs => TimeHelper.ToUnixTimeMilliseconds(CloseTime);
+
+        /// <summary>
+        /// 开盘 Unix 秒时间戳 (UTC)
+        /// </summary>
+        public long OpenTimeSeconds => TimeHelper.ToUnixTimeSeconds(OpenTime);
+
+        /// <summary>
+        /// 收盘 Unix 秒时间戳 (UTC)
+        /// </summary>
+        public long CloseTimeSeconds => TimeHelper.ToUnixTimeSeconds(CloseTime);
+
+        #endregion
+
         #region UI/用户层按需格式化辅助属性 (零预先格式化开销)
 
         public string FormattedOpenTime => OpenTime.ToUtc0String();

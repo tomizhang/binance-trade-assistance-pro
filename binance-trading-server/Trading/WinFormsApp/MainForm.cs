@@ -17,7 +17,8 @@ namespace WinFormsApp
     public partial class MainForm : Form
     {
         private readonly DuckDbHistoricalDataProvider _dataProvider;
-        private ICursor<MarketKline>? _klineCursor;
+        private IRawDataCursor? _rawKlineCursor;
+        private IRawDataCursor? _rawTickCursor;
         private readonly System.Windows.Forms.Timer _replayTimer;
 
         // 回放已呈现的数据点列表
@@ -55,7 +56,7 @@ namespace WinFormsApp
         {
             InitializeComponent();
 
-            _dataProvider = new DuckDbHistoricalDataProvider(cursorBufferCapacity: 100);
+            _dataProvider = new DuckDbHistoricalDataProvider(cursorBufferCapacity: 500);
 
             _replayTimer = new System.Windows.Forms.Timer();
             _replayTimer.Interval = (int)numSpeed.Value;
@@ -69,8 +70,9 @@ namespace WinFormsApp
             SetupChartStyle();
             InitializeStrategy();
 
-            AppendLog("系统初始化就绪。统一时间标准: UTC+0 | X轴使用数字序号并支持自由缩放");
+            AppendLog("系统初始化就绪。统一时间标准: UTC+0 | 启用真实数据列式游标 (IRawDataCursor)");
             AppendLog($"数据根目录: {Config.GetRootPath()}");
+            AppendLog($"Tick/Trade 目录: {Config.GetTradeDataPath(_currentSymbol)}");
         }
 
         private void InitializeStrategy()
@@ -163,7 +165,7 @@ namespace WinFormsApp
 
         #endregion
 
-        #region 数据加载
+        #region 数据加载 (从 Config 数据目录中加载真实 K 线与真实 Tick/Trade 数据文件)
 
         private void btnLoadData_Click(object sender, EventArgs e)
         {
@@ -181,42 +183,42 @@ namespace WinFormsApp
                 return;
             }
 
-            AppendLog($"正在加载历史数据: {_currentSymbol} {_currentInterval} ({startUtc.ToUtc0String()} 至 {endUtc.ToUtc0String()})...");
+            string klineDir = Config.GetKlineDataPath(_currentSymbol, _currentInterval);
+            string tradeDir = Config.GetTradeDataPath(_currentSymbol);
+
+            AppendLog($"正在从本地数据文件加载: {_currentSymbol} {_currentInterval} ({startUtc.ToUtc0String()} 至 {endUtc.ToUtc0String()})...");
+            AppendLog($"  ↳ K线目录: {klineDir}");
+            AppendLog($"  ↳ Trade/Tick 目录: {tradeDir}");
 
             Cursor = Cursors.WaitCursor;
             try
             {
-                _klineCursor = _dataProvider.GetKlineCursor(_currentSymbol, _currentInterval, startUtc, endUtc);
+                // 🌟 从数据目录加载真实 K 线与真实 Tick 列式游标
+                _rawKlineCursor = _dataProvider.GetRawKlineCursor(_currentSymbol, _currentInterval, startUtc, endUtc);
+                _rawTickCursor = _dataProvider.GetRawTickCursor(_currentSymbol, startUtc, endUtc);
 
-                if (_klineCursor.TotalCount == 0)
+                if (_rawKlineCursor.TotalCount == 0)
                 {
-                    AppendLog($"[提示] 本地目录未检索到对应周期的真实数据文件。");
-                    var result = MessageBox.Show(
-                        $"在本地数据目录未找到 [{_currentSymbol} {_currentInterval}] 从 {startUtc.ToUtc0String()} 至 {endUtc.ToUtc0String()} 的历史文件。\n\n是否自动生成该区间的模拟真实 K 线数据，以便立即体验回放与趋势线分析？",
-                        "未找到本地数据",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Question);
+                    AppendLog($"[警告] 未在数据目录检索到指定区间的 K 线数据文件。");
+                    MessageBox.Show(
+                        $"未在数据目录检索到 [{_currentSymbol} {_currentInterval}] 从 {startUtc.ToUtc0String()} 至 {endUtc.ToUtc0String()} 的 K 线文件。\n\n请检查文件是否存放于:\n{klineDir}",
+                        "未找到 K 线数据",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
 
-                    if (result == DialogResult.Yes)
-                    {
-                        var mockKlines = GenerateMockKlines(_currentSymbol, _currentInterval, startUtc, endUtc);
-                        _klineCursor = new MarketDataCursor<MarketKline>(mockKlines, bufferCapacity: 100);
-                        AppendLog($"[仿真数据] 已成功生成 {_klineCursor.TotalCount} 根模拟 K 线用于回放测试。");
-                    }
-                    else
-                    {
-                        ResetReplayState();
-                        return;
-                    }
+                    ResetReplayState();
+                    return;
                 }
-                else
-                {
-                    AppendLog($"[加载成功] 通过 DuckDB 成功读取 {_klineCursor.TotalCount} 根历史 K 线数据。");
-                }
+
+                AppendLog($"[加载成功] 成功就绪真实 K 线: {_rawKlineCursor.TotalCount} 根，真实逐笔成交 Tick: {_rawTickCursor.TotalCount} 笔。");
 
                 InitializeStrategy();
                 ResetReplayState();
-                MessageBox.Show($"成功加载 {_klineCursor.TotalCount} 根 K 线数据！点击【▶ 开始回放】即可开始播放。", "加载成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(
+                    $"成功加载历史数据！\n- 周期 K 线: {_rawKlineCursor.TotalCount} 根\n- 真实逐笔 Tick: {_rawTickCursor.TotalCount} 笔\n\n点击【▶ 开始回放】即可开始播放。",
+                    "加载成功",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -235,7 +237,7 @@ namespace WinFormsApp
 
         private void btnStartPause_Click(object sender, EventArgs e)
         {
-            if (_klineCursor == null || _klineCursor.TotalCount == 0)
+            if (_rawKlineCursor == null || _rawKlineCursor.TotalCount == 0)
             {
                 MessageBox.Show("请先点击【加载/检索历史数据】！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -279,7 +281,7 @@ namespace WinFormsApp
             if (!StepForward(isAutoReplay: true))
             {
                 PauseReplay();
-                AppendLog($"[回放结束] 全部 {_klineCursor?.TotalCount ?? 0} 根 K 线数据回放完毕。");
+                AppendLog($"[回放结束] 全部 {_rawKlineCursor?.TotalCount ?? 0} 根 K 线数据回放完毕。");
                 MessageBox.Show("数据回放已到达末尾！", "回放完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
@@ -287,14 +289,14 @@ namespace WinFormsApp
         private void btnStepNext_Click(object sender, EventArgs e)
         {
             PauseReplay();
-            if (_klineCursor == null) return;
+            if (_rawKlineCursor == null) return;
             StepForward(isAutoReplay: false);
         }
 
         private void btnStepPrev_Click(object sender, EventArgs e)
         {
             PauseReplay();
-            if (_klineCursor == null) return;
+            if (_rawKlineCursor == null) return;
             StepBackward();
         }
 
@@ -344,40 +346,67 @@ namespace WinFormsApp
 
         #endregion
 
-        #region 步进与图表渲染 (X轴采用数字序号，支持鼠标自由缩放和平移)
+        #region 🌟 步进与图表渲染 (基于真实数据列式游标与真实 Tick 优先推送)
 
         private bool StepForward(bool isAutoReplay = false)
         {
-            if (_klineCursor == null) return false;
+            if (_rawKlineCursor == null) return false;
 
-            if (_klineCursor.MoveNext())
+            if (_rawKlineCursor.MoveNext())
             {
-                var kline = _klineCursor.Current;
-                _replayedDates.Add(kline.OpenTime);
-                _replayedCloses.Add((double)kline.Close);
+                // 🌟 1. 高性能列式游标直读基元列值 (零中间字符串与装箱分配)
+                long openTimeMs = _rawKlineCursor.GetInt64(0);
+                decimal close = _rawKlineCursor.GetDecimal(4);
+                long closeTimeMs = _rawKlineCursor.GetInt64(6);
+                DateTime openTime = _rawKlineCursor.GetDateTime(0);
+
+                var kline = _rawKlineCursor.ReadCurrentKline(_currentSymbol, _currentInterval);
+
+                _replayedDates.Add(openTime);
+                _replayedCloses.Add((double)close);
                 _replayedKlines.Add(kline);
 
-                // 1. 将 K 线与微观模拟 Tick 注入策略
+                // 🌟 2. 真实交易仿真时序：
+                // for 循环周期 K 线 (例如 30 分钟)
+                //   for 循环周期的真实 tick 数据 -> 执行推送真实 tick
+                //   完成真实 tick 推送后推送周期 K 线以模拟真实交易收盘
                 if (_trendLineStrategy != null && chkEnableStrategy.Checked)
                 {
-                    _trendLineStrategy.OnKlineUpdate(kline);
+                    int tickCountForPeriod = 0;
 
-                    // 模拟生成 1 笔收盘 Tick 触发 Tick 级别微观检测
-                    var tick = new MarketTick
+                    // 严格从真实 Tick 数据游标中检索属于本 K 线周期的时间窗口 [openTimeMs, closeTimeMs]
+                    if (_rawTickCursor != null)
                     {
-                        Symbol = kline.Symbol,
-                        Time = kline.CloseTime,
-                        Price = kline.Close,
-                        Quantity = kline.Volume > 0 ? kline.Volume / 10m : 1m
-                    };
-                    _trendLineStrategy.OnTickUpdate(tick);
+                        while (_rawTickCursor.MoveNext())
+                        {
+                            long tickTimeMs = _rawTickCursor.GetInt64(4); // 4 为 trade_time
+
+                            if (tickTimeMs < openTimeMs)
+                            {
+                                continue;
+                            }
+
+                            if (tickTimeMs > closeTimeMs)
+                            {
+                                _rawTickCursor.MovePrevious();
+                                break;
+                            }
+
+                            tickCountForPeriod++;
+                            var tick = _rawTickCursor.ReadCurrentTick(_currentSymbol);
+                            _trendLineStrategy.OnTickUpdate(tick);
+                        }
+                    }
+
+                    // 完成该周期全部真实 Tick 推送后，推送该周期 K 线触发收盘
+                    _trendLineStrategy.OnKlineUpdate(kline);
                 }
 
                 UpdateChartAndLabels(kline);
 
-                if (!isAutoReplay || _klineCursor.CurrentIndex % 10 == 0 || _klineCursor.CurrentIndex == _klineCursor.TotalCount - 1)
+                if (!isAutoReplay || _rawKlineCursor.CurrentIndex % 10 == 0 || _rawKlineCursor.CurrentIndex == _rawKlineCursor.TotalCount - 1)
                 {
-                    AppendLog($"[推进 { _klineCursor.CurrentIndex + 1}/{_klineCursor.TotalCount}] {kline.FormattedOpenTime} | C:{kline.Close:F2} | 缓存:{_klineCursor.GetBuffer().Count}/100 | 存活趋势线:{_trendLineStrategy?.ActiveLinesCount ?? 0}");
+                    AppendLog($"[推进 { _rawKlineCursor.CurrentIndex + 1}/{_rawKlineCursor.TotalCount}] {kline.FormattedOpenTime} | C:{kline.Close:F2} | 存活趋势线:{_trendLineStrategy?.ActiveLinesCount ?? 0}");
                 }
 
                 return true;
@@ -388,9 +417,9 @@ namespace WinFormsApp
 
         private bool StepBackward()
         {
-            if (_klineCursor == null || !_klineCursor.HasPrevious) return false;
+            if (_rawKlineCursor == null || !_rawKlineCursor.HasPrevious) return false;
 
-            if (_klineCursor.MovePrevious())
+            if (_rawKlineCursor.MovePrevious())
             {
                 if (_replayedDates.Count > 0)
                 {
@@ -402,9 +431,9 @@ namespace WinFormsApp
                 // 策略状态重置并按当前历史重新喂入
                 ReplayStrategyToCurrent();
 
-                var kline = _klineCursor.Current;
+                var kline = _rawKlineCursor.ReadCurrentKline(_currentSymbol, _currentInterval);
                 UpdateChartAndLabels(kline);
-                AppendLog($"[回退 { _klineCursor.CurrentIndex + 1}/{_klineCursor.TotalCount}] {kline.FormattedOpenTime} | C:{kline.Close:F2} | 缓存:{_klineCursor.GetBuffer().Count}/100");
+                AppendLog($"[回退 { _rawKlineCursor.CurrentIndex + 1}/{_rawKlineCursor.TotalCount}] {kline.FormattedOpenTime} | C:{kline.Close:F2}");
                 return true;
             }
 
@@ -432,12 +461,12 @@ namespace WinFormsApp
             int currentIndex = _replayedKlines.Count - 1;
 
             // 1. 更新右侧面板状态信息
-            lblProgress.Text = $"进度: {_klineCursor!.CurrentIndex + 1} / {_klineCursor.TotalCount}";
+            lblProgress.Text = $"进度: {_rawKlineCursor!.CurrentIndex + 1} / {_rawKlineCursor.TotalCount}";
             lblTime.Text = $"时间: {current.FormattedOpenTime}";
             lblPrice.Text = $"最新收盘价: {current.Close:F2} USDT";
             lblHighLow.Text = $"开/高/低: {current.Open:F2} / {current.High:F2} / {current.Low:F2}";
             lblVolume.Text = $"成交量: {current.Volume:F2}";
-            lblBuffer.Text = $"100条缓存: {_klineCursor.GetBuffer().Count} / 100";
+            lblBuffer.Text = $"策略滑窗: {_trendLineStrategy?.KlineHistory.Count ?? 0} / 2000";
             lblActiveLines.Text = $"监控中存活趋势线: {_trendLineStrategy?.ActiveLinesCount ?? 0} 条";
 
             // 2. 清空并重新构建 ScottPlot 图表 (X 轴使用纯数字序号)
@@ -631,7 +660,8 @@ namespace WinFormsApp
         {
             StopReplay();
             _isFirstRender = true;
-            _klineCursor?.Reset();
+            _rawKlineCursor?.Reset();
+            _rawTickCursor?.Reset();
             _replayedDates.Clear();
             _replayedCloses.Clear();
             _replayedKlines.Clear();
@@ -642,72 +672,15 @@ namespace WinFormsApp
                 _triggeredSignals.Clear();
             }
 
-            lblProgress.Text = $"进度: 0 / {_klineCursor?.TotalCount ?? 0}";
+            lblProgress.Text = $"进度: 0 / {_rawKlineCursor?.TotalCount ?? 0}";
             lblTime.Text = "时间: --";
             lblPrice.Text = "最新收盘价: --";
             lblHighLow.Text = "高 / 低: -- / --";
             lblVolume.Text = "成交量: --";
-            lblBuffer.Text = "100条缓存: 0 / 100";
+            lblBuffer.Text = "策略滑窗: 0 / 2000";
             lblActiveLines.Text = "监控中存活趋势线: 0 条";
 
             SetupChartStyle();
-        }
-
-        #endregion
-
-        #region 模拟数据生成器 (当本地无历史文件时支持开箱即用体验)
-
-        private List<MarketKline> GenerateMockKlines(string symbol, string interval, DateTime startUtc, DateTime endUtc)
-        {
-            var list = new List<MarketKline>();
-            int intervalMinutes = interval switch
-            {
-                "1m" => 1,
-                "3m" => 3,
-                "5m" => 5,
-                "15m" => 15,
-                "30m" => 30,
-                "1h" => 60,
-                "2h" => 120,
-                "4h" => 240,
-                "1d" => 1440,
-                _ => 30
-            };
-
-            Random rand = new Random(42);
-            decimal price = 65000m;
-            DateTime current = startUtc;
-
-            while (current <= endUtc)
-            {
-                decimal change = (decimal)(rand.NextDouble() * 400 - 190);
-                decimal open = price;
-                decimal close = Math.Max(1000m, open + change);
-                decimal high = Math.Max(open, close) + (decimal)(rand.NextDouble() * 80);
-                decimal low = Math.Min(open, close) - (decimal)(rand.NextDouble() * 80);
-                decimal volume = (decimal)(rand.NextDouble() * 500 + 50);
-
-                list.Add(new MarketKline
-                {
-                    Symbol = symbol,
-                    Interval = interval,
-                    OpenTime = current,
-                    CloseTime = current.AddMinutes(intervalMinutes),
-                    Open = open,
-                    High = high,
-                    Low = low,
-                    Close = close,
-                    Volume = volume,
-                    QuoteVolume = volume * close,
-                    TradesCount = rand.Next(500, 3000),
-                    IsClosed = true
-                });
-
-                price = close;
-                current = current.AddMinutes(intervalMinutes);
-            }
-
-            return list;
         }
 
         #endregion
@@ -716,6 +689,8 @@ namespace WinFormsApp
         {
             StopReplay();
             _trendLineStrategy?.Unbind();
+            _rawKlineCursor?.Dispose();
+            _rawTickCursor?.Dispose();
             _dataProvider?.Dispose();
             base.OnFormClosing(e);
         }

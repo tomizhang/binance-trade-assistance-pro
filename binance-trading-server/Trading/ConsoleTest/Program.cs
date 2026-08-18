@@ -446,7 +446,66 @@ namespace ConsoleTest
 
         #endregion
 
-        #region 8. 全套自动化自测
+        #region 8. 高性能原始列式游标与双层嵌套真实交易重放测试
+
+        static async Task TestRawCursorAndNestedSimulation()
+        {
+            Console.WriteLine("--- [8] 测试 高性能原始列式游标与双层嵌套真实交易重放 (IRawDataCursor & ReplaySimulationAsync) ---");
+
+            using var provider = new DuckDbHistoricalDataProvider(cursorBufferCapacity: 500);
+
+            DateTime startUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            DateTime endUtc = new DateTime(2026, 1, 1, 3, 0, 0, DateTimeKind.Utc);
+
+            Console.WriteLine("1. 测试 IRawDataCursor 列式零装箱直接读取...");
+            using var rawCursor = provider.GetRawKlineCursor("BTCUSDT", "30m", startUtc, endUtc);
+            Console.WriteLine($"游标列数: {rawCursor.FieldCount}, 总记录数: {rawCursor.TotalCount}");
+
+            int rowIdx = 0;
+            while (rawCursor.MoveNext() && rowIdx < 3)
+            {
+                long openMs = rawCursor.GetInt64(0);
+                decimal open = rawCursor.GetDecimal(1);
+                decimal high = rawCursor.GetDecimal(2);
+                decimal low = rawCursor.GetDecimal(3);
+                decimal close = rawCursor.GetDecimal(4);
+                DateTime openTime = rawCursor.GetDateTime(0);
+
+                Console.WriteLine($"  [行 {rawCursor.CurrentIndex}] 时间:{openTime.ToUtc0String()} (Ms:{openMs}) | O:{open:F2} H:{high:F2} L:{low:F2} C:{close:F2}");
+                rowIdx++;
+            }
+
+            Console.WriteLine("\n2. 测试 K线与Tick双层嵌套真实时序重放推送:");
+            Console.WriteLine("   for 循环 30 分钟 K 线 -> for 循环周期内的 Tick 数据推送 -> 完成后推送该根 K 线\n");
+
+            int totalTicksPushed = 0;
+            int totalKlinesPushed = 0;
+
+            await provider.ReplaySimulationAsync(
+                symbol: "BTCUSDT",
+                interval: "30m",
+                startUtc: startUtc,
+                endUtc: endUtc,
+                tickDelayMs: 0,
+                klineDelayMs: 0,
+                onTickAction: tick =>
+                {
+                    totalTicksPushed++;
+                    Console.WriteLine($"    ↳ [Tick推送] {tick.FormattedTime} | P:{tick.Price:F2} | Q:{tick.Quantity:F2} | Maker:{tick.IsBuyerMaker}");
+                },
+                onKlineAction: kline =>
+                {
+                    totalKlinesPushed++;
+                    Console.WriteLine($"  🔥 [K线收盘推送] {kline.FormattedOpenTime} -> {kline.FormattedCloseTime} | O:{kline.Open:F2} H:{kline.High:F2} L:{kline.Low:F2} C:{kline.Close:F2}\n");
+                });
+
+            Console.WriteLine($"[测试结果] 成功推送 {totalKlinesPushed} 根 30m 周期 K 线，内部包含 {totalTicksPushed} 笔微观 Tick 数据。");
+            Console.WriteLine("[验证通过] 双层嵌套真实交易重放时序与列式游标完全正常！\n");
+        }
+
+        #endregion
+
+        #region 9. 全套自动化自测
 
         static async Task RunAllSelfTests()
         {

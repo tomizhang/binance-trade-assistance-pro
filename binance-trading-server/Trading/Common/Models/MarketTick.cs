@@ -26,6 +26,20 @@ namespace Common.Models
 
         public bool IsBestMatch { get; set; } = true;
 
+        #region 时间戳属性 (UTC+0 Unix 毫秒/秒时间戳)
+
+        /// <summary>
+        /// 成交 Unix 毫秒时间戳 (UTC)
+        /// </summary>
+        public long TimeMs => TimeHelper.ToUnixTimeMilliseconds(Time);
+
+        /// <summary>
+        /// 成交 Unix 秒时间戳 (UTC)
+        /// </summary>
+        public long TimeSeconds => TimeHelper.ToUnixTimeSeconds(Time);
+
+        #endregion
+
         #region UI/用户层按需格式化辅助属性 (零预先格式化开销)
 
         public string FormattedTime => Time.ToUtc0String();
@@ -92,8 +106,7 @@ namespace Common.Models
 
         public override string ToString()
         {
-            string direction = IsBuyerMaker ? "SELL" : "BUY";
-            return $"[{Symbol} Tick] {FormattedTime} Id:{TradeId} P:{Price} Q:{Quantity} Dir:{direction}";
+            return $"[{Symbol} Tick] {FormattedTime} P:{Price} Q:{Quantity} Maker:{IsBuyerMaker}";
         }
     }
 }

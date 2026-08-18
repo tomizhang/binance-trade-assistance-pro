@@ -1,5 +1,6 @@
 using Binance.Net.Enums;
 using Common.Cursor;
+using Common.Helper;
 using Common.Interfaces;
 using Common.Models;
 using Common.Storage;
@@ -12,6 +13,7 @@ namespace Common.Providers
 {
     /// <summary>
     /// 基于 DuckDB 的历史回测与重放数据提供者 (实现 IMarketDataProvider 统一接口)
+    /// 支持列式高性能游标与 K线/Tick 双层嵌套交易真实模拟
     /// </summary>
     public class DuckDbHistoricalDataProvider : IMarketDataProvider
     {
@@ -25,13 +27,13 @@ namespace Common.Providers
 
         public bool IsRunning => _isRunning;
 
-        public DuckDbHistoricalDataProvider(int cursorBufferCapacity = 100)
+        public DuckDbHistoricalDataProvider(int cursorBufferCapacity = 500)
         {
             _dataEngine = new DuckDbDataEngine();
             _cursorBufferCapacity = cursorBufferCapacity;
         }
 
-        #region 游标拉取模式 (按需切片加载并以 100 条双向缓存提供)
+        #region 游标拉取模式 (按需切片加载并以双向缓存提供)
 
         public ICursor<MarketKline> GetKlineCursor(string symbol, KlineInterval interval, DateTime startUtc, DateTime endUtc)
         {
@@ -52,24 +54,110 @@ namespace Common.Providers
 
         #endregion
 
-        #region 事件推送与回测重放驱动
+        #region 🌟 高性能列式游标 (零装箱与零 ToString 分配)
+
+        public IRawDataCursor GetRawKlineCursor(string symbol, string interval, DateTime startUtc, DateTime endUtc)
+        {
+            var klines = _dataEngine.LoadKlines(symbol, interval, startUtc, endUtc);
+            return new RawMarketDataCursor(klines);
+        }
+
+        public IRawDataCursor GetRawTickCursor(string symbol, DateTime startUtc, DateTime endUtc)
+        {
+            var trades = _dataEngine.LoadTrades(symbol, startUtc, endUtc);
+            return new RawMarketDataCursor(trades);
+        }
+
+        #endregion
+
+        #region 🌟 真实交易仿真：周期 K 线与 Tick 双层嵌套重放推流
 
         /// <summary>
-        /// 异步顺序回放 K 线数据至 OnKline 事件 (供策略事件驱动回测)
+        /// 按照真实交易时序进行周期K线与微观Tick双层嵌套重放与推送：
+        /// 遍历每根周期K线 (如30分钟)：
+        ///   for 循环该周期的 tick 数据 -> 执行推送 tick (OnTick)
+        ///   完成 tick 推送后推送周期 K 线 (OnKline) 以模拟真实交易收盘
         /// </summary>
-        public async Task ReplayKlinesAsync(string symbol, string interval, DateTime startUtc, DateTime endUtc, int delayMs = 0, CancellationToken token = default)
+        public async Task ReplaySimulationAsync(
+            string symbol,
+            string interval,
+            DateTime startUtc,
+            DateTime endUtc,
+            int tickDelayMs = 0,
+            int klineDelayMs = 0,
+            CancellationToken token = default,
+            Action<MarketTick>? onTickAction = null,
+            Action<MarketKline>? onKlineAction = null)
         {
-            var cursor = GetKlineCursor(symbol, interval, startUtc, endUtc);
             _isRunning = true;
-
             try
             {
-                while (cursor.MoveNext() && !token.IsCancellationRequested)
+                using var klineCursor = GetRawKlineCursor(symbol, interval, startUtc, endUtc);
+                using var tickCursor = GetRawTickCursor(symbol, startUtc, endUtc);
+
+                // 🌟 1. 遍历每根周期 K 线 (如 30 分钟)
+                while (klineCursor.MoveNext() && !token.IsCancellationRequested)
                 {
-                    OnKline?.Invoke(cursor.Current);
-                    if (delayMs > 0)
+                    var kline = klineCursor.ReadCurrentKline(symbol, interval);
+                    long klineOpenMs = kline.OpenTimeMs;
+                    long klineCloseMs = kline.CloseTimeMs;
+
+                    bool foundAnyTick = false;
+
+                    // 🌟 2. for 循环该周期的 tick 数据并执行推送
+                    while (tickCursor.MoveNext() && !token.IsCancellationRequested)
                     {
-                        await Task.Delay(delayMs, token).ConfigureAwait(false);
+                        long tickTimeMs = tickCursor.GetInt64(4); // 4 为 trade_time
+
+                        if (tickTimeMs < klineOpenMs)
+                        {
+                            continue;
+                        }
+
+                        if (tickTimeMs > klineCloseMs)
+                        {
+                            tickCursor.MovePrevious();
+                            break;
+                        }
+
+                        foundAnyTick = true;
+                        var tick = tickCursor.ReadCurrentTick(symbol);
+
+                        // 执行推送 tick
+                        OnTick?.Invoke(tick);
+                        onTickAction?.Invoke(tick);
+
+                        if (tickDelayMs > 0)
+                        {
+                            await Task.Delay(tickDelayMs, token).ConfigureAwait(false);
+                        }
+                    }
+
+                    // 若本周期内无本地物理 Tick 记录，按形态 (Open->High->Low->Close) 仿真生成微观 Tick 序列
+                    if (!foundAnyTick)
+                    {
+                        var subTicks = GenerateSubTicks(kline);
+                        foreach (var subTick in subTicks)
+                        {
+                            if (token.IsCancellationRequested) break;
+
+                            OnTick?.Invoke(subTick);
+                            onTickAction?.Invoke(subTick);
+
+                            if (tickDelayMs > 0)
+                            {
+                                await Task.Delay(tickDelayMs, token).ConfigureAwait(false);
+                            }
+                        }
+                    }
+
+                    // 🌟 3. 完成 tick 推送后推送周期 K 线以模拟真实交易收盘
+                    OnKline?.Invoke(kline);
+                    onKlineAction?.Invoke(kline);
+
+                    if (klineDelayMs > 0)
+                    {
+                        await Task.Delay(klineDelayMs, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -79,30 +167,68 @@ namespace Common.Providers
             }
         }
 
-        /// <summary>
-        /// 异步顺序回放 Tick/Trade 数据至 OnTick 事件
-        /// </summary>
-        public async Task ReplayTicksAsync(string symbol, DateTime startUtc, DateTime endUtc, int delayMs = 0, CancellationToken token = default)
+        private static List<MarketTick> GenerateSubTicks(MarketKline kline)
         {
-            var cursor = GetTickCursor(symbol, startUtc, endUtc);
-            _isRunning = true;
+            var ticks = new List<MarketTick>(5);
+            long stepMs = Math.Max(1000, (kline.CloseTimeMs - kline.OpenTimeMs) / 5);
 
-            try
+            // Tick 1: 开盘价
+            ticks.Add(new MarketTick
             {
-                while (cursor.MoveNext() && !token.IsCancellationRequested)
-                {
-                    OnTick?.Invoke(cursor.Current);
-                    if (delayMs > 0)
-                    {
-                        await Task.Delay(delayMs, token).ConfigureAwait(false);
-                    }
-                }
-            }
-            finally
+                Symbol = kline.Symbol,
+                Time = kline.OpenTime,
+                Price = kline.Open,
+                Quantity = kline.Volume / 5m,
+                IsBuyerMaker = false
+            });
+
+            // Tick 2: 最高价
+            ticks.Add(new MarketTick
             {
-                _isRunning = false;
-            }
+                Symbol = kline.Symbol,
+                Time = kline.OpenTime.AddMilliseconds(stepMs),
+                Price = kline.High,
+                Quantity = kline.Volume / 5m,
+                IsBuyerMaker = false
+            });
+
+            // Tick 3: 最低价
+            ticks.Add(new MarketTick
+            {
+                Symbol = kline.Symbol,
+                Time = kline.OpenTime.AddMilliseconds(stepMs * 2),
+                Price = kline.Low,
+                Quantity = kline.Volume / 5m,
+                IsBuyerMaker = true
+            });
+
+            // Tick 4: 收盘前价格
+            decimal midPrice = (kline.High + kline.Low) / 2m;
+            ticks.Add(new MarketTick
+            {
+                Symbol = kline.Symbol,
+                Time = kline.OpenTime.AddMilliseconds(stepMs * 3),
+                Price = midPrice,
+                Quantity = kline.Volume / 5m,
+                IsBuyerMaker = false
+            });
+
+            // Tick 5: 收盘价
+            ticks.Add(new MarketTick
+            {
+                Symbol = kline.Symbol,
+                Time = kline.CloseTime,
+                Price = kline.Close,
+                Quantity = kline.Volume / 5m,
+                IsBuyerMaker = true
+            });
+
+            return ticks;
         }
+
+        #endregion
+
+        #region 生命周期控制
 
         public Task StartAsync(CancellationToken cancellationToken = default)
         {
@@ -118,12 +244,13 @@ namespace Common.Providers
             return Task.CompletedTask;
         }
 
-        #endregion
-
         public void Dispose()
         {
             StopAsync().Wait();
             _dataEngine?.Dispose();
+            _replayCts?.Dispose();
         }
+
+        #endregion
     }
 }
