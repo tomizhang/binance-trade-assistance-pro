@@ -7,32 +7,35 @@ namespace Common.Strategies
 {
     /// <summary>
     /// 趋势线 Tick 级别穿透回弹交易策略 (在 Tick 中精准计算穿透、回弹与即刻消失逻辑)
-    /// 规则：
-    /// 1. 每当周期 K 线结束/更新时，使用 PivotPoint 计算高低点并由 TrendLineHelper 拟合生成趋势线；
-    /// 2. 趋势线必须满足：跨度 LineX1X2 > 40 且 寿命 LineAge > 4，且在历史 K 线中未被穿过；
-    /// 3. 在 Tick 中实时计算穿过与消失逻辑：
-    ///    - 若 Tick 向下穿过支撑/阻力趋势线：
-    ///      * 5 个 Tick 内回弹向上 -> 触发 做多 (Buy) 信号，并将该趋势线【立即删除消失】；
-    ///      * 超过 5 个 Tick 未回弹 -> 判定为有效击穿失效，将该趋势线【立即删除消失】；
-    ///    - 若 Tick 向上穿过趋势线：
-    ///      * 5 个 Tick 内回落向下 -> 触发 做空 (Sell) 信号，并将该趋势线【立即删除消失】；
-    ///      * 超过 5 个 Tick 未回落 -> 判定为有效击穿失效，将该趋势线【立即删除消失】；
-    ///    - 被 Tick 穿透删除后的趋势线会被永久记录，在后续 K 线周期中不会再次重新生成复活；
-    /// 4. 提供 GetAllValidTrendLines() 方法与 OnTrendLinesUpdated 事件，实时发回所有有效趋势线供图表展示。
+    /// 核心规则：
+    /// 1. 生成趋势线时（OnKline）无参数限制，全量生成所有几何趋势线，但自动剔除已被穿透销毁及历史延伸已碰撞穿透的线；
+    /// 2. 在 OnTick 阶段严格执行【穿过删除逻辑】：
+    ///    - 若趋势线符合策略参数（LineX1X2, LineAge, TotalAge）：
+    ///      * 穿透后在 ReboundTicksWindow 个 Tick 内回弹 -> 触发买/卖信号，并立即删除销毁该线；
+    ///      * 穿透后超过 ReboundTicksWindow 个 Tick 未回弹 -> 判定击穿失效，并立即删除销毁该线；
+    ///    - 若趋势线未达策略参数要求（普通监控线）：
+    ///      * 一旦被 Tick 价格穿过，立即执行穿过删除销毁逻辑；
+    /// 3. 被穿透删除后的趋势线会被永久记录，在后续 K 线周期中不会再次重新生成复活；
+    /// 4. 提供 GetAllValidTrendLines()、Peaks、Valleys 等属性供图表直接呈现。
     /// </summary>
     public class TrendLineReboundStrategy : StrategyBase
     {
-        #region 策略可配置参数
+        #region 策略执行可配置过滤参数 (在 OnTick 阶段生效)
 
         /// <summary>
-        /// 趋势线最小跨度约束 (X2 - X1 > MinLineX1X2)
+        /// 趋势线策略触发最小跨度约束 (X2 - X1 >= MinLineX1X2)
         /// </summary>
-        public int MinLineX1X2 { get; set; } = 40;
+        public int MinLineX1X2 { get; set; } = 10;
 
         /// <summary>
-        /// 趋势线最小寿命约束 (latestIndex - X2 > MinLineAge)
+        /// 趋势线策略触发最小寿命约束 (latestIndex - X2 >= MinLineAge)
         /// </summary>
         public int MinLineAge { get; set; } = 3;
+
+        /// <summary>
+        /// 趋势线策略触发最小总长度约束 (latestIndex - X1 >= MinTotalAge)
+        /// </summary>
+        public int MinTotalAge { get; set; } = 0;
 
         /// <summary>
         /// 穿透后要求回弹的最大 Tick 计数窗口 (默认 5 个 tick 内)
@@ -50,9 +53,9 @@ namespace Common.Strategies
         public int PivotRightLen { get; set; } = 2;
 
         /// <summary>
-        /// 生成趋势线时的最大跨度 (至少保留500根K线跨度)
+        /// 生成趋势线时的最大拟合跨度 (默认 1000 根K线)
         /// </summary>
-        public int MaxSpan { get; set; } = 500;
+        public int MaxSpan { get; set; } = 1000;
 
         #endregion
 
@@ -66,7 +69,6 @@ namespace Common.Strategies
         /// <summary>
         /// 🌟 获取当前策略监控中的所有有效存活趋势线列表 (供图表直接呈现)
         /// </summary>
-        /// <returns>当前未被穿透且符合跨度/寿命约束的所有有效趋势线快照</returns>
         public IReadOnlyList<TrendLine> GetAllValidTrendLines()
         {
             lock (_stateLock)
@@ -83,7 +85,6 @@ namespace Common.Strategies
         /// <summary>
         /// 🌟 分类获取当前策略监控中的有效阻力趋势线与有效支撑趋势线
         /// </summary>
-        /// <returns>元组：(有效阻力趋势线列表, 有效支撑趋势线列表)</returns>
         public (IReadOnlyList<TrendLine> ResistanceLines, IReadOnlyList<TrendLine> SupportLines) GetValidTrendLinesCategorized()
         {
             lock (_stateLock)
@@ -119,7 +120,7 @@ namespace Common.Strategies
         private decimal? _lastTickPrice;
 
         /// <summary>
-        /// 🌟 获取策略当前计算识别的所有波峰高点集合 (供 WinForm 图表直接呈现，WinForm 无需自行计算)
+        /// 🌟 获取策略当前计算识别的所有波峰高点集合 (供 WinForm 图表直接呈现)
         /// </summary>
         public IReadOnlyList<PivotPoint> Peaks
         {
@@ -170,8 +171,9 @@ namespace Common.Strategies
         public TrendLineReboundStrategy(
             string symbol = "BTCUSDT",
             string interval = "30m",
-            int minLineX1X2 = 3,
-            int minLineAge = 0,
+            int minLineX1X2 = 10,
+            int minLineAge = 3,
+            int minTotalAge = 0,
             int reboundTicksWindow = 5,
             int bufferCapacity = 2000,
             int maxSpan = 1000)
@@ -181,11 +183,12 @@ namespace Common.Strategies
             PivotRightLen = 2;
             MinLineX1X2 = minLineX1X2;
             MinLineAge = minLineAge;
+            MinTotalAge = minTotalAge;
             ReboundTicksWindow = reboundTicksWindow;
             MaxSpan = maxSpan;
         }
 
-        #region 1. 周期 K 线结束/更新时：计算 PivotPoint 并生成未被穿透/销毁的有效趋势线
+        #region 1. 周期 K 线结束/更新时：无参数限制生成有效几何趋势线 (排除历史穿透线)
 
         protected override void OnKline(MarketKline kline, IReadOnlyList<MarketKline> klineHistory)
         {
@@ -196,14 +199,14 @@ namespace Common.Strategies
 
             int currentIndex = klineHistory.Count - 1;
 
-            // 1. 使用 PivotPoint 计算高低点 (波峰与波谷)
+            // 1. 使用 PivotPoint 计算全部高低极值点 (波峰与波谷)
             var (peaks, valleys) = PivotHelper.CalculatePeaks(klineHistory, PivotLeftLen, PivotRightLen);
 
-            // 2. 使用 TrendLineHelper 拟合生成趋势线 (支持高达 1000 根跨度)
-            var (resistanceLines, supportLines) = TrendLineHelper.GenerateTrendLines(klineHistory, peaks, valleys, maxSpan: MaxSpan, allowInternalPenetration: false);
+            // 2. 🌟 生成全部趋势线 (无参数限制，全量拟合生成)
+            var (resistanceLines, supportLines) = TrendLineHelper.GenerateTrendLines(
+                klineHistory, peaks, valleys, maxSpan: MaxSpan, allowInternalPenetration: false);
 
-            // 3. 筛选满足条件且未被 Tick 穿透销毁的存活趋势线
-            var qualifiedLines = new List<TrendLine>();
+            var allGeneratedLines = new List<TrendLine>(resistanceLines.Count + supportLines.Count);
 
             lock (_stateLock)
             {
@@ -212,36 +215,28 @@ namespace Common.Strategies
                 _valleys.Clear();
                 _valleys.AddRange(valleys);
 
+                // 🌟 生成趋势线无参数限制，仅排除已被穿透销毁或历史已碰撞穿透的线
                 foreach (var line in resistanceLines)
                 {
                     string lineKey = GetLineKey(line);
-                    // 仅排除已被 Tick 穿透并触发销毁的线
-                    if (_destroyedLineKeys.Contains(lineKey))
+                    if (_destroyedLineKeys.Contains(lineKey) || line.CollidedKlineIndex != -1)
                     {
                         continue;
                     }
-
-                    if (line.LineX1X2 >= MinLineX1X2 && line.LineAge >= MinLineAge)
-                    {
-                        qualifiedLines.Add(line);
-                    }
+                    allGeneratedLines.Add(line);
                 }
 
                 foreach (var line in supportLines)
                 {
                     string lineKey = GetLineKey(line);
-                    if (_destroyedLineKeys.Contains(lineKey))
+                    if (_destroyedLineKeys.Contains(lineKey) || line.CollidedKlineIndex != -1)
                     {
                         continue;
                     }
-
-                    if (line.LineX1X2 >= MinLineX1X2 && line.LineAge >= MinLineAge)
-                    {
-                        qualifiedLines.Add(line);
-                    }
+                    allGeneratedLines.Add(line);
                 }
 
-                // 4. 同步更新 Tick 跟踪器状态列表 (保留已有跟踪器的状态，追加新趋势线)
+                // 3. 同步更新 Tick 跟踪器状态列表 (保留已有跟踪器的状态，追加新趋势线)
                 var existingMap = new Dictionary<string, TrendLineTracker>();
                 foreach (var t in _activeTrackers)
                 {
@@ -249,7 +244,7 @@ namespace Common.Strategies
                 }
 
                 _activeTrackers.Clear();
-                foreach (var line in qualifiedLines)
+                foreach (var line in allGeneratedLines)
                 {
                     string key = GetLineKey(line);
                     if (existingMap.TryGetValue(key, out var existingTracker))
@@ -263,15 +258,13 @@ namespace Common.Strategies
                 }
             }
 
-            //Log($"[K线周期更新] 识别波峰:{peaks.Count}个, 波谷:{valleys.Count}个 | 保留存活趋势线: {qualifiedLines.Count} 条 (已排除被穿过销毁的线)");
-
-            // 🌟 触发趋势线列表更新事件，发回最新所有有效趋势线
+            // 🌟 触发趋势线列表更新事件，发回最新所有有效存活趋势线
             NotifyTrendLinesUpdated();
         }
 
         #endregion
 
-        #region 2. 逐笔 Tick 到达时：精准计算穿过与消失逻辑
+        #region 2. 逐笔 Tick 到达时：严格遵循穿透删除与回弹信号逻辑
 
         protected override void OnTick(MarketTick tick, IReadOnlyList<MarketTick> tickHistory)
         {
@@ -287,7 +280,7 @@ namespace Common.Strategies
 
                 int currentIndex = KlineHistory.Count > 0 ? KlineHistory.Count - 1 : 0;
 
-                // 倒序遍历以支持在循环中高效删除穿过消失的趋势线
+                // 倒序遍历以支持在循环中高效处理穿透与删除
                 for (int i = _activeTrackers.Count - 1; i >= 0; i--)
                 {
                     var tracker = _activeTrackers[i];
@@ -296,25 +289,48 @@ namespace Common.Strategies
                     // 计算当前趋势线在当前 K 线索引位置的基准价格
                     decimal linePrice = line.GetPriceAt(currentIndex);
 
+                    // 🌟 在 OnTick 执行策略时判定是否满足交易参数
+                    bool qualifiesForStrategy = line.LineX1X2 >= MinLineX1X2 &&
+                                                line.LineAge >= MinLineAge &&
+                                                line.TotalAge >= MinTotalAge;
+
                     if (!tracker.IsPenetrated)
                     {
                         // 场景 A: 之前价格在线上方，当前 Tick 跌破趋势线 (向下穿透)
                         if (prevPrice >= linePrice && currentPrice < linePrice)
                         {
-                            tracker.IsPenetrated = true;
-                            tracker.PenetrationDirection = -1; // -1 代表向下穿透
-                            tracker.TicksSincePenetration = 0;
-                            tracker.PenetrationPrice = currentPrice;
-                            tracker.HasTriggered = false;
+                            if (qualifiesForStrategy)
+                            {
+                                tracker.IsPenetrated = true;
+                                tracker.PenetrationDirection = -1; // -1 代表向下穿透
+                                tracker.TicksSincePenetration = 0;
+                                tracker.PenetrationPrice = currentPrice;
+                                tracker.HasTriggered = false;
+                            }
+                            else
+                            {
+                                // 🌟 未达策略参数的趋势线一旦被穿透，立即执行穿过删除消失逻辑
+                                DeleteTrackerAt(i);
+                                linesChanged = true;
+                            }
                         }
                         // 场景 B: 之前价格在线下方，当前 Tick 突破趋势线 (向上穿透)
                         else if (prevPrice <= linePrice && currentPrice > linePrice)
                         {
-                            tracker.IsPenetrated = true;
-                            tracker.PenetrationDirection = 1; // 1 代表向上穿透
-                            tracker.TicksSincePenetration = 0;
-                            tracker.PenetrationPrice = currentPrice;
-                            tracker.HasTriggered = false;
+                            if (qualifiesForStrategy)
+                            {
+                                tracker.IsPenetrated = true;
+                                tracker.PenetrationDirection = 1; // 1 代表向上穿透
+                                tracker.TicksSincePenetration = 0;
+                                tracker.PenetrationPrice = currentPrice;
+                                tracker.HasTriggered = false;
+                            }
+                            else
+                            {
+                                // 🌟 未达策略参数的趋势线一旦被穿透，立即执行穿过删除消失逻辑
+                                DeleteTrackerAt(i);
+                                linesChanged = true;
+                            }
                         }
                     }
                     else
@@ -324,7 +340,7 @@ namespace Common.Strategies
 
                         if (tracker.TicksSincePenetration <= ReboundTicksWindow && !tracker.HasTriggered)
                         {
-                            // 规则 1: 向下穿过趋势线，并在 5 个 Tick 内回弹向上 (做多 / Buy)
+                            // 规则 1: 向下穿过趋势线，并在设定 Tick 窗口内回弹向上 (做多 / Buy)
                             if (tracker.PenetrationDirection == -1 && currentPrice >= linePrice)
                             {
                                 decimal stopLoss = tracker.PenetrationPrice * 0.995m;
@@ -334,7 +350,7 @@ namespace Common.Strategies
                                     SignalType.Buy,
                                     currentPrice,
                                     quantity: 1,
-                                    reason: $"Tick向下穿过趋势线并在 {tracker.TicksSincePenetration} 个Tick内回弹向上做多 (LineX1X2:{line.LineX1X2} > {MinLineX1X2}, LineAge:{line.LineAge} > {MinLineAge})",
+                                    reason: $"Tick向下穿过趋势线并在 {tracker.TicksSincePenetration} 个Tick内回弹向上做多 (LineX1X2:{line.LineX1X2}>={MinLineX1X2}, LineAge:{line.LineAge}>={MinLineAge}, TotalAge:{line.TotalAge}>={MinTotalAge})",
                                     stopLoss: stopLoss,
                                     takeProfit: takeProfit,
                                     extra: line);
@@ -345,7 +361,7 @@ namespace Common.Strategies
                                 DeleteTrackerAt(i);
                                 linesChanged = true;
                             }
-                            // 规则 2: 向上穿过趋势线，并在 5 个 Tick 内回落向下 (做空 / Sell)
+                            // 规则 2: 向上穿过趋势线，并在设定 Tick 窗口内回落向下 (做空 / Sell)
                             else if (tracker.PenetrationDirection == 1 && currentPrice <= linePrice)
                             {
                                 decimal stopLoss = tracker.PenetrationPrice * 1.005m;
@@ -355,7 +371,7 @@ namespace Common.Strategies
                                     SignalType.Sell,
                                     currentPrice,
                                     quantity: 1,
-                                    reason: $"Tick向上穿过趋势线并在 {tracker.TicksSincePenetration} 个Tick内回落向下做空 (LineX1X2:{line.LineX1X2} > {MinLineX1X2}, LineAge:{line.LineAge} > {MinLineAge})",
+                                    reason: $"Tick向上穿过趋势线并在 {tracker.TicksSincePenetration} 个Tick内回落向下做空 (LineX1X2:{line.LineX1X2}>={MinLineX1X2}, LineAge:{line.LineAge}>={MinLineAge}, TotalAge:{line.TotalAge}>={MinTotalAge})",
                                     stopLoss: stopLoss,
                                     takeProfit: takeProfit,
                                     extra: line);
@@ -369,7 +385,7 @@ namespace Common.Strategies
                         }
                         else if (tracker.TicksSincePenetration > ReboundTicksWindow)
                         {
-                            // 🌟 超过 5 个 Tick 未发生有效回弹，判定趋势线被有效击穿，【立即从监控列表中删除消失】
+                            // 🌟 超过设定 Tick 未发生有效回弹，判定趋势线被有效击穿，【立即从监控列表中删除消失】
                             DeleteTrackerAt(i);
                             linesChanged = true;
                         }
@@ -422,7 +438,7 @@ namespace Common.Strategies
         {
             public TrendLine Line { get; }
             public bool IsPenetrated { get; set; }
-            public int PenetrationDirection { get; set; } // -1: 向下穿透, 1: 向上穿透
+            public int PenetrationDirection { get; set; }
             public int TicksSincePenetration { get; set; }
             public decimal PenetrationPrice { get; set; }
             public bool HasTriggered { get; set; }
@@ -433,7 +449,7 @@ namespace Common.Strategies
                 IsPenetrated = false;
                 PenetrationDirection = 0;
                 TicksSincePenetration = 0;
-                PenetrationPrice = 0;
+                PenetrationPrice = 0m;
                 HasTriggered = false;
             }
         }

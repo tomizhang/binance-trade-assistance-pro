@@ -116,12 +116,13 @@ namespace WinFormsApp
         {
             _trendLineStrategy?.Unbind();
 
-            // 🌟 初始化趋势线策略 (滑窗容量支持 2000 根，拟合跨度支持 1000 根，保留丰富趋势线)
+            // 🌟 初始化趋势线策略 (全量生成趋势线，在 OnTick 中使用策略过滤参数)
             _trendLineStrategy = new TrendLineReboundStrategy(
                 symbol: _currentSymbol,
                 interval: _currentInterval,
-                minLineX1X2: 3,
-                minLineAge: 0,
+                minLineX1X2: 10,
+                minLineAge: 3,
+                minTotalAge: 0,
                 reboundTicksWindow: 5,
                 bufferCapacity: 2000,
                 maxSpan: 1000);
