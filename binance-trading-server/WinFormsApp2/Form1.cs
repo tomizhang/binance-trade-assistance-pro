@@ -256,7 +256,7 @@ namespace WinFormsApp2
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("======================================================================");
             sb.AppendLine("📋 [系统参数配置总览 - 已全量加载]");
-            sb.AppendLine("----------------------------------------------------------------------");
+            sb.AppendLine($"▶ 数据根目录: [{Config.GetRootPath()}] (Parquet 时间分区树)");
             sb.AppendLine($"▶ 交易模式: {(_userSettings.IsLiveTrading ? "🟢 币安真实合约实盘下单" : "🟡 本地模拟挂单匹配 (Simulated)")}");
             sb.AppendLine($"▶ API 凭证状态: {(string.IsNullOrWhiteSpace(_userSettings.ApiKey) ? "❌ 未配置" : "✅ 已设置 (" + _userSettings.ApiKey.Length + " 位)")}");
             sb.AppendLine($"▶ 企业微信推送: {(_userSettings.EnableWeComNotification ? "🟢 已启用 (Webhook 机器人就绪)" : "⚪ 已停用")}");
@@ -697,7 +697,60 @@ namespace WinFormsApp2
                     }
                 }
 
-                // C. 绘制延伸趋势线 (基于 Time1/Time2 严格匹配视口 K 线，100% 坐标精准)
+                // C. 绘制延伸趋势线 (基于 Time1/Time2 严格匹配视口 K 线，未触发的显示淡红/淡绿，触发策略开仓的趋势线显示为黑色)
+                TrendLineStrategy activeStrategy = _strategy;
+                EventContractStrategy activeEventStrategy = _eventStrategy;
+                if (_multiSymbolPipeline.IsRunning && !string.IsNullOrEmpty(_currentSymbol))
+                {
+                    var ctx = _multiSymbolPipeline.GetContext(_currentSymbol);
+                    if (ctx != null)
+                    {
+                        activeStrategy = ctx.Strategy;
+                        activeEventStrategy = ctx.EventStrategy;
+                    }
+                }
+
+                // 收集触发策略开仓的趋势线特征集合
+                HashSet<(DateTime, DateTime, PivotType)> triggeredLineKeys = new HashSet<(DateTime, DateTime, PivotType)>();
+                List<TrendLine> triggeredTrendLinesList = new List<TrendLine>();
+
+                void AddTriggeredLine(TrendLine? line)
+                {
+                    if (line.HasValue)
+                    {
+                        var tl = line.Value;
+                        if (triggeredLineKeys.Add((tl.Time1, tl.Time2, tl.Type)))
+                        {
+                            triggeredTrendLinesList.Add(tl);
+                        }
+                    }
+                }
+
+                if (activeStrategy.CurrentTrade?.TriggeredTrendLine != null)
+                {
+                    AddTriggeredLine(activeStrategy.CurrentTrade.TriggeredTrendLine);
+                }
+                if (activeStrategy.Trades.Count > 0)
+                {
+                    foreach (var tr in activeStrategy.Trades)
+                    {
+                        AddTriggeredLine(tr.TriggeredTrendLine);
+                    }
+                }
+                if (activeEventStrategy.CurrentContract?.TriggeredTrendLine != null)
+                {
+                    AddTriggeredLine(activeEventStrategy.CurrentContract.TriggeredTrendLine);
+                }
+                if (activeEventStrategy.Contracts.Count > 0)
+                {
+                    foreach (var ec in activeEventStrategy.Contracts)
+                    {
+                        AddTriggeredLine(ec.TriggeredTrendLine);
+                    }
+                }
+
+                HashSet<(DateTime, DateTime, PivotType)> drawnLineKeys = new HashSet<(DateTime, DateTime, PivotType)>();
+
                 if (_currentActiveTrendLines != null && _currentActiveTrendLines.Count > 0)
                 {
                     ScottPlot.Color extraLightRed = ScottPlot.Color.FromHex("#45FF8080");   // 超淡柔和红
@@ -723,10 +776,52 @@ namespace WinFormsApp2
                             double x2 = displayCount - 1;
                             double y2 = (double)tl.GetPriceAt(displayCount - 1);
 
+                            bool isTriggered = triggeredLineKeys.Contains((tl.Time1, tl.Time2, tl.Type));
+                            drawnLineKeys.Add((tl.Time1, tl.Time2, tl.Type));
+
                             var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
-                            linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
-                            linePlot.LineWidth = 0.8f;
+                            if (isTriggered)
+                            {
+                                // 触发策略开仓的趋势线：修改为黑色 (黑线标定, 宽度 1.5f)
+                                linePlot.Color = ScottPlot.Colors.Black;
+                                linePlot.LineWidth = 1.5f;
+                            }
+                            else
+                            {
+                                linePlot.Color = tl.Type == PivotType.High ? extraLightRed : extraLightGreen;
+                                linePlot.LineWidth = 0.8f;
+                            }
                         }
+                    }
+                }
+
+                // 2. 补画历史已触发但已从当前活跃列表中移出的触发趋势线 (全量以黑色呈现)
+                for (int i = 0; i < triggeredTrendLinesList.Count; i++)
+                {
+                    var tl = triggeredTrendLinesList[i];
+                    if (drawnLineKeys.Contains((tl.Time1, tl.Time2, tl.Type))) continue;
+
+                    int localX1 = -1;
+                    int localX2 = -1;
+
+                    for (int k = 0; k < displayCount; k++)
+                    {
+                        DateTime kTime = _displayKlinesBuffer[k].OpenTime;
+                        if (kTime == tl.Time1) localX1 = k;
+                        if (kTime == tl.Time2) localX2 = k;
+                    }
+
+                    if (localX2 >= 0)
+                    {
+                        if (localX1 < 0) localX1 = 0;
+                        double x1 = localX1;
+                        double y1 = (double)tl.GetPriceAt(localX1);
+                        double x2 = displayCount - 1;
+                        double y2 = (double)tl.GetPriceAt(displayCount - 1);
+
+                        var linePlot = formsPlot1.Plot.Add.Line(x1, y1, x2, y2);
+                        linePlot.Color = ScottPlot.Colors.Black;
+                        linePlot.LineWidth = 1.5f;
                     }
                 }
 
@@ -762,16 +857,6 @@ namespace WinFormsApp2
                 }
 
                 // E. 策略开仓与平仓图表标注 (按 K线 OpenTime / TickTime 全时区多维精准匹配，并采用小段横线清晰标定)
-                TrendLineStrategy activeStrategy = _strategy;
-                if (_multiSymbolPipeline.IsRunning && !string.IsNullOrEmpty(_currentSymbol))
-                {
-                    var ctx = _multiSymbolPipeline.GetContext(_currentSymbol);
-                    if (ctx != null)
-                    {
-                        activeStrategy = ctx.Strategy;
-                    }
-                }
-
                 if (_isStrategyEnabled && activeStrategy.Trades.Count > 0)
                 {
                     for (int i = activeStrategy.Trades.Count - 1; i >= 0; i--)
@@ -830,6 +915,66 @@ namespace WinFormsApp2
                         var activeRay = formsPlot1.Plot.Add.Line(
                             localEntryX, (double)activeStrategy.CurrentEntryPrice,
                             displayCount - 1, (double)activeStrategy.CurrentEntryPrice);
+                        activeRay.LineWidth = 0.8f;
+                        activeRay.LinePattern = ScottPlot.LinePattern.Dashed;
+                        activeRay.Color = ScottPlot.Color.FromHex("#90000000");
+                    }
+                }
+
+                // E2. 事件合约开仓与平仓图表标注
+                if (chkEnableEventContract.Checked && activeEventStrategy.Contracts.Count > 0)
+                {
+                    for (int i = activeEventStrategy.Contracts.Count - 1; i >= 0; i--)
+                    {
+                        var contract = activeEventStrategy.Contracts[i];
+                        int localEntryX = FindKlineIndexForTrade(contract.EntryTime, contract.EntryKlineOpenTime, _displayKlinesBuffer, displayCount);
+                        int localExitX = FindKlineIndexForTrade(contract.ExitTime, contract.ExitKlineOpenTime, _displayKlinesBuffer, displayCount);
+
+                        if (localEntryX >= 0 && localEntryX < displayCount)
+                        {
+                            var entryLine = formsPlot1.Plot.Add.Line(
+                                localEntryX - 0.45, (double)contract.EntryPrice,
+                                localEntryX + 0.45, (double)contract.EntryPrice);
+                            entryLine.LineWidth = 0.8f;
+                            entryLine.Color = ScottPlot.Colors.Black;
+                        }
+
+                        if (localExitX >= 0 && localExitX < displayCount)
+                        {
+                            var exitLine = formsPlot1.Plot.Add.Line(
+                                localExitX - 0.45, (double)contract.ExitPrice,
+                                localExitX + 0.45, (double)contract.ExitPrice);
+                            exitLine.LineWidth = 0.8f;
+                            exitLine.Color = ScottPlot.Colors.Orange;
+                        }
+
+                        if (localEntryX >= 0 && localExitX >= localEntryX && localExitX < displayCount)
+                        {
+                            var linkLine = formsPlot1.Plot.Add.Line(
+                                localEntryX, (double)contract.EntryPrice,
+                                localExitX, (double)contract.ExitPrice);
+                            linkLine.LineWidth = 0.8f;
+                            linkLine.LinePattern = ScottPlot.LinePattern.Dashed;
+                            linkLine.Color = contract.IsWin ? ScottPlot.Color.FromHex("#8000FF00") : ScottPlot.Color.FromHex("#80FF0000");
+                        }
+                    }
+                }
+
+                if (chkEnableEventContract.Checked && activeEventStrategy.CurrentPosition != PositionType.None && activeEventStrategy.CurrentContract != null)
+                {
+                    int localEntryX = FindKlineIndexForTrade(activeEventStrategy.CurrentEntryTime, activeEventStrategy.CurrentContract.EntryKlineOpenTime, _displayKlinesBuffer, displayCount);
+
+                    if (localEntryX >= 0 && localEntryX < displayCount)
+                    {
+                        var currentEntryLine = formsPlot1.Plot.Add.Line(
+                            localEntryX - 0.45, (double)activeEventStrategy.CurrentEntryPrice,
+                            localEntryX + 0.45, (double)activeEventStrategy.CurrentEntryPrice);
+                        currentEntryLine.LineWidth = 0.8f;
+                        currentEntryLine.Color = ScottPlot.Colors.Black;
+
+                        var activeRay = formsPlot1.Plot.Add.Line(
+                            localEntryX, (double)activeEventStrategy.CurrentEntryPrice,
+                            displayCount - 1, (double)activeEventStrategy.CurrentEntryPrice);
                         activeRay.LineWidth = 0.8f;
                         activeRay.LinePattern = ScottPlot.LinePattern.Dashed;
                         activeRay.Color = ScottPlot.Color.FromHex("#90000000");

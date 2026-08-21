@@ -45,6 +45,7 @@ namespace WinFormsApp2
         public DateTime EntryKlineOpenTime { get; set; }
         public DateTime EntryKlineCloseTime { get; set; }
         public decimal EntryTrendLinePrice { get; set; }
+        public TrendLine? TriggeredTrendLine { get; set; } // 触发开仓的趋势线
 
         public decimal ExitPrice { get; set; }
         public DateTime ExitTime { get; set; }
@@ -203,7 +204,7 @@ namespace WinFormsApp2
                 {
                     if (price > linePrice && _ticksSincePenetration <= 5)
                     {
-                        OpenContract(PositionType.Long, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice, symbol, $"支撑线假跌破收复-开多({Params.DurationMinutes}m)");
+                        OpenContract(PositionType.Long, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice, symbol, $"支撑线假跌破收复-开多({Params.DurationMinutes}m)", targetLine);
                         ResetPenetrationState();
                         return;
                     }
@@ -213,7 +214,7 @@ namespace WinFormsApp2
                 {
                     if (price < linePrice && _ticksSincePenetration <= 5)
                     {
-                        OpenContract(PositionType.Short, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice, symbol, $"阻力线假突破回落-开空({Params.DurationMinutes}m)");
+                        OpenContract(PositionType.Short, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice, symbol, $"阻力线假突破回落-开空({Params.DurationMinutes}m)", targetLine);
                         ResetPenetrationState();
                         return;
                     }
@@ -270,7 +271,8 @@ namespace WinFormsApp2
             DateTime klineCloseTime,
             decimal trendLinePrice,
             string symbol = "BTCUSDT",
-            string comment = "")
+            string comment = "",
+            TrendLine? triggeredTrendLine = null)
         {
             if (CurrentPosition != PositionType.None) return;
 
@@ -296,6 +298,7 @@ namespace WinFormsApp2
                 EntryKlineOpenTime = klineOpenTime,
                 EntryKlineCloseTime = klineCloseTime,
                 EntryTrendLinePrice = trendLinePrice,
+                TriggeredTrendLine = triggeredTrendLine,
                 ExpectedExpiryTime = expiryTime,
                 Duration = Params.Duration,
                 Comment = string.IsNullOrEmpty(comment) ? $"{durationMins}分钟事件合约" : comment

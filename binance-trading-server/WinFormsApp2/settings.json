@@ -15,6 +15,7 @@
   "MinLineAge": 80,
   "TakeProfitPct": 1.5,
   "StopLossPct": 0.8,
+  "DataDirectory": "D:\\data\\binance_market_data",
   "EnableEventContract": false,
   "EventContractDuration": "10m",
   "EventContractEarlyExit": false,

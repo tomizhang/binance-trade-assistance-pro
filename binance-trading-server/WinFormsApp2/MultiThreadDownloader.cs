@@ -66,10 +66,9 @@ namespace WinFormsApp2
                         try
                         {
                             string dayStr = day.ToString("yyyy-MM-dd");
-                            string dailyFilePath = Path.Combine(targetDir, $"{symbol}_{interval}_{dayStr}.csv");
-                            string intervalStr = interval.ToString();
+                            string intervalStr = DataHelper.ToBinanceVisionIntervalString(interval);
 
-                            // 1. 优先检查 DuckDB Parquet 时间分区存盘 (0.1ms 极速 SQL 读取)
+                            // 1. 优先检查 DuckDB Parquet 时间分区存盘 ({Symbol}/klines/{Interval}/{Year}/{Month}/{Symbol}-{Interval}-{Date}.parquet)
                             if (DuckDbParquetStorage.HasKlineParquet(symbol, intervalStr, day))
                             {
                                 Kline[]? parquetKlines = await DuckDbParquetStorage.ReadKlinesFromParquetAsync(symbol, intervalStr, day);
@@ -77,15 +76,32 @@ namespace WinFormsApp2
                                 {
                                     foreach (var item in parquetKlines) allKlinesBag.Add(item);
                                     Interlocked.Increment(ref cachedDays);
-                                    logger?.Invoke($"[线程-{Task.CurrentId}] DuckDB Parquet K线分区命中 [{dayStr}] ({parquetKlines.Length} 帧)");
+                                    logger?.Invoke($"[线程-{Task.CurrentId}] 命中 Parquet K线分区 [{symbol}] [{intervalStr}] {dayStr} ({parquetKlines.Length} 帧)");
                                     return;
                                 }
                             }
 
-                            // 2. 本地 CSV 缓存检查，命中后自动升级转存为 Parquet
-                            if (File.Exists(dailyFilePath))
+                            // 2. 检查本地同目录是否存在 ZIP 压缩包，自动解压提取并快速转存 Parquet
+                            if (DuckDbParquetStorage.HasKlineZip(symbol, intervalStr, day))
                             {
-                                Kline[] cachedData = DataHelper.ReadKlinesFromCsvFile(dailyFilePath);
+                                Kline[]? zipKlines = await DuckDbParquetStorage.ExtractAndConvertKlineZipAsync(symbol, intervalStr, day);
+                                if (zipKlines != null && zipKlines.Length > 0)
+                                {
+                                    foreach (var item in zipKlines) allKlinesBag.Add(item);
+                                    Interlocked.Increment(ref cachedDays);
+                                    logger?.Invoke($"[线程-{Task.CurrentId}] 本地 ZIP K线命中并转存 Parquet [{symbol}] [{intervalStr}] {dayStr} ({zipKlines.Length} 帧)");
+                                    return;
+                                }
+                            }
+
+                            // 3. 检查解压缓存目录与旧版 CSV 缓存
+                            string extractedCsv = Path.Combine(Config.GetExtractedCacheDirectory(symbol, "klines", day, intervalStr), $"{symbol}-{intervalStr}-{dayStr}.csv");
+                            string legacyCsv = Path.Combine(targetDir, $"{symbol}_{interval}_{dayStr}.csv");
+                            string csvPath = File.Exists(extractedCsv) ? extractedCsv : legacyCsv;
+
+                            if (File.Exists(csvPath))
+                            {
+                                Kline[] cachedData = DataHelper.ReadKlinesFromCsvFile(csvPath);
                                 if (cachedData.Length > 0)
                                 {
                                     foreach (var item in cachedData) allKlinesBag.Add(item);
@@ -96,11 +112,11 @@ namespace WinFormsApp2
                                 }
                             }
 
-                            // 3. 本地无缓存：优先直连币安官方开源数据源 (https://data.binance.vision/data/futures/um/daily/klines/) 极速下载 ZIP 包
-                            logger?.Invoke($"[线程-{Task.CurrentId}] 正在从 data.binance.vision 下载 {symbol} ({interval}) {dayStr} K线 ZIP 压缩包...");
+                            // 4. 本地无缓存：优先直连币安官方开源数据源极速下载 ZIP 包
+                            logger?.Invoke($"[线程-{Task.CurrentId}] 正在从 data.binance.vision 下载 {symbol} ({intervalStr}) {dayStr} K线 ZIP 压缩包...");
                             Kline[] fetchedData = await DataHelper.FetchBinanceVisionDailyKlinesAsync(symbol, interval, day, logger);
 
-                            // 4. 若官方开源归档未收录 (如当天未收盘最新 K 线或极冷门币种)，自动无缝降级走 REST API 翻页抓取
+                            // 5. 若官方开源归档未收录 (如当天未收盘最新 K 线或极冷门币种)，自动无缝降级走 REST API 翻页抓取
                             if (fetchedData.Length == 0)
                             {
                                 DateTime dayStart = day.Date;
@@ -111,7 +127,6 @@ namespace WinFormsApp2
 
                             if (fetchedData.Length > 0)
                             {
-                                DataHelper.SaveKlinesToCsvFile(dailyFilePath, fetchedData);
                                 await DuckDbParquetStorage.SaveKlinesToParquetAsync(symbol, intervalStr, day, fetchedData);
 
                                 foreach (var item in fetchedData) allKlinesBag.Add(item);
@@ -198,7 +213,7 @@ namespace WinFormsApp2
                     {
                         try
                         {
-                            // 1. 优先检查 DuckDB Parquet 时间分区存盘 (0.1ms 极速 SQL 读取，高密度 Snappy 压缩)
+                            // 1. 优先检查 DuckDB Parquet 时间分区存盘 ({Symbol}/trades/{Year}/{Month}/{Symbol}-trades-{Date}.parquet)
                             if (DuckDbParquetStorage.HasTickParquet(symbol, dayItem.Day))
                             {
                                 Tick[]? parquetTicks = await DuckDbParquetStorage.ReadTicksFromParquetAsync(symbol, dayItem.Day);
@@ -206,15 +221,31 @@ namespace WinFormsApp2
                                 {
                                     foreach (var item in parquetTicks) allTicksBag.Add(item);
                                     Interlocked.Increment(ref cachedSlices);
-                                    logger?.Invoke($"[线程-{Task.CurrentId}] DuckDB Parquet Tick 分区命中 [{dayItem.Day:yyyy-MM-dd}] ({parquetTicks.Length} 条 Tick)");
+                                    logger?.Invoke($"[线程-{Task.CurrentId}] 命中 Parquet Trades 分区 [{symbol}] {dayItem.Day:yyyy-MM-dd} ({parquetTicks.Length} 条 Tick)");
                                     return;
                                 }
                             }
 
-                            // 2. 次选检查本地 CSV 缓存文件，若存在则读取并自动转存为 Parquet 时间分区格式
-                            if (File.Exists(dayItem.FilePath))
+                            // 2. 检查本地同目录是否存在 ZIP 压缩包，自动解压提取并快速转存 Parquet
+                            if (DuckDbParquetStorage.HasTickZip(symbol, dayItem.Day))
                             {
-                                Tick[] cachedData = DataHelper.ReadTicksFromCsvFile(dayItem.FilePath);
+                                Tick[]? zipTicks = await DuckDbParquetStorage.ExtractAndConvertTickZipAsync(symbol, dayItem.Day);
+                                if (zipTicks != null && zipTicks.Length > 0)
+                                {
+                                    foreach (var item in zipTicks) allTicksBag.Add(item);
+                                    Interlocked.Increment(ref cachedSlices);
+                                    logger?.Invoke($"[线程-{Task.CurrentId}] 本地 ZIP Trades 命中并转存 Parquet [{symbol}] {dayItem.Day:yyyy-MM-dd} ({zipTicks.Length} 条 Tick)");
+                                    return;
+                                }
+                            }
+
+                            // 3. 检查解压缓存目录与旧版 CSV 缓存
+                            string extractedCsv = Path.Combine(Config.GetExtractedCacheDirectory(symbol, "trades", dayItem.Day), $"{symbol}-trades-{dayItem.Day:yyyy-MM-dd}.csv");
+                            string csvPath = File.Exists(extractedCsv) ? extractedCsv : dayItem.FilePath;
+
+                            if (File.Exists(csvPath))
+                            {
+                                Tick[] cachedData = DataHelper.ReadTicksFromCsvFile(csvPath);
                                 if (cachedData.Length > 0)
                                 {
                                     foreach (var item in cachedData) allTicksBag.Add(item);
@@ -225,11 +256,11 @@ namespace WinFormsApp2
                                 }
                             }
 
-                            // 3. 本地无缓存，优先从币安官方 data.binance.vision 下载全量 ZIP 压缩包 (0 条限制，100% 完整)
+                            // 4. 本地无缓存，优先从币安官方 data.binance.vision 下载全量 ZIP 压缩包 (0 条限制，100% 完整)
                             logger?.Invoke($"[线程-{Task.CurrentId}] 准备在线从币安官方 Server 下载 [{dayItem.SliceName}] 全量 ZIP 压缩包...");
                             Tick[] fetchedData = await DataHelper.FetchBinanceVisionDailyTicksAsync(symbol, dayItem.Day, logger);
 
-                            // 4. 若当天 ZIP 压缩包暂未开放 (如今日实时交易日)，自动回退使用 REST API 分页抓取
+                            // 5. 若当天 ZIP 压缩包暂未开放 (如今日实时交易日)，自动回退使用 REST API 分页抓取
                             if (fetchedData.Length == 0)
                             {
                                 logger?.Invoke($"[线程-{Task.CurrentId}] 官方 ZIP 暂未准备完毕，自动回退使用 REST API 翻页抓取当天 [{dayItem.SliceName}] Tick 数据...");
@@ -240,7 +271,6 @@ namespace WinFormsApp2
 
                             if (fetchedData.Length > 0)
                             {
-                                DataHelper.SaveTicksToCsvFile(dayItem.FilePath, fetchedData);
                                 await DuckDbParquetStorage.SaveTicksToParquetAsync(symbol, dayItem.Day, fetchedData);
 
                                 foreach (var item in fetchedData) allTicksBag.Add(item);

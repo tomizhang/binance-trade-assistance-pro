@@ -31,6 +31,7 @@ namespace WinFormsApp2
         public DateTime EntryKlineOpenTime { get; set; }
         public DateTime EntryKlineCloseTime { get; set; }
         public decimal EntryTrendLinePrice { get; set; }
+        public TrendLine? TriggeredTrendLine { get; set; } // 触发该笔开仓的特定趋势线
 
         public decimal ExitPrice { get; set; }
         public DateTime ExitTime { get; set; }
@@ -117,6 +118,7 @@ namespace WinFormsApp2
                 EntryTickTime = CurrentTrade?.EntryTickTime ?? CurrentEntryTime,
                 EntryTickPrice = CurrentEntryPrice,
                 EntryTrendLinePrice = CurrentTrade?.EntryTrendLinePrice ?? 0m,
+                TriggeredTrendLine = CurrentTrade?.TriggeredTrendLine,
                 ExitPrice = exitPrice,
                 ExitTime = exitTime,
                 ExitKlineIndex = klineIndex,
@@ -132,6 +134,7 @@ namespace WinFormsApp2
             CurrentPosition = PositionType.None;
             CurrentEntryPrice = 0m;
             CurrentTrade = null;
+            ResetPenetrationState();
 
             OnTradeClosed?.Invoke(trade);
         }
@@ -196,7 +199,7 @@ namespace WinFormsApp2
                 {
                     if (price > linePrice && _ticksSincePenetration <= 5)
                     {
-                        OpenPosition(PositionType.Long, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice);
+                        OpenPosition(PositionType.Long, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice, targetLine);
                         ResetPenetrationState();
                         return;
                     }
@@ -206,7 +209,7 @@ namespace WinFormsApp2
                 {
                     if (price < linePrice && _ticksSincePenetration <= 5)
                     {
-                        OpenPosition(PositionType.Short, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice);
+                        OpenPosition(PositionType.Short, price, tick.Time, currentIndex, currentKline.OpenTime, currentKline.CloseTime, linePrice, targetLine);
                         ResetPenetrationState();
                         return;
                     }
@@ -258,7 +261,8 @@ namespace WinFormsApp2
             int klineIndex,
             DateTime klineOpenTime,
             DateTime klineCloseTime,
-            decimal trendLinePrice)
+            decimal trendLinePrice,
+            TrendLine? triggeredTrendLine = null)
         {
             CurrentPosition = pos;
             CurrentEntryPrice = price;
@@ -276,7 +280,8 @@ namespace WinFormsApp2
                 EntryTickPrice = price,
                 EntryKlineOpenTime = klineOpenTime,
                 EntryKlineCloseTime = klineCloseTime,
-                EntryTrendLinePrice = trendLinePrice
+                EntryTrendLinePrice = trendLinePrice,
+                TriggeredTrendLine = triggeredTrendLine
             };
 
             CurrentTrade = trade;

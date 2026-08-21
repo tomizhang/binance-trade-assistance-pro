@@ -47,6 +47,8 @@ namespace WinFormsApp2
         public decimal TakeProfitPct { get; set; } = 1.5m;
         public decimal StopLossPct { get; set; } = 0.8m;
 
+        public string DataDirectory { get; set; } = @"D:\data\binance_market_data";
+
         /// <summary>
         /// 事件合约策略参数配置 (基于 10m / 30m / 1h 固定时间到期判定与交割)
         /// </summary>
@@ -153,6 +155,10 @@ namespace WinFormsApp2
                         {
                             settings.SymbolConfigs = GetDefaultSymbolConfigs();
                         }
+                        if (!string.IsNullOrWhiteSpace(settings.DataDirectory))
+                        {
+                            Config.SetRootPath(settings.DataDirectory);
+                        }
                         return settings;
                     }
                 }
@@ -166,6 +172,7 @@ namespace WinFormsApp2
             {
                 SymbolConfigs = GetDefaultSymbolConfigs()
             };
+            Config.SetRootPath(defaultSettings.DataDirectory);
             defaultSettings.Save();
             return defaultSettings;
         }
